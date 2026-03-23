@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/jetbrains-mono";
+@import "react-grid-layout/css/styles.css";
+@import "react-resizable/css/styles.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -127,4 +129,10 @@
   html {
     @apply font-mono;
     }
+}
+
+html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
 }
