@@ -83,9 +83,7 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
           maxMb: 30,
         });
       } else {
-        // файла нет — просто сохраняем параметры (если фон уже есть)
-        // ⚠️ для этого нужен отдельный метод saveBackgroundState,
-        // поэтому пока честно запретим Save без файла
+        // TODO: rm ERROR throw, add save prev file from storage
         throw new Error("Выбери файл, чтобы сохранить фон");
       }
 

@@ -4,16 +4,17 @@ import { SearchWidget } from '@/widgets/Search/SearchWidget.tsx';
 
 interface Props extends WidgetInstance {
   pinned: boolean;
+  onRemove?: () => void;
 }
 
 
-const RenderWidget = (props: Props) => {
-  switch (props.widgetType) {
+const RenderWidget = ({ widgetType, pinned, title, onRemove, layout }: Props) => {
+  switch (widgetType) {
     case "search":
       return (
-        <div key={props.layout.i}>
-          <WidgetFrame title={props.title} pinned={props.pinned}>
-            <SearchWidget />
+        <div key={layout.i}>
+          <WidgetFrame title={title} pinned={pinned} onRemove={onRemove}>
+            <SearchWidget/>
           </WidgetFrame>
         </div>
       )

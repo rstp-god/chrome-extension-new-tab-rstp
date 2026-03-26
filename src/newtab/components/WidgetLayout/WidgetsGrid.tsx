@@ -1,17 +1,17 @@
-import { useHeaderState } from '@/newtab/components/Header/hooks/useHeaderState.ts';
-import { useWidgetLoad } from '@/newtab/components/WidgetLayout/hooks/useWidgetLoad.ts';
 import renderWidget from '@/newtab/components/WidgetLayout/renderWidget.tsx';
+import { useHeaderStore } from '@/store/header.ts';
+import { useWidgetStore } from '@/store/widget.ts';
 import { WidgetInstance } from '@/types/widgets.ts';
 import ReactGridLayout, { Layout, noCompactor, useContainerWidth } from 'react-grid-layout';
 
 export function WidgetsGrid() {
   const { containerRef, width, mounted } = useContainerWidth();
-  const { settings: { pinned } } = useHeaderState();
-  const { layout, persist } = useWidgetLoad();
+  const { pinned } = useHeaderStore();
+  const { widgets, setWidgets, layout } = useWidgetStore();
 
   const onLayoutChange = (next: Layout) => {
     if (pinned) return;
-    const result = layout.map((v): WidgetInstance | null => {
+    const result = widgets.map((v): WidgetInstance | null => {
       const currLayout = next.find(newLayout => v.layout.i === newLayout.i);
       if (currLayout) {
         return {
@@ -23,7 +23,7 @@ export function WidgetsGrid() {
       }
       return null;
     }).filter(v => v !== null);
-    persist(result)
+    setWidgets(result);
   };
 
   return (
@@ -31,14 +31,25 @@ export function WidgetsGrid() {
       {mounted && (
         <ReactGridLayout
           width={width}
-          layout={layout.map((w) => w.layout)}
+          layout={layout}
           gridConfig={{ cols: 12, rowHeight: 30, margin: [ 12, 12 ], containerPadding: [ 0, 0 ] }}
           dragConfig={{ enabled: !pinned, handle: '.handle' }}
           resizeConfig={{ enabled: !pinned }}
           onLayoutChange={onLayoutChange}
           compactor={noCompactor}
         >
-          {layout.map((w) => renderWidget({ ...w, pinned: !pinned }))}
+          {widgets.map((w) =>
+            renderWidget({
+              ...w,
+              pinned: !pinned,
+              onRemove: () => {
+                onLayoutChange(
+                  widgets
+                    .filter(v => v.id !== w.id)
+                    .map(l => l.layout)
+                )
+              }
+            }))}
         </ReactGridLayout>
       )}
     </div>

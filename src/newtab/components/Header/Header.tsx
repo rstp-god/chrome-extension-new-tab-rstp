@@ -1,5 +1,7 @@
 import { Button } from '@/components/ui/button.tsx';
-import { useHeaderState } from '@/newtab/components/Header/hooks/useHeaderState.ts';
+import { getGreeting } from '@/newtab/components/Header/utils/getGreetings.ts';
+import { useHeaderStore } from '@/store/header.ts';
+import { useWidgetStore } from '@/store/widget.ts';
 import { BackgroundStateV1 } from '@/types/background.ts';
 import { PinIcon, PinOffIcon } from 'lucide-react';
 import { SettingsDialog } from "./SettingsDialog";
@@ -10,21 +12,25 @@ interface Props {
 }
 
 export function Header(props: Props) {
-  const { settings, displayName, greeting, persist } = useHeaderState();
+  const { displayName, pinned, togglePinned } = useHeaderStore(s => s);
+  const { commit } = useWidgetStore(s => s);
   return (
     <div className="flex items-center justify-between">
       <div className="text-lg font-semibold tracking-tight">
-        {greeting} уважаемый, {displayName}
+        {getGreeting()} уважаемый, {displayName}
       </div>
 
       <div className="flex items-center gap-2">
         <Button
           variant='ghost'
-          onClick={() => persist({ ...settings, pinned: !settings.pinned })}
+          onClick={() => {
+            commit()
+            togglePinned();
+          }}
         >
-          { settings.pinned ? (<PinIcon/>): (<PinOffIcon/>)}
+          { pinned ? (<PinIcon/>): (<PinOffIcon/>)}
         </Button>
-        <SettingsDialog {...props} value={settings} onSave={persist}/>
+        <SettingsDialog {...props}/>
       </div>
     </div>
   );

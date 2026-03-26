@@ -12,40 +12,19 @@ import { Input } from '@/components/ui/input.tsx';
 import { Label } from '@/components/ui/label.tsx';
 import { Switch } from '@/components/ui/switch.tsx';
 import { BackgroundDialog } from '@/newtab/components/Background/BackgroundDialog.tsx';
+import { useHeaderStore } from '@/store/header.ts';
 import { BackgroundStateV1 } from '@/types/background.ts';
-import { HeaderSettingsV1, ThemeMode } from '@/types/header.ts';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 interface Props {
-  value: HeaderSettingsV1;
-  onSave: (next: HeaderSettingsV1) => Promise<void> | void;
   bgState: BackgroundStateV1;
   onSaveBackground: (next: BackgroundStateV1) => Promise<void> | void;
 }
 
-export function SettingsDialog({ value, onSave, bgState, onSaveBackground}: Props) {
+export function SettingsDialog({ bgState, onSaveBackground}: Props) {
   const [ open, setOpen ] = useState(false);
   const [ bgOpen, setBgOpen ] = useState(false);
-  const [ draft, setDraft ] = useState<HeaderSettingsV1>(value);
-
-  useEffect(() => {
-    if (open) setDraft(value);
-  }, [ open, value ]);
-
-  const onChangeTheme = (checked: boolean) => {
-    const theme: ThemeMode = checked ? "dark" : "light";
-    setDraft((p) => ({ ...p, theme }));
-  };
-
-  const onChangeName = (v: string) => {
-    const s = v.trim();
-    setDraft((p) => ({ ...p, displayName: s ? v : null }));
-  };
-
-  const onSubmit = async () => {
-    await onSave(draft);
-    setOpen(false);
-  };
+  const { displayName, theme, setDisplayName, toggleTheme} = useHeaderStore(s => s);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -70,7 +49,7 @@ export function SettingsDialog({ value, onSave, bgState, onSaveBackground}: Prop
 
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground">Light</Label>
-              <Switch checked={draft.theme === "dark"} onCheckedChange={onChangeTheme}/>
+              <Switch checked={theme === "dark"} onCheckedChange={toggleTheme}/>
               <Label className="text-xs text-muted-foreground">Dark</Label>
             </div>
           </div>
@@ -82,9 +61,9 @@ export function SettingsDialog({ value, onSave, bgState, onSaveBackground}: Prop
             </div>
 
             <Input
-              value={draft.displayName ?? ""}
+              value={displayName ?? ""}
               placeholder="Например: Роман"
-              onChange={(e) => onChangeName(e.target.value)}
+              onChange={(e) => setDisplayName(e.target.value)}
             />
           </div>
 
@@ -104,7 +83,6 @@ export function SettingsDialog({ value, onSave, bgState, onSaveBackground}: Prop
           <Button variant="outline" onClick={() => setOpen(false)}>
             Закрыть
           </Button>
-          <Button onClick={onSubmit}>Сохранить</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
