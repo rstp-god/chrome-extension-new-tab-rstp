@@ -1,19 +1,27 @@
 import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts';
 import { layoutItemSchema } from '@/services/zod/zodCommon.ts';
 import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts';
-import { DEFAULT_INSTANCES, WIDGET_LAYOUT_KEY, WidgetInstance, Widgets } from '@/types/widgets.ts';
+import {
+  DEFAULT_INSTANCES,
+  WIDGET_LAYOUT_KEY,
+  WidgetInstance,
+  widgetRegistry,
+  Widgets, WidgetType,
+} from '@/types/widgets.ts';
+import { createWidgetInstance } from '@/utils/widgets.ts';
 import { z } from 'zod';
 import { create } from 'zustand/react';
 
 interface WidgetStore extends Widgets {
   setWidgets: (widgets: WidgetInstance[]) => void;
+  addWidget: (data: WidgetType) => void;
 }
 
 const widgetInstanceShema = z.object({
   id: z.string(),
   title: z.string(),
   layout: layoutItemSchema,
-  widgetType: z.union([ z.literal('search') ])
+  widgetType: z.enum(Object.keys(widgetRegistry) as [string, ...string[]])
 })
 const widgetStoreSchema = z.object({
   widgets: z.array(widgetInstanceShema),
@@ -31,15 +39,20 @@ export const useWidgetStore = create<WidgetStore & ChromeSyncActions>()(
       layout: s.layout,
     }),
     merge: (_cur, incoming) => {
-      console.log(incoming);
       return incoming
     }
   })((setState) => ({
     widgets: DEFAULT_INSTANCES,
     layout: DEFAULT_INSTANCES.map(v => v.layout),
     setWidgets: (widgets: WidgetInstance[]) => {
-      setState({ widgets: widgets });
-      setState({ layout: widgets.map(v => v.layout) });
+      setState({ widgets: widgets, layout: widgets.map(v => v.layout) });
     },
+    addWidget: (widgetType) => {
+      const newWidget: WidgetInstance = createWidgetInstance(widgetType);
+      setState((s) => ({
+        widgets: [...s.widgets, newWidget],
+        layout: [...s.layout, newWidget.layout],
+      }));
+    }
   }))
 )

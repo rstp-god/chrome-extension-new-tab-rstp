@@ -1,8 +1,28 @@
+import { ComponentType } from 'react';
 import { Layout, LayoutItem } from 'react-grid-layout';
 
 export const WIDGET_LAYOUT_KEY = "widgets-layout:v1";
 
-export type WidgetType = 'search';
+export interface WidgetMeta {
+  widgetType: string;
+  title: string;
+  description?: string;
+  defaultLayout: Pick<LayoutItem, "w" | "h"> &
+    Partial<Pick<LayoutItem, "minW" | "minH" | "maxW" | "maxH">>;
+};
+
+export interface WidgetModule {
+  meta: WidgetMeta;
+  Component: ComponentType<any>;
+}
+
+const modules = import.meta.glob("../widgets/*/index.ts", { eager: true }) as Record<string, WidgetModule>;
+
+export const widgetRegistry = Object.fromEntries(
+  Object.values(modules).map((m) => [m.meta.widgetType, m])
+) as Record<string, WidgetModule>;
+
+export type WidgetType = keyof typeof widgetRegistry;
 
 export type WidgetInstance = {
   id: string;

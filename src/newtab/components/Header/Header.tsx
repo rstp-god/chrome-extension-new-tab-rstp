@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button.tsx';
+import AddWidgetDialog from '@/newtab/components/Header/AddWidgetDialog.tsx';
 import { getGreeting } from '@/newtab/components/Header/utils/getGreetings.ts';
 import { useHeaderStore } from '@/store/header.ts';
 import { useWidgetStore } from '@/store/widget.ts';
@@ -30,6 +31,7 @@ export function Header(props: Props) {
         >
           { pinned ? (<PinIcon/>): (<PinOffIcon/>)}
         </Button>
+        {!pinned && (<AddWidgetDialog/>)}
         <SettingsDialog {...props}/>
       </div>
     </div>
