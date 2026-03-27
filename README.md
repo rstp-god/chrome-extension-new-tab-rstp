@@ -65,7 +65,7 @@ yarn build
 Реестр виджетов строится автоматически через:
 
 ```ts
-import.meta.glob("../widgets/*/index.ts", { eager: true })
+import.meta.glob('../widgets/*/index.ts', { eager: true })
 ```
 
 Каждый `index.ts` в `src/widgets/<WidgetName>/` должен экспортировать:
@@ -121,31 +121,27 @@ src/widgets/Weather/
 `src/widgets/Weather/WeatherWidget.tsx`:
 
 ```tsx
-import { useState } from 'react';
-import { Button } from '@/components/ui/button.tsx';
-import { Input } from '@/components/ui/input.tsx';
+import { useState } from 'react'
+import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
 
 export function WeatherWidget() {
-  const [city, setCity] = useState('');
+  const [city, setCity] = useState('')
 
   const openSearch = () => {
-    const q = city.trim();
-    if (!q) return;
+    const q = city.trim()
+    if (!q) return
 
-    const url = `https://www.google.com/search?q=${encodeURIComponent(`weather ${q}`)}`;
-    chrome.tabs?.create?.({ url }) ?? window.open(url, '_blank');
-  };
+    const url = `https://www.google.com/search?q=${encodeURIComponent(`weather ${q}`)}`
+    chrome.tabs?.create?.({ url }) ?? window.open(url, '_blank')
+  }
 
   return (
     <div className="flex items-center gap-2">
-      <Input
-        value={city}
-        onChange={(e) => setCity(e.target.value)}
-        placeholder="Введите город"
-      />
+      <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Введите город" />
       <Button onClick={openSearch}>Погода</Button>
     </div>
-  );
+  )
 }
 ```
 
@@ -156,17 +152,17 @@ export function WeatherWidget() {
 `src/widgets/Weather/index.ts`:
 
 ```ts
-import { WidgetMeta } from '@/types/widgets.ts';
-import { WeatherWidget } from './WeatherWidget.tsx';
+import { WidgetMeta } from '@/types/widgets.ts'
+import { WeatherWidget } from './WeatherWidget.tsx'
 
 export const meta = {
   widgetType: 'weather',
   title: 'Погода',
   description: 'Быстрый поиск прогноза',
   defaultLayout: { w: 2, h: 4, minW: 2, minH: 4 },
-} satisfies WidgetMeta;
+} satisfies WidgetMeta
 
-export const Component = WeatherWidget;
+export const Component = WeatherWidget
 ```
 
 ### Шаг 4. Проверьте уникальность `widgetType`
@@ -296,7 +292,7 @@ yarn build
 Widgets are auto-discovered via:
 
 ```ts
-import.meta.glob("../widgets/*/index.ts", { eager: true })
+import.meta.glob('../widgets/*/index.ts', { eager: true })
 ```
 
 Every `src/widgets/<WidgetName>/index.ts` must export:
@@ -348,31 +344,27 @@ src/widgets/Weather/
 `src/widgets/Weather/WeatherWidget.tsx`:
 
 ```tsx
-import { useState } from 'react';
-import { Button } from '@/components/ui/button.tsx';
-import { Input } from '@/components/ui/input.tsx';
+import { useState } from 'react'
+import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
 
 export function WeatherWidget() {
-  const [city, setCity] = useState('');
+  const [city, setCity] = useState('')
 
   const openSearch = () => {
-    const q = city.trim();
-    if (!q) return;
+    const q = city.trim()
+    if (!q) return
 
-    const url = `https://www.google.com/search?q=${encodeURIComponent(`weather ${q}`)}`;
-    chrome.tabs?.create?.({ url }) ?? window.open(url, '_blank');
-  };
+    const url = `https://www.google.com/search?q=${encodeURIComponent(`weather ${q}`)}`
+    chrome.tabs?.create?.({ url }) ?? window.open(url, '_blank')
+  }
 
   return (
     <div className="flex items-center gap-2">
-      <Input
-        value={city}
-        onChange={(e) => setCity(e.target.value)}
-        placeholder="Enter city"
-      />
+      <Input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Enter city" />
       <Button onClick={openSearch}>Weather</Button>
     </div>
-  );
+  )
 }
 ```
 
@@ -381,17 +373,17 @@ export function WeatherWidget() {
 `src/widgets/Weather/index.ts`:
 
 ```ts
-import { WidgetMeta } from '@/types/widgets.ts';
-import { WeatherWidget } from './WeatherWidget.tsx';
+import { WidgetMeta } from '@/types/widgets.ts'
+import { WeatherWidget } from './WeatherWidget.tsx'
 
 export const meta = {
   widgetType: 'weather',
   title: 'Weather',
   description: 'Quick forecast lookup',
   defaultLayout: { w: 2, h: 4, minW: 2, minH: 4 },
-} satisfies WidgetMeta;
+} satisfies WidgetMeta
 
-export const Component = WeatherWidget;
+export const Component = WeatherWidget
 ```
 
 ### 4) Keep `widgetType` unique

@@ -1,18 +1,21 @@
 import js from '@eslint/js'
-import globals from 'globals'
-import tseslint from 'typescript-eslint'
-import reactHooks from 'eslint-plugin-react-hooks'
-import reactRefresh from 'eslint-plugin-react-refresh'
-import importPlugin from 'eslint-plugin-import'
+
 import eslintConfigPrettier from 'eslint-config-prettier'
 
-export default tseslint.config(
+import importPlugin from 'eslint-plugin-import'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import globals from 'globals'
+import tseslint from 'typescript-eslint'
+
+export default [
   {
     ignores: ['dist', 'release', 'coverage', 'node_modules', '.yarn', '.pnp.*'],
   },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
   {
-    files: ['**/*.{js,mjs,cjs,ts,tsx}'],
-    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['/src/**/*.{js,mjs,cjs,ts,tsx}'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -23,19 +26,21 @@ export default tseslint.config(
       },
     },
     plugins: {
+      import: importPlugin,
       'react-hooks': reactHooks,
       'react-refresh': reactRefresh,
-      import: importPlugin,
     },
     rules: {
-      'curly': ['error', 'multi-line', 'consistent'],
-      'eqeqeq': ['error', 'always'],
+      curly: ['error', 'multi-line', 'consistent'],
+      eqeqeq: ['error', 'always'],
       'no-var': 'error',
       'prefer-const': 'error',
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'off',
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+
       '@typescript-eslint/consistent-type-imports': [
         'error',
         { prefer: 'type-imports', fixStyle: 'separate-type-imports' },
@@ -48,6 +53,7 @@ export default tseslint.config(
           ignoreRestSiblings: true,
         },
       ],
+
       'import/order': [
         'warn',
         {
@@ -59,4 +65,4 @@ export default tseslint.config(
     },
   },
   eslintConfigPrettier,
-)
+]

@@ -1,7 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.tsx'
-import '@/styles/sidepanel.css';
+import '@/styles/sidepanel.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
