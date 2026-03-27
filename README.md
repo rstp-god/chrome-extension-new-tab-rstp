@@ -7,6 +7,16 @@
 
 Расширение заменяет стандартную вкладку Chrome на кастомную страницу с настраиваемыми виджетами, фоном и настройками интерфейса.
 
+### 🌐 i18n (новое)
+
+- Добавлена базовая i18n-инфраструктура в `src/i18n/`.
+- Переводы виджетов лежат в подпапках вида `src/i18n/resources/<lang>/widgets/<widget>.json`.
+- Поддерживаются 2 языка: `English` и `Русский`.
+- Язык по умолчанию — `English`.
+- Выбор языка хранится в `header`-store (`language`) и меняется через `SettingsDialog`.
+- Для примера локализации используется `newtab/search widget`.
+- Добавлены отдельные переводы для ошибок страницы и ошибок виджетов.
+
 ## 🛠️ Технологии проекта
 
 - React + TypeScript
@@ -44,6 +54,7 @@ yarn build
 
 - `manifest.config.ts` — манифест расширения и разрешения Chrome.
 - `src/newtab/` — UI новой вкладки.
+- `src/i18n/` — словари переводов и функция получения строки по ключу.
 - `src/store/` — Zustand-сторы приложения.
 - `src/services/chrome/` — работа с `chrome.storage` и синхронизация.
 - `src/types/widgets.ts` — типы виджетов и `widgetRegistry`.
@@ -138,6 +149,8 @@ export function WeatherWidget() {
 }
 ```
 
+> Рекомендация: тексты в виджете выносите в отдельные JSON-файлы в `src/i18n/resources/<lang>/` по смысловым namespace и получайте через `useTranslation`.
+
 ### Шаг 3. Добавьте `index.ts` с `meta` и `Component`
 
 `src/widgets/Weather/index.ts`:
@@ -225,6 +238,16 @@ yarn build
 ## RSTP New Tab Chrome Extension 🚀
 
 This extension replaces Chrome's default new tab with a customizable page that supports widgets, background settings, and UI preferences.
+
+### 🌐 i18n (new)
+
+- Added i18n infrastructure in `src/i18n/`.
+- Widget translations are stored as `src/i18n/resources/<lang>/widgets/<widget>.json`.
+- Supported languages: `English` and `Russian`.
+- Default language: `English`.
+- Selected language is stored in the header store (`language`) and can be changed in `SettingsDialog`.
+- `newtab/search widget` is used as the translation example.
+- Dedicated translation keys were added for page-level errors and widget-level errors.
 
 ## 🛠️ Tech stack
 

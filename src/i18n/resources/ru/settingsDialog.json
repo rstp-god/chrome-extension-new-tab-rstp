@@ -1,0 +1,13 @@
+{
+  "description": "Тема, имя, язык и фон.",
+  "theme": "Тема",
+  "themeDescription": "Switch = dark / light",
+  "language": "Язык",
+  "languageDescription": "Выберите язык интерфейса.",
+  "english": "English",
+  "russian": "Русский",
+  "name": "Имя",
+  "nameDescription": "Если пусто — будет \"Гость\".",
+  "namePlaceholder": "Например: Роман",
+  "changeBackground": "Сменить фон"
+}

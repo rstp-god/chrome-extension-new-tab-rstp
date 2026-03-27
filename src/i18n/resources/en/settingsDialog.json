@@ -1,0 +1,13 @@
+{
+  "description": "Theme, name, language and background.",
+  "theme": "Theme",
+  "themeDescription": "Switch = dark / light",
+  "language": "Language",
+  "languageDescription": "Choose interface language.",
+  "english": "English",
+  "russian": "Russian",
+  "name": "Name",
+  "nameDescription": "If empty — \"Guest\" will be used.",
+  "namePlaceholder": "For example: Roman",
+  "changeBackground": "Change background"
+}

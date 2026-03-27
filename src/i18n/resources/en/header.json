@@ -1,0 +1,12 @@
+{
+  "settings": "Settings",
+  "greetingLine": "{{greeting}}, dear {{name}}",
+  "greetings": {
+    "morning": "Good morning",
+    "afternoon": "Good afternoon",
+    "evening": "Good evening",
+    "night": "Good night"
+  },
+  "addWidget": "Add widget",
+  "addWidgetTitle": "Add widget"
+}

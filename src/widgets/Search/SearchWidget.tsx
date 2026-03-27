@@ -1,9 +1,11 @@
 import { Button } from '@/components/ui/button.tsx';
 import { Input } from '@/components/ui/input.tsx';
 import { SubmitEvent, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 export function SearchWidget() {
-  const [q, setQ] = useState("");
+  const { t } = useTranslation('searchWidget');
+  const [q, setQ] = useState('');
 
   const onSubmit = (e: SubmitEvent) => {
     e.preventDefault();
@@ -11,7 +13,7 @@ export function SearchWidget() {
     if (!query) return;
 
     const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-    chrome.tabs?.create?.({ url }) ?? window.open(url, "_blank");
+    chrome.tabs?.create?.({ url }) ?? window.open(url, '_blank');
   };
 
   return (
@@ -19,9 +21,9 @@ export function SearchWidget() {
       <Input
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Поиск в Google…"
+        placeholder={t('placeholder')}
       />
-      <Button type="submit">Искать</Button>
+      <Button type="submit">{t('submit')}</Button>
     </form>
   );
 }
