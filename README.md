@@ -213,3 +213,211 @@ yarn dev
 yarn build
 yarn lint
 ```
+
+---
+
+# English version
+
+## RSTP New Tab Chrome Extension
+
+This extension replaces Chrome's default new tab with a customizable page that supports widgets, background settings, and UI preferences.
+
+## Tech stack
+
+- React + TypeScript
+- Vite + CRXJS (`@crxjs/vite-plugin`) for extension builds
+- Zustand for state management
+- `chrome.storage.local` for persistence and cross-context synchronization
+
+## Quick start
+
+1. Install dependencies:
+
+```bash
+yarn install
+```
+
+2. Run development build:
+
+```bash
+yarn dev
+```
+
+3. Open `chrome://extensions/` in Chrome.
+4. Enable **Developer mode**.
+5. Click **Load unpacked** and select the `dist` folder.
+
+Production build:
+
+```bash
+yarn build
+```
+
+## Architecture for third-party developers
+
+### Key folders
+
+- `manifest.config.ts` — extension manifest and Chrome permissions.
+- `src/newtab/` — new-tab UI.
+- `src/store/` — Zustand stores.
+- `src/services/chrome/` — `chrome.storage` integration and sync layer.
+- `src/types/widgets.ts` — widget types and `widgetRegistry`.
+- `src/widgets/*` — widget implementations (one folder per widget).
+
+### How `widget registry` works
+
+Widgets are auto-discovered via:
+
+```ts
+import.meta.glob("../widgets/*/index.ts", { eager: true })
+```
+
+Every `src/widgets/<WidgetName>/index.ts` must export:
+
+- `meta` (`WidgetMeta`) — widget metadata
+- `Component` — widget React component
+
+The app builds `widgetRegistry` from `meta.widgetType`. This registry is used by:
+
+- Add widget dialog
+- Widget instance factory (`createWidgetInstance`)
+- Runtime renderer (`renderWidget`)
+- Store schema validation (enum from registry keys)
+
+If the folder and exports are correct, a new widget is picked up automatically.
+
+## Chrome sync model
+
+Synchronization uses the `withChromeSync` wrapper around Zustand stores.
+
+### Flow
+
+1. A store defines `partialize` (what should be persisted).
+2. On `commit()` (or auto-write if `autoPersist=true`), state is wrapped into an envelope:
+   - `meta.originId` — write source ID
+   - `meta.rev` — monotonic revision number
+   - `meta.ts` — timestamp
+   - `state` — persisted payload
+3. Envelope is written to `chrome.storage.local`.
+4. Remote updates are received via `chrome.storage.onChanged`.
+5. Duplicate/old updates are ignored using `originId` and `rev`.
+
+### Important notes
+
+- The project uses `chrome.storage.local` (not `sync`).
+- Widget store uses `autoPersist: false`, so writes happen through manual `commit()` calls.
+- Zod schemas validate incoming storage payloads before merge.
+
+## Full guide: create your own widget
+
+### 1) Create widget folder
+
+```text
+src/widgets/Weather/
+```
+
+### 2) Implement component
+
+`src/widgets/Weather/WeatherWidget.tsx`:
+
+```tsx
+import { useState } from 'react';
+import { Button } from '@/components/ui/button.tsx';
+import { Input } from '@/components/ui/input.tsx';
+
+export function WeatherWidget() {
+  const [city, setCity] = useState('');
+
+  const openSearch = () => {
+    const q = city.trim();
+    if (!q) return;
+
+    const url = `https://www.google.com/search?q=${encodeURIComponent(`weather ${q}`)}`;
+    chrome.tabs?.create?.({ url }) ?? window.open(url, '_blank');
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Input
+        value={city}
+        onChange={(e) => setCity(e.target.value)}
+        placeholder="Enter city"
+      />
+      <Button onClick={openSearch}>Weather</Button>
+    </div>
+  );
+}
+```
+
+### 3) Add `index.ts` with `meta` + `Component`
+
+`src/widgets/Weather/index.ts`:
+
+```ts
+import { WidgetMeta } from '@/types/widgets.ts';
+import { WeatherWidget } from './WeatherWidget.tsx';
+
+export const meta = {
+  widgetType: 'weather',
+  title: 'Weather',
+  description: 'Quick forecast lookup',
+  defaultLayout: { w: 2, h: 4, minW: 2, minH: 4 },
+} satisfies WidgetMeta;
+
+export const Component = WeatherWidget;
+```
+
+### 4) Keep `widgetType` unique
+
+`widgetType` must be unique across all widgets. Duplicates can overwrite entries in the registry map.
+
+### 5) Run and add widget
+
+After `yarn dev` and extension reload:
+
+- the widget should appear in “Add widget” dialog
+- adding it creates an instance with `meta.defaultLayout`
+
+### 6) Persist widget-specific state (optional)
+
+If your widget stores settings/data (e.g., selected city), create a dedicated Zustand store with `withChromeSync`:
+
+- unique storage key (`WEATHER_WIDGET_KEY`)
+- strict `partialize`
+- Zod schema for persisted state
+
+This ensures restore after browser/extension reload.
+
+## Chrome permissions (must consider)
+
+Current manifest permissions include:
+
+- `storage` — required for synchronized persistence
+- `tabs` — required for opening tabs (`chrome.tabs.create`)
+- `sidePanel`, `contentSettings` — project-level capabilities
+
+### Permission rules for new widgets
+
+1. Apply least-privilege principle: only request permissions you actually need.
+2. If your widget uses new Chrome APIs (`bookmarks`, `history`, `alarms`, etc.), update `manifest.config.ts` and docs.
+3. Add fallback behavior when `chrome.*` APIs are unavailable.
+4. Remember that new permissions affect installation/update consent UX.
+
+## Practical recommendations
+
+- Keep each widget self-contained (own folder + local logic + clean `index.ts`).
+- Avoid storing large binary payloads in `chrome.storage.local`.
+- Validate external API responses before persistence.
+- Do not rely on load order: registry is built dynamically.
+- Define layout constraints (`minW`, `minH`, `maxW`, `maxH`) explicitly.
+
+## New widget checklist
+
+- [ ] Folder created: `src/widgets/<Name>/`
+- [ ] `index.ts` exports `meta` and `Component`
+- [ ] Unique `widgetType`
+- [ ] Correct `defaultLayout`
+- [ ] Required Chrome permissions reviewed
+- [ ] Fallbacks for missing `chrome.*` API
+- [ ] Add/remove flow tested in UI
+- [ ] State restore tested after extension reload
