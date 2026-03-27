@@ -1,0 +1,14 @@
+{
+  "title": "Change background image",
+  "description": "Upload image and tune appearance. Preview below.",
+  "uploadHint": "Upload background image and click save",
+  "preview": "Preview",
+  "previewPlaceholder": "Pick a file — preview will appear",
+  "dim": "Dim",
+  "blur": "Blur",
+  "saturate": "Saturate",
+  "errorInvalidImage": "Invalid image",
+  "errorSave": "Failed to save background",
+  "errorClear": "Failed to clear background",
+  "chooseFileToSave": "Pick file to save background"
+}

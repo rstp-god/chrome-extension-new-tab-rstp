@@ -1,4 +1,4 @@
-import { Button } from "@/components/ui/button";
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogClose,
@@ -7,19 +7,20 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Slider } from "@/components/ui/slider";
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Slider } from '@/components/ui/slider';
 import { IMG_HEIGHT, IMG_QUALITY, IMG_WIDTH } from '@/newtab/components/Background/constants/constants.ts';
 import {
   buildPreviewStyle,
   clearBackground,
   saveBackgroundFromFile
-} from "@/newtab/components/Background/services/loadImages";
+} from '@/newtab/components/Background/services/loadImages';
 import { processImageToWebp } from '@/newtab/components/Background/services/webpConverter.ts';
 import { assertImageFile } from '@/newtab/components/Background/utils/fileUpload.ts';
-import type { BackgroundStateV1 } from "@/types/background";
-import { useEffect, useState } from "react";
+import type { BackgroundStateV1 } from '@/types/background';
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 
 interface Props {
   value: BackgroundStateV1;
@@ -30,6 +31,9 @@ interface Props {
 }
 
 export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) {
+  const { t } = useTranslation('backgroundDialog');
+  const { t: common } = useTranslation('common');
+
   const [ draft, setDraft ] = useState<BackgroundStateV1>(value);
   const [ file, setFile ] = useState<File | null>(null);
   const [ previewUrl, setPreviewUrl ] = useState<string | null>(null);
@@ -58,7 +62,7 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
       const url = await processImageToWebp(f, { maxWidth: IMG_WIDTH, maxHeight: IMG_HEIGHT, quality: IMG_QUALITY });
       setPreviewUrl(url.dataUrl);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Invalid image");
+      setError(e instanceof Error ? e.message : t('errorInvalidImage'));
       setFile(null);
       setPreviewUrl(null);
     }
@@ -84,13 +88,13 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
         });
       } else {
         // TODO: rm ERROR throw, add save prev file from storage
-        throw new Error("Выбери файл, чтобы сохранить фон");
+        throw new Error(t('chooseFileToSave'));
       }
 
       await onSaved(next);
 
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to save background");
+      setError(e instanceof Error ? e.message : t('errorSave'));
     } finally {
       setSaving(false);
     }
@@ -111,7 +115,7 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
       });
       await onSaved(next);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to clear background");
+      setError(e instanceof Error ? e.message : t('errorClear'));
     } finally {
       setSaving(false);
     }
@@ -131,16 +135,16 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>Сменить фоновую картинку</DialogTitle>
+          <DialogTitle>{t('title')}</DialogTitle>
           <DialogDescription>
-            Загрузите картинку и настройте отображение. Превью ниже.
+            {t('description')}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-5">
           <div className="grid gap-2">
             <div className="text-sm text-muted-foreground">
-              Загрузите фоновую картинку и нажмите сохранить
+              {t('uploadHint')}
             </div>
 
             <Input
@@ -154,9 +158,8 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
             {error && <div className="text-sm text-destructive">{error}</div>}
           </div>
 
-          {/* preview */}
           <div className="grid gap-2">
-            <div className="text-sm text-muted-foreground">Preview</div>
+            <div className="text-sm text-muted-foreground">{t('preview')}</div>
 
             <div className="relative overflow-hidden rounded-2xl border border-border bg-muted">
               <div
@@ -165,17 +168,16 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
               />
               {!previewUrl && (
                 <div className="absolute inset-0 grid place-items-center text-sm text-muted-foreground">
-                  Выбери файл — появится превью
+                  {t('previewPlaceholder')}
                 </div>
               )}
             </div>
           </div>
 
-          {/* controls */}
           <div className="grid gap-4">
             <div className="grid gap-2">
               <div className="flex items-baseline justify-between">
-                <div className="text-sm text-muted-foreground">Dim</div>
+                <div className="text-sm text-muted-foreground">{t('dim')}</div>
                 <div className="text-xs text-muted-foreground">{dimPct}%</div>
               </div>
               <Slider
@@ -189,7 +191,7 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
 
             <div className="grid gap-2">
               <div className="flex items-baseline justify-between">
-                <div className="text-sm text-muted-foreground">Blur</div>
+                <div className="text-sm text-muted-foreground">{t('blur')}</div>
                 <div className="text-xs text-muted-foreground">{Math.round(draft.blur)}px</div>
               </div>
               <Slider
@@ -203,7 +205,7 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
 
             <div className="grid gap-2">
               <div className="flex items-baseline justify-between">
-                <div className="text-sm text-muted-foreground">Saturate</div>
+                <div className="text-sm text-muted-foreground">{t('saturate')}</div>
                 <div className="text-xs text-muted-foreground">{satPct}%</div>
               </div>
               <Slider
@@ -219,16 +221,16 @@ export function BackgroundDialog({ value, onSaved, open, onOpenChange }: Props) 
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline" disabled={saving}>
-                Закрыть
+                {common('close')}
               </Button>
             </DialogClose>
 
             <Button variant="outline" onClick={onClear} disabled={saving}>
-              Очистить
+              {common('clear')}
             </Button>
 
             <Button onClick={onSave} disabled={!file || saving}>
-              {saving ? "Сохраняем..." : "Сохранить"}
+              {saving ? common('saving') : common('save')}
             </Button>
           </DialogFooter>
         </div>

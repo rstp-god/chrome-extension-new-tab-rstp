@@ -1,0 +1,10 @@
+{
+  "page": {
+    "title": "Something went wrong on this page",
+    "description": "Please reload the new tab page."
+  },
+  "widget": {
+    "notFound": "Widget is unavailable",
+    "crashed": "Widget crashed"
+  }
+}

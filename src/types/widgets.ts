@@ -6,7 +6,9 @@ export const WIDGET_LAYOUT_KEY = "widgets-layout:v1";
 export interface WidgetMeta {
   widgetType: string;
   title: string;
+  titleI18nKey?: string;
   description?: string;
+  descriptionI18nKey?: string;
   defaultLayout: Pick<LayoutItem, "w" | "h"> &
     Partial<Pick<LayoutItem, "minW" | "minH" | "maxW" | "maxH">>;
 };
@@ -39,7 +41,7 @@ export type Widgets = {
 export const DEFAULT_INSTANCES: WidgetInstance[] = [
   {
     id: "search-1",
-    title: "Поиск",
+    title: "Search",
     widgetType: 'search',
     layout: { i: "search-1", x: 0, y: 0, w: 3, h: 4, minW: 3, minH: 4, maxH: 4 },
   },
