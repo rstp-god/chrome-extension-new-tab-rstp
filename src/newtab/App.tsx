@@ -1,10 +1,10 @@
-import { Background } from '@/newtab/components/Background/Background.tsx';
-import { useBackgroundState } from '@/newtab/components/Background/hooks/useBackgroundState.ts';
-import { Header } from '@/newtab/components/Header/Header.tsx';
-import { WidgetsGrid } from '@/newtab/components/WidgetLayout/WidgetsGrid.tsx';
+import { Background } from '@/newtab/components/Background/Background.tsx'
+import { useBackgroundState } from '@/newtab/components/Background/hooks/useBackgroundState.ts'
+import { Header } from '@/newtab/components/Header/Header.tsx'
+import { WidgetsGrid } from '@/newtab/components/WidgetLayout/WidgetsGrid.tsx'
 
 export default function App() {
-  const { bg, bgDataUrl, persist } = useBackgroundState();
+  const { bg, bgDataUrl, persist } = useBackgroundState()
 
   return (
     <div className="min-h-screen">
@@ -18,5 +18,5 @@ export default function App() {
         </div>
       </div>
     </div>
-  );
+  )
 }

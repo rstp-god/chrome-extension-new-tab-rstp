@@ -1,4 +1,4 @@
-import { Button } from '@/components/ui/button.tsx';
+import { Button } from '@/components/ui/button.tsx'
 import {
   Dialog,
   DialogContent,
@@ -6,30 +6,32 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger
-} from '@/components/ui/dialog.tsx';
-import { Input } from '@/components/ui/input.tsx';
-import { Label } from '@/components/ui/label.tsx';
-import { Switch } from '@/components/ui/switch.tsx';
-import { BackgroundDialog } from '@/newtab/components/Background/BackgroundDialog.tsx';
-import { useHeaderStore } from '@/store/header.ts';
-import { BackgroundStateV1 } from '@/types/background.ts';
-import { useState } from 'react';
-import { useTranslation } from 'react-i18next';
+  DialogTrigger,
+} from '@/components/ui/dialog.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { Label } from '@/components/ui/label.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
+import { BackgroundDialog } from '@/newtab/components/Background/BackgroundDialog.tsx'
+import { useHeaderStore } from '@/store/header.ts'
+import { BackgroundStateV1 } from '@/types/background.ts'
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface Props {
-  bgState: BackgroundStateV1;
-  onSaveBackground: (next: BackgroundStateV1) => Promise<void> | void;
+  bgState: BackgroundStateV1
+  onSaveBackground: (next: BackgroundStateV1) => Promise<void> | void
 }
 
 export function SettingsDialog({ bgState, onSaveBackground }: Props) {
-  const { t: header } = useTranslation('header');
-  const { t } = useTranslation('settingsDialog');
-  const { t: common } = useTranslation('common');
+  const { t: header } = useTranslation('header')
+  const { t } = useTranslation('settingsDialog')
+  const { t: common } = useTranslation('common')
 
-  const [ open, setOpen ] = useState(false);
-  const [ bgOpen, setBgOpen ] = useState(false);
-  const { displayName, theme, setDisplayName, toggleTheme, language, setLanguage } = useHeaderStore(s => s);
+  const [open, setOpen] = useState(false)
+  const [bgOpen, setBgOpen] = useState(false)
+  const { displayName, theme, setDisplayName, toggleTheme, language, setLanguage } = useHeaderStore(
+    (s) => s,
+  )
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -52,7 +54,7 @@ export function SettingsDialog({ bgState, onSaveBackground }: Props) {
 
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground">{common('light')}</Label>
-              <Switch checked={theme === 'dark'} onCheckedChange={toggleTheme}/>
+              <Switch checked={theme === 'dark'} onCheckedChange={toggleTheme} />
               <Label className="text-xs text-muted-foreground">{common('dark')}</Label>
             </div>
           </div>
@@ -111,5 +113,5 @@ export function SettingsDialog({ bgState, onSaveBackground }: Props) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
+  )
 }

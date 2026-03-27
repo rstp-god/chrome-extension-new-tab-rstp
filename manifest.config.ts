@@ -17,16 +17,13 @@ export default defineManifest({
   chrome_url_overrides: {
     newtab: 'src/newtab/index.html',
   },
-  permissions: [
-    'sidePanel',
-    'contentSettings',
-    'storage',
-    'tabs',
+  permissions: ['sidePanel', 'contentSettings', 'storage', 'tabs'],
+  content_scripts: [
+    {
+      js: ['src/content/main.tsx'],
+      matches: ['https://*/*'],
+    },
   ],
-  content_scripts: [{
-    js: ['src/content/main.tsx'],
-    matches: ['https://*/*'],
-  }],
   side_panel: {
     default_path: 'src/sidepanel/index.html',
   },
