@@ -1,15 +1,20 @@
-# RSTP New Tab Chrome Extension
+# RSTP New Tab Chrome Extension 🚀
+
+📚 **Выберите язык / Choose your language:**  
+[🇷🇺 Русская версия](#-русская-версия) | [🇬🇧 English version](#-english-version)
+
+## 🇷🇺 Русская версия
 
 Расширение заменяет стандартную вкладку Chrome на кастомную страницу с настраиваемыми виджетами, фоном и настройками интерфейса.
 
-## Технологии проекта
+## 🛠️ Технологии проекта
 
 - React + TypeScript
 - Vite + CRXJS (`@crxjs/vite-plugin`) для сборки расширения
 - Zustand для состояния
 - `chrome.storage.local` для синхронизации данных между контекстами расширения
 
-## Быстрый старт
+## ⚡ Быстрый старт
 
 1. Установите зависимости:
 
@@ -33,7 +38,7 @@ yarn dev
 yarn build
 ```
 
-## Архитектура (для стороннего разработчика)
+## 🧩 Архитектура (для стороннего разработчика)
 
 ### Где что находится
 
@@ -66,7 +71,7 @@ import.meta.glob("../widgets/*/index.ts", { eager: true })
 
 Итог: если вы корректно добавили новый `src/widgets/MyWidget/index.ts`, виджет автоматически появляется в системе.
 
-## Как работает синхронизация с Chrome
+## 🔄 Как работает синхронизация с Chrome
 
 Синхронизация реализована оберткой `withChromeSync` для Zustand-сторов.
 
@@ -88,7 +93,7 @@ import.meta.glob("../widgets/*/index.ts", { eager: true })
 - В `widget`-сторе `autoPersist: false`, поэтому запись делается вручную через `commit()`.
 - Схемы Zod (`makeEnvelopeSchema`) валидируют входящие данные из storage и защищают от поврежденного состояния.
 
-## Полный гайд: как сделать свой виджет
+## 🧪 Полный гайд: как сделать свой виджет
 
 Ниже — минимальный рабочий путь для стороннего разработчика.
 
@@ -172,7 +177,7 @@ export const Component = WeatherWidget;
 
 Это даст восстановление данных после перезапуска браузера/расширения.
 
-## Разрешения Chrome: что обязательно учитывать
+## 🔐 Разрешения Chrome: что обязательно учитывать
 
 В `manifest.config.ts` уже заявлены разрешения:
 
@@ -187,7 +192,7 @@ export const Component = WeatherWidget;
 3. Проверяйте fallback-поведение, если API недоступен (`chrome.*` может быть `undefined` вне extension context).
 4. Помните, что изменение permissions влияет на UX установки/обновления (Chrome показывает пользователю новые требования доступа).
 
-## Практические рекомендации для сторонних разработчиков
+## 💡 Практические рекомендации для сторонних разработчиков
 
 - Держите виджет автономным: одна папка, локальные компоненты, `index.ts` как точка входа.
 - Не храните тяжелые бинарные данные в `chrome.storage.local`.
@@ -195,7 +200,7 @@ export const Component = WeatherWidget;
 - Не полагайтесь на порядок загрузки виджетов — registry формируется динамически.
 - Для совместимости держите layout-ограничения (`minW`, `minH`, `maxW`, `maxH`) явными.
 
-## Чеклист при добавлении нового виджета
+## ✅ Чеклист при добавлении нового виджета
 
 - [ ] Создана папка `src/widgets/<Name>/`
 - [ ] Есть `index.ts` с `meta` и `Component`
@@ -206,30 +211,29 @@ export const Component = WeatherWidget;
 - [ ] Проверено добавление/удаление виджета в UI
 - [ ] Проверено восстановление состояния после перезагрузки расширения
 
-## Полезные команды
+## 🧰 Полезные команды
 
 ```bash
 yarn dev
 yarn build
-yarn lint
 ```
 
 ---
 
-# English version
+# 🇬🇧 English version
 
-## RSTP New Tab Chrome Extension
+## RSTP New Tab Chrome Extension 🚀
 
 This extension replaces Chrome's default new tab with a customizable page that supports widgets, background settings, and UI preferences.
 
-## Tech stack
+## 🛠️ Tech stack
 
 - React + TypeScript
 - Vite + CRXJS (`@crxjs/vite-plugin`) for extension builds
 - Zustand for state management
 - `chrome.storage.local` for persistence and cross-context synchronization
 
-## Quick start
+## ⚡ Quick start
 
 1. Install dependencies:
 
@@ -253,7 +257,7 @@ Production build:
 yarn build
 ```
 
-## Architecture for third-party developers
+## 🧩 Architecture for third-party developers
 
 ### Key folders
 
@@ -286,7 +290,7 @@ The app builds `widgetRegistry` from `meta.widgetType`. This registry is used by
 
 If the folder and exports are correct, a new widget is picked up automatically.
 
-## Chrome sync model
+## 🔄 Chrome sync model
 
 Synchronization uses the `withChromeSync` wrapper around Zustand stores.
 
@@ -308,7 +312,7 @@ Synchronization uses the `withChromeSync` wrapper around Zustand stores.
 - Widget store uses `autoPersist: false`, so writes happen through manual `commit()` calls.
 - Zod schemas validate incoming storage payloads before merge.
 
-## Full guide: create your own widget
+## 🧪 Full guide: create your own widget
 
 ### 1) Create widget folder
 
@@ -388,7 +392,7 @@ If your widget stores settings/data (e.g., selected city), create a dedicated Zu
 
 This ensures restore after browser/extension reload.
 
-## Chrome permissions (must consider)
+## 🔐 Chrome permissions (must consider)
 
 Current manifest permissions include:
 
@@ -403,7 +407,7 @@ Current manifest permissions include:
 3. Add fallback behavior when `chrome.*` APIs are unavailable.
 4. Remember that new permissions affect installation/update consent UX.
 
-## Practical recommendations
+## 💡 Practical recommendations
 
 - Keep each widget self-contained (own folder + local logic + clean `index.ts`).
 - Avoid storing large binary payloads in `chrome.storage.local`.
@@ -411,7 +415,7 @@ Current manifest permissions include:
 - Do not rely on load order: registry is built dynamically.
 - Define layout constraints (`minW`, `minH`, `maxW`, `maxH`) explicitly.
 
-## New widget checklist
+## ✅ New widget checklist
 
 - [ ] Folder created: `src/widgets/<Name>/`
 - [ ] `index.ts` exports `meta` and `Component`
