@@ -1,4 +1,4 @@
-import renderWidget from '@/newtab/components/WidgetLayout/renderWidget.tsx'
+import { RenderWidget } from '@/newtab/components/WidgetLayout/renderWidget.tsx'
 import { useHeaderStore } from '@/store/header.ts'
 import { useWidgetStore } from '@/store/widget.ts'
 import { WidgetInstance } from '@/types/widgets.ts'
@@ -40,15 +40,17 @@ export function WidgetsGrid() {
           onLayoutChange={onLayoutChange}
           compactor={noCompactor}
         >
-          {widgets.map((w) =>
-            renderWidget({
-              ...w,
-              pinned: !pinned,
-              onRemove: () => {
-                onLayoutChange(widgets.filter((v) => v.id !== w.id).map((l) => l.layout))
-              },
-            }),
-          )}
+          {widgets.map((w) => (
+            <div key={w.layout.i}>
+              <RenderWidget
+                {...w}
+                pinned={!pinned}
+                onRemove={() => {
+                  onLayoutChange(widgets.filter((v) => v.id !== w.id).map((l) => l.layout))
+                }}
+              />
+            </div>
+          ))}
         </ReactGridLayout>
       )}
     </div>

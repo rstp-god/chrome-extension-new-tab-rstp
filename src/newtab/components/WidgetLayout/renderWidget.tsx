@@ -7,29 +7,21 @@ interface Props extends WidgetInstance {
   onRemove?: () => void
 }
 
-const RenderWidget = ({ widgetType, pinned, title, onRemove, layout }: Props) => {
+export const RenderWidget = ({ widgetType, pinned, title, onRemove }: Props) => {
   const { t: errors } = useTranslation('errors')
   const { i18n } = useTranslation('common')
   const mod = widgetRegistry[widgetType]
 
   if (!mod) {
-    return (
-      <div key={layout.i} className="text-sm text-destructive">
-        {errors('widget.notFound')}
-      </div>
-    )
+    return <div className="text-sm text-destructive">{errors('widget.notFound')}</div>
   }
 
   const widgetTitle = mod.meta.titleI18nKey ? i18n.t(mod.meta.titleI18nKey) : title
   const Comp = mod.Component
 
   return (
-    <div key={layout.i}>
-      <WidgetFrame title={widgetTitle} pinned={pinned} onRemove={onRemove}>
-        <Comp />
-      </WidgetFrame>
-    </div>
+    <WidgetFrame title={widgetTitle} pinned={pinned} onRemove={onRemove}>
+      <Comp />
+    </WidgetFrame>
   )
 }
-
-export default RenderWidget

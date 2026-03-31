@@ -1,0 +1,28 @@
+{
+  "title": "Todo",
+  "description": "Your task list",
+  "empty": "No active todos yet.",
+  "actions": {
+    "addTodo": "Add todo",
+    "completeTodo": "Complete todo",
+    "deleteTodo": "Delete todo"
+  },
+  "dialog": {
+    "title": "Add todo",
+    "description": "Save a task with optional context from the current tab."
+  },
+  "form": {
+    "titleLabel": "Title",
+    "titlePlaceholder": "What needs to be done?",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Add details for this task",
+    "selectTab": "Choose an open tab",
+    "attachTab": "Attach tab",
+    "submit": "Create todo"
+  },
+  "messages": {
+    "noTabs": "No attachable tabs found.",
+    "tabUnavailable": "The current tab cannot be attached here.",
+    "untitledTab": "Untitled tab"
+  }
+}

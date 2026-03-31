@@ -16,7 +16,8 @@ function AddWidgetDialog() {
   const { t: common } = useTranslation('common')
 
   const [open, setOpen] = useState(false)
-  const { addWidget } = useWidgetStore((s) => s)
+  const { addWidget, widgets } = useWidgetStore((s) => s)
+  const hasTodoWidget = widgets.some((widget) => widget.widgetType === 'todo')
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -28,7 +29,9 @@ function AddWidgetDialog() {
           <DialogTitle>{t('addWidgetTitle')}</DialogTitle>
         </DialogHeader>
         <div>
-          {Object.values(widgetRegistry).map((widget) => {
+          {Object.values(widgetRegistry)
+            .filter((widget) => !(widget.meta.widgetType === 'todo' && hasTodoWidget))
+            .map((widget) => {
             const title = widget.meta.titleI18nKey
               ? i18n.t(widget.meta.titleI18nKey)
               : widget.meta.title
@@ -41,7 +44,7 @@ function AddWidgetDialog() {
                 </Button>
               </div>
             )
-          })}
+            })}
         </div>
       </DialogContent>
     </Dialog>
