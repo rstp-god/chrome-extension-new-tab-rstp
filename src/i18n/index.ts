@@ -5,12 +5,14 @@ import enCommon from '@/i18n/resources/en/common.json'
 import enErrors from '@/i18n/resources/en/errors.json'
 import enHeader from '@/i18n/resources/en/header.json'
 import enSearchWidget from '@/i18n/resources/en/widgets/searchWidget.json'
+import enTodoWidget from '@/i18n/resources/en/widgets/todoWidget.json'
 import enSettingsDialog from '@/i18n/resources/en/settingsDialog.json'
 import ruBackgroundDialog from '@/i18n/resources/ru/backgroundDialog.json'
 import ruCommon from '@/i18n/resources/ru/common.json'
 import ruErrors from '@/i18n/resources/ru/errors.json'
 import ruHeader from '@/i18n/resources/ru/header.json'
 import ruSearchWidget from '@/i18n/resources/ru/widgets/searchWidget.json'
+import ruTodoWidget from '@/i18n/resources/ru/widgets/todoWidget.json'
 import ruSettingsDialog from '@/i18n/resources/ru/settingsDialog.json'
 
 const resources = {
@@ -20,6 +22,7 @@ const resources = {
     settingsDialog: ruSettingsDialog,
     backgroundDialog: ruBackgroundDialog,
     searchWidget: ruSearchWidget,
+    todoWidget: ruTodoWidget,
     errors: ruErrors,
   },
   en: {
@@ -28,6 +31,7 @@ const resources = {
     settingsDialog: enSettingsDialog,
     backgroundDialog: enBackgroundDialog,
     searchWidget: enSearchWidget,
+    todoWidget: enTodoWidget,
     errors: enErrors,
   },
 } as const
@@ -37,7 +41,15 @@ i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'header', 'settingsDialog', 'backgroundDialog', 'searchWidget', 'errors'],
+  ns: [
+    'common',
+    'header',
+    'settingsDialog',
+    'backgroundDialog',
+    'searchWidget',
+    'todoWidget',
+    'errors',
+  ],
   interpolation: {
     escapeValue: false,
   },

@@ -49,11 +49,14 @@ export const useWidgetStore = create<WidgetStore & ChromeSyncActions>()(
       setState({ widgets: widgets, layout: widgets.map((v) => v.layout) })
     },
     addWidget: (widgetType) => {
-      const newWidget: WidgetInstance = createWidgetInstance(widgetType)
-      setState((s) => ({
-        widgets: [...s.widgets, newWidget],
-        layout: [...s.layout, newWidget.layout],
-      }))
+      setState((s) => {
+        const newWidget: WidgetInstance = createWidgetInstance(widgetType, s.layout)
+
+        return {
+          widgets: [...s.widgets, newWidget],
+          layout: [...s.layout, newWidget.layout],
+        }
+      })
     },
   })),
 )

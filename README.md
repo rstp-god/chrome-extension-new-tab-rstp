@@ -7,6 +7,19 @@
 
 Расширение заменяет стандартную вкладку Chrome на кастомную страницу с настраиваемыми виджетами, фоном и настройками интерфейса.
 
+### Оглавление
+
+- [🌐 i18n](#-i18n-новое)
+- [🛠️ Технологии проекта](#️-технологии-проекта)
+- [⚡ Быстрый старт](#-быстрый-старт)
+- [🧩 Архитектура](#-архитектура-для-стороннего-разработчика)
+- [🔄 Как работает синхронизация с Chrome](#-как-работает-синхронизация-с-chrome)
+- [🧪 Полный гайд: как сделать свой виджет](#-полный-гайд-как-сделать-свой-виджет)
+- [🔐 Разрешения Chrome](#-разрешения-chrome-что-обязательно-учитывать)
+- [💡 Практические рекомендации](#-практические-рекомендации-для-сторонних-разработчиков)
+- [✅ Чеклист](#-чеклист-при-добавлении-нового-виджета)
+- [🧰 Полезные команды](#-полезные-команды)
+
 ### 🌐 i18n (новое)
 
 - Добавлена базовая i18n-инфраструктура в `src/i18n/`.
@@ -184,6 +197,8 @@ export const Component = WeatherWidget
 - `partialize` только нужных полей
 - Zod-схему persisted-состояния
 
+Предпочтительное размещение такого стора: внутри папки самого виджета, например `src/widgets/Weather/store.ts`. Это помогает держать виджет автономным и не раздувать глобальный `src/store/`, если состояние нужно только одному виджету.
+
 Это даст восстановление данных после перезапуска браузера/расширения.
 
 ## 🔐 Разрешения Chrome: что обязательно учитывать
@@ -204,10 +219,13 @@ export const Component = WeatherWidget
 ## 💡 Практические рекомендации для сторонних разработчиков
 
 - Держите виджет автономным: одна папка, локальные компоненты, `index.ts` как точка входа.
+- Если состояние используется только виджетом, храните store рядом с ним в `src/widgets/<Name>/`, а не в глобальном `src/store/`.
+- Если логика работы с Chrome API может пригодиться нескольким виджетам, выносите её в `src/services/chrome/`, а не дублируйте в компонентах и сторах.
 - Не храните тяжелые бинарные данные в `chrome.storage.local`.
 - Валидируйте внешние данные (API-ответы) перед сохранением.
 - Не полагайтесь на порядок загрузки виджетов — registry формируется динамически.
 - Для совместимости держите layout-ограничения (`minW`, `minH`, `maxW`, `maxH`) явными.
+- Для `react-grid-layout` прямым ребёнком грида должен быть DOM-элемент с ключом, совпадающим с `layout.i`. Не передавайте кастомный React-компонент как единственный child без обёртки, иначе drag/resize и размеры могут работать некорректно.
 
 ## ✅ Чеклист при добавлении нового виджета
 
@@ -234,6 +252,18 @@ yarn build
 ## RSTP New Tab Chrome Extension 🚀
 
 This extension replaces Chrome's default new tab with a customizable page that supports widgets, background settings, and UI preferences.
+
+### Table of contents
+
+- [🌐 i18n](#-i18n-new)
+- [🛠️ Tech stack](#️-tech-stack)
+- [⚡ Quick start](#-quick-start)
+- [🧩 Architecture](#-architecture-for-third-party-developers)
+- [🔄 Chrome sync model](#-chrome-sync-model)
+- [🧪 Full guide: create your own widget](#-full-guide-create-your-own-widget)
+- [🔐 Chrome permissions](#-chrome-permissions-must-consider)
+- [💡 Practical recommendations](#-practical-recommendations)
+- [✅ New widget checklist](#-new-widget-checklist)
 
 ### 🌐 i18n (new)
 
@@ -405,6 +435,8 @@ If your widget stores settings/data (e.g., selected city), create a dedicated Zu
 - strict `partialize`
 - Zod schema for persisted state
 
+Preferred placement for that store is inside the widget folder itself, for example `src/widgets/Weather/store.ts`. This keeps widget-specific logic local and avoids overloading the global `src/store/` directory.
+
 This ensures restore after browser/extension reload.
 
 ## 🔐 Chrome permissions (must consider)
@@ -425,10 +457,13 @@ Current manifest permissions include:
 ## 💡 Practical recommendations
 
 - Keep each widget self-contained (own folder + local logic + clean `index.ts`).
+- If state is only used by one widget, keep its store inside `src/widgets/<Name>/` instead of the global `src/store/`.
+- If Chrome API logic can be reused across widgets, move it into `src/services/chrome/` instead of duplicating it inside components or stores.
 - Avoid storing large binary payloads in `chrome.storage.local`.
 - Validate external API responses before persistence.
 - Do not rely on load order: registry is built dynamically.
 - Define layout constraints (`minW`, `minH`, `maxW`, `maxH`) explicitly.
+- With `react-grid-layout`, the direct child of the grid must be a DOM element whose key matches `layout.i`. Wrapping content incorrectly can break sizing, dragging, and resizing behavior.
 
 ## ✅ New widget checklist
 
