@@ -16,8 +16,10 @@ const todoTaskSchema = z.object({
   title: z.string(),
   description: z.string().nullable(),
   completed: z.boolean(),
+  deleted: z.boolean(),
   createdAt: z.number(),
   completedAt: z.number().nullable(),
+  deletedAt: z.number().nullable(),
   linkedTab: linkedTabSchema.nullable(),
 })
 
@@ -74,8 +76,10 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         title: normalizedTitle,
         description: normalizeDescription(description),
         completed: false,
+        deleted: false,
         createdAt: Date.now(),
         completedAt: null,
+        deletedAt: null,
         linkedTab: linkedTab
           ? {
               url: linkedTab.url,
@@ -96,6 +100,8 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
                 ...task,
                 completed: !task.completed,
                 completedAt: !task.completed ? Date.now() : null,
+                deleted: false,
+                deletedAt: null,
               }
             : task,
         ),
@@ -103,7 +109,15 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
     },
     removeTask: (id) => {
       set((state) => ({
-        tasks: state.tasks.filter((task) => task.id !== id),
+        tasks: state.tasks.map((task) =>
+          task.id === id
+            ? {
+                ...task,
+                deleted: true,
+                deletedAt: Date.now(),
+              }
+            : task,
+        ),
       }))
     },
     openOrFocusLinkedTab: async (id) => {

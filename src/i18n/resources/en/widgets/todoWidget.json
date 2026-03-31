@@ -5,7 +5,15 @@
   "actions": {
     "addTodo": "Add todo",
     "completeTodo": "Complete todo",
-    "deleteTodo": "Delete todo"
+    "deleteTodo": "Delete todo",
+    "openSettings": "Open settings",
+    "toggleCompleted": "Show completed todos",
+    "toggleDeleted": "Show deleted todos"
+  },
+  "settings": {
+    "title": "Todo settings",
+    "description": "Visibility toggles now, integrations later.",
+    "integrationsPlaceholder": "Integration settings will appear here."
   },
   "dialog": {
     "title": "Add todo",

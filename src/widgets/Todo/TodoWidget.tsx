@@ -1,25 +1,51 @@
-import { Button } from '@/components/ui/button.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
-import { AddTodoDialog } from '@/widgets/Todo/AddTodoDialog.tsx'
-import { useTodoStore } from '@/widgets/Todo/store.ts'
-import { CheckIcon, ExternalLinkIcon, PlusIcon, Trash2Icon } from 'lucide-react'
+import { AddTodoDialog } from '@/widgets/Todo/components/AddTodoDialog.tsx';
+import { TodoFooter } from '@/widgets/Todo/components/TodoFooter.tsx';
+import { TodoSettingsDialog } from '@/widgets/Todo/components/TodoSettingsDialog.tsx';
+import { TodoTaskCard } from '@/widgets/Todo/components/TodoTaskCard.tsx';
+import { TodoTask, useTodoStore } from '@/widgets/Todo/store/store.ts';
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const TODO_EXIT_ANIMATION_MS = 260
 
-function getHostname(url: string) {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return url
+interface PendingActionsState {
+  [taskId: string]: 'complete' | 'delete'
+}
+
+function shouldIncludeTask(task: TodoTask, showCompleted: boolean, showDeleted: boolean) {
+  if (showDeleted) {
+    return task.deleted
   }
+
+  if (showCompleted) {
+    return task.completed && !task.deleted
+  }
+
+  if (task.deleted) {
+    return false
+  }
+
+  if (task.completed) {
+    return false
+  }
+
+  return true
+}
+
+function getTaskSortTimestamp(task: TodoTask) {
+  if (task.deletedAt) return task.deletedAt
+  if (task.completedAt) return task.completedAt
+  return task.createdAt
 }
 
 export function TodoWidget() {
   const { t } = useTranslation('todoWidget')
   const [open, setOpen] = useState(false)
-  const [pendingActions, setPendingActions] = useState<Record<string, 'complete' | 'delete'>>({})
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [showCompleted, setShowCompleted] = useState(false)
+  const [showDeleted, setShowDeleted] = useState(false)
+  const [pendingActions, setPendingActions] = useState<PendingActionsState>({})
   const { tasks, addTask, toggleTask, removeTask, openOrFocusLinkedTab } = useTodoStore(
     (state) => state,
   )
@@ -33,12 +59,12 @@ export function TodoWidget() {
     }
   }, [])
 
-  const activeTasks = useMemo(
+  const visibleTasks = useMemo(
     () =>
       tasks
-        .filter((task) => !task.completed)
-        .sort((left, right) => right.createdAt - left.createdAt),
-    [tasks],
+        .filter((task) => shouldIncludeTask(task, showCompleted, showDeleted))
+        .sort((left, right) => getTaskSortTimestamp(right) - getTaskSortTimestamp(left)),
+    [showCompleted, showDeleted, tasks],
   )
 
   const startTaskExit = (taskId: string, action: 'complete' | 'delete') => {
@@ -68,7 +94,7 @@ export function TodoWidget() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-5">
-      {activeTasks.length === 0 ? (
+      {visibleTasks.length === 0 ? (
         <div className="flex flex-1 items-center">
           <div className="w-full rounded-[2rem] border border-dashed border-border px-5 py-8 text-center text-sm text-muted-foreground">
             {t('empty')}
@@ -77,86 +103,48 @@ export function TodoWidget() {
       ) : (
         <ScrollArea className="min-h-0 flex-1">
           <div className="grid gap-3 pr-2">
-            {activeTasks.map((task) => {
-              const pendingAction = pendingActions[task.id]
-
-              return (
-                <div
-                  key={task.id}
-                  className={[
-                    'rounded-[2rem] border border-border bg-black/25 px-5 py-6 transition-all duration-300 ease-out',
-                    pendingAction === 'complete' &&
-                      'translate-x-16 border-emerald-500/40 bg-emerald-500/20 opacity-0',
-                    pendingAction === 'delete' &&
-                      '-translate-x-16 border-destructive/40 bg-destructive/20 opacity-0',
-                  ]
-                    .filter(Boolean)
-                    .join(' ')}
-                >
-                  <div className="flex items-start gap-3">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon-sm"
-                      className="mt-0.5 shrink-0 rounded-full"
-                      onClick={() => startTaskExit(task.id, 'complete')}
-                      aria-label={t('actions.completeTodo')}
-                      disabled={Boolean(pendingAction)}
-                    >
-                      <CheckIcon />
-                    </Button>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="text-lg font-semibold leading-tight">{task.title}</div>
-                      {task.description && (
-                        <p className="mt-3 whitespace-pre-wrap text-base text-muted-foreground">
-                          {task.description}
-                        </p>
-                      )}
-
-                      {task.linkedTab && (
-                        <button
-                          type="button"
-                          className="mt-5 flex max-w-full items-center gap-2 text-left text-sm text-muted-foreground hover:text-foreground"
-                          onClick={() => void openOrFocusLinkedTab(task.id)}
-                        >
-                          <ExternalLinkIcon className="size-4 shrink-0" />
-                          <span className="truncate">
-                            {task.linkedTab.title ?? getHostname(task.linkedTab.url)}
-                          </span>
-                        </button>
-                      )}
-                    </div>
-
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      className="shrink-0"
-                      onClick={() => startTaskExit(task.id, 'delete')}
-                      aria-label={t('actions.deleteTodo')}
-                      disabled={Boolean(pendingAction)}
-                    >
-                      <Trash2Icon />
-                    </Button>
-                  </div>
-                </div>
-              )
-            })}
+            {visibleTasks.map((task) => (
+              <TodoTaskCard
+                key={task.id}
+                task={task}
+                pendingAction={pendingActions[task.id]}
+                onToggleTask={toggleTask}
+                onStartTaskExit={startTaskExit}
+                onOpenLinkedTab={(taskId) => void openOrFocusLinkedTab(taskId)}
+              />
+            ))}
           </div>
         </ScrollArea>
       )}
 
-      <Button size="lg" className="mt-auto w-full" onClick={() => setOpen(true)}>
-        <PlusIcon />
-        {t('actions.addTodo')}
-      </Button>
+      <TodoFooter
+        showCompleted={showCompleted}
+        showDeleted={showDeleted}
+        onToggleCompleted={() => {
+          setShowCompleted((current) => {
+            const next = !current
+            if (next) setShowDeleted(false)
+            return next
+          })
+        }}
+        onToggleDeleted={() => {
+          setShowDeleted((current) => {
+            const next = !current
+            if (next) setShowCompleted(false)
+            return next
+          })
+        }}
+        onOpenAdd={() => setOpen(true)}
+        onOpenSettings={() => setSettingsOpen(true)}
+      />
 
       <AddTodoDialog
         open={open}
         onOpenChange={setOpen}
         onSubmit={({ title, description, linkedTab }) => addTask({ title, description, linkedTab })}
       />
+
+      <TodoSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </div>
   )
 }

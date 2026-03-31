@@ -18,9 +18,9 @@ import {
 } from '@/components/ui/select.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { LinkableTab, listLinkableTabs } from '@/services/chrome/tabs.ts'
-import { LinkedTab } from '@/widgets/Todo/store.ts'
+import { LinkedTab } from '@/widgets/Todo/store/store.ts';
 import { GlobeIcon, LinkIcon } from 'lucide-react'
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { SubmitEvent, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 interface Props {
@@ -67,7 +67,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
     if (!nextOpen) resetState()
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!title.trim()) return
 

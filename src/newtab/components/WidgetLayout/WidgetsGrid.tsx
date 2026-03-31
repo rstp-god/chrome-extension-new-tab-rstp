@@ -1,4 +1,4 @@
-import { RenderWidget } from '@/newtab/components/WidgetLayout/renderWidget.tsx'
+import { RenderWidget } from '@/newtab/components/WidgetLayout/RenderWidget.tsx'
 import { useHeaderStore } from '@/store/header.ts'
 import { useWidgetStore } from '@/store/widget.ts'
 import { WidgetInstance } from '@/types/widgets.ts'

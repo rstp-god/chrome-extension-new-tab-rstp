@@ -5,7 +5,15 @@
   "actions": {
     "addTodo": "Добавить todo",
     "completeTodo": "Завершить задачу",
-    "deleteTodo": "Удалить задачу"
+    "deleteTodo": "Удалить задачу",
+    "openSettings": "Открыть настройки",
+    "toggleCompleted": "Показать выполненные задачи",
+    "toggleDeleted": "Показать удалённые задачи"
+  },
+  "settings": {
+    "title": "Настройки задач",
+    "description": "Пока здесь переключатели видимости, позже будут интеграции.",
+    "integrationsPlaceholder": "Здесь появятся настройки интеграций."
   },
   "dialog": {
     "title": "Добавить задачу",
