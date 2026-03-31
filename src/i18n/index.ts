@@ -41,7 +41,15 @@ i18n.use(initReactI18next).init({
   lng: 'en',
   fallbackLng: 'en',
   defaultNS: 'common',
-  ns: ['common', 'header', 'settingsDialog', 'backgroundDialog', 'searchWidget', 'todoWidget', 'errors'],
+  ns: [
+    'common',
+    'header',
+    'settingsDialog',
+    'backgroundDialog',
+    'searchWidget',
+    'todoWidget',
+    'errors',
+  ],
   interpolation: {
     escapeValue: false,
   },

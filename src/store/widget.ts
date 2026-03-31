@@ -53,8 +53,8 @@ export const useWidgetStore = create<WidgetStore & ChromeSyncActions>()(
         const newWidget: WidgetInstance = createWidgetInstance(widgetType, s.layout)
 
         return {
-        widgets: [...s.widgets, newWidget],
-        layout: [...s.layout, newWidget.layout],
+          widgets: [...s.widgets, newWidget],
+          layout: [...s.layout, newWidget.layout],
         }
       })
     },

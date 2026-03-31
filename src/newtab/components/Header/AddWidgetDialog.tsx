@@ -32,18 +32,18 @@ function AddWidgetDialog() {
           {Object.values(widgetRegistry)
             .filter((widget) => !(widget.meta.widgetType === 'todo' && hasTodoWidget))
             .map((widget) => {
-            const title = widget.meta.titleI18nKey
-              ? i18n.t(widget.meta.titleI18nKey)
-              : widget.meta.title
+              const title = widget.meta.titleI18nKey
+                ? i18n.t(widget.meta.titleI18nKey)
+                : widget.meta.title
 
-            return (
-              <div key={widget.meta.widgetType}>
-                {title}
-                <Button variant="secondary" onClick={() => addWidget(widget.meta.widgetType)}>
-                  {common('add')}
-                </Button>
-              </div>
-            )
+              return (
+                <div key={widget.meta.widgetType}>
+                  {title}
+                  <Button variant="secondary" onClick={() => addWidget(widget.meta.widgetType)}>
+                    {common('add')}
+                  </Button>
+                </div>
+              )
             })}
         </div>
       </DialogContent>

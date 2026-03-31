@@ -101,9 +101,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
 
         <form className="grid gap-4" onSubmit={handleSubmit}>
           <Field>
-            <FieldLabel htmlFor="todo-title">
-              {t('form.titleLabel')}
-            </FieldLabel>
+            <FieldLabel htmlFor="todo-title">{t('form.titleLabel')}</FieldLabel>
             <Input
               id="todo-title"
               value={title}
@@ -113,9 +111,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
           </Field>
 
           <Field>
-            <FieldLabel htmlFor="todo-description">
-              {t('form.descriptionLabel')}
-            </FieldLabel>
+            <FieldLabel htmlFor="todo-description">{t('form.descriptionLabel')}</FieldLabel>
             <Textarea
               id="todo-description"
               value={description}
@@ -151,7 +147,12 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
                 </SelectContent>
               </Select>
 
-              <Button type="button" variant="outline" onClick={handleAttachTab} className="sm:w-auto">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleAttachTab}
+                className="sm:w-auto"
+              >
                 <LinkIcon />
                 {t('form.attachTab')}
               </Button>

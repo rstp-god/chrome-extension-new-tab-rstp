@@ -20,7 +20,9 @@ export function TodoWidget() {
   const { t } = useTranslation('todoWidget')
   const [open, setOpen] = useState(false)
   const [pendingActions, setPendingActions] = useState<Record<string, 'complete' | 'delete'>>({})
-  const { tasks, addTask, toggleTask, removeTask, openOrFocusLinkedTab } = useTodoStore((state) => state)
+  const { tasks, addTask, toggleTask, removeTask, openOrFocusLinkedTab } = useTodoStore(
+    (state) => state,
+  )
   const timeoutRefs = useRef<Record<string, number>>({})
 
   useEffect(() => {
@@ -83,8 +85,10 @@ export function TodoWidget() {
                   key={task.id}
                   className={[
                     'rounded-[2rem] border border-border bg-black/25 px-5 py-6 transition-all duration-300 ease-out',
-                    pendingAction === 'complete' && 'translate-x-16 border-emerald-500/40 bg-emerald-500/20 opacity-0',
-                    pendingAction === 'delete' && '-translate-x-16 border-destructive/40 bg-destructive/20 opacity-0',
+                    pendingAction === 'complete' &&
+                      'translate-x-16 border-emerald-500/40 bg-emerald-500/20 opacity-0',
+                    pendingAction === 'delete' &&
+                      '-translate-x-16 border-destructive/40 bg-destructive/20 opacity-0',
                   ]
                     .filter(Boolean)
                     .join(' ')}

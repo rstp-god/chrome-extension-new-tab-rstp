@@ -3,7 +3,10 @@ import { LayoutItem } from 'react-grid-layout'
 
 const GRID_COLS = 12
 
-function collides(first: Pick<LayoutItem, 'x' | 'y' | 'w' | 'h'>, second: Pick<LayoutItem, 'x' | 'y' | 'w' | 'h'>) {
+function collides(
+  first: Pick<LayoutItem, 'x' | 'y' | 'w' | 'h'>,
+  second: Pick<LayoutItem, 'x' | 'y' | 'w' | 'h'>,
+) {
   if (first.x + first.w <= second.x) return false
   if (second.x + second.w <= first.x) return false
   if (first.y + first.h <= second.y) return false
@@ -12,7 +15,10 @@ function collides(first: Pick<LayoutItem, 'x' | 'y' | 'w' | 'h'>, second: Pick<L
 }
 
 function findFreePosition(existingLayout: readonly LayoutItem[], width: number, height: number) {
-  const maxOccupiedRow = existingLayout.reduce((maxRow, item) => Math.max(maxRow, item.y + item.h), 0)
+  const maxOccupiedRow = existingLayout.reduce(
+    (maxRow, item) => Math.max(maxRow, item.y + item.h),
+    0,
+  )
 
   for (let y = 0; y <= maxOccupiedRow; y += 1) {
     for (let x = 0; x <= GRID_COLS - width; x += 1) {
@@ -28,7 +34,10 @@ function findFreePosition(existingLayout: readonly LayoutItem[], width: number, 
   return { x: 0, y: Infinity }
 }
 
-export function createWidgetInstance(widgetType: WidgetType, existingLayout: readonly LayoutItem[] = []): WidgetInstance {
+export function createWidgetInstance(
+  widgetType: WidgetType,
+  existingLayout: readonly LayoutItem[] = [],
+): WidgetInstance {
   const mod = widgetRegistry[widgetType]
   const meta = mod.meta
 

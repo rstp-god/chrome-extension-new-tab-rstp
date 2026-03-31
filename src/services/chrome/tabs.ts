@@ -24,7 +24,9 @@ export async function getPreferredAttachableTab() {
     .sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0))[0]
   if (activeTab) return activeTab
 
-  return [...attachableTabs].sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0))[0]
+  return [...attachableTabs].sort(
+    (left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0),
+  )[0]
 }
 
 export async function focusOrOpenTab(linkedTab: Pick<LinkableTab, 'url'>) {
