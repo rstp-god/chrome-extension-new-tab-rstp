@@ -93,35 +93,37 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="overflow-hidden sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{t('dialog.title')}</DialogTitle>
           <DialogDescription>{t('dialog.description')}</DialogDescription>
         </DialogHeader>
 
-        <form className="grid gap-4" onSubmit={handleSubmit}>
-          <Field>
+        <form className="grid min-w-0 gap-4" onSubmit={handleSubmit}>
+          <Field className="min-w-0">
             <FieldLabel htmlFor="todo-title">{t('form.titleLabel')}</FieldLabel>
             <Input
               id="todo-title"
+              className="min-w-0 max-w-full"
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder={t('form.titlePlaceholder')}
             />
           </Field>
 
-          <Field>
+          <Field className="min-w-0">
             <FieldLabel htmlFor="todo-description">{t('form.descriptionLabel')}</FieldLabel>
             <Textarea
               id="todo-description"
+              className="min-w-0 max-w-full"
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder={t('form.descriptionPlaceholder')}
             />
           </Field>
 
-          <Field>
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <Field className="min-w-0">
+            <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
               <Select
                 value={selectedTabUrl}
                 onValueChange={(value) => {
@@ -129,7 +131,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
                   setTabError(null)
                 }}
               >
-                <SelectTrigger className="w-full min-w-0">
+                <SelectTrigger className="w-full min-w-0 max-w-full">
                   <SelectValue placeholder={t('form.selectTab')} />
                 </SelectTrigger>
                 <SelectContent position="popper" className="max-w-[min(32rem,calc(100vw-4rem))]">
@@ -159,10 +161,10 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
             </div>
 
             {linkedTab && (
-              <div className="rounded-2xl border border-border bg-muted/40 px-3 py-2 text-sm">
+              <div className="min-w-0 rounded-2xl border border-border bg-muted/40 px-3 py-2 text-sm">
                 <div className="flex items-center gap-2 font-medium">
                   <GlobeIcon className="size-4" />
-                  <span>{linkedTab.title ?? t('messages.untitledTab')}</span>
+                  <span className="truncate">{linkedTab.title ?? t('messages.untitledTab')}</span>
                 </div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{linkedTab.url}</div>
               </div>
