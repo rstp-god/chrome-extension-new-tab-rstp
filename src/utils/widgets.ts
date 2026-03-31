@@ -15,10 +15,13 @@ function collides(
 }
 
 function findFreePosition(existingLayout: readonly LayoutItem[], width: number, height: number) {
-  const maxOccupiedRow = existingLayout.reduce(
-    (maxRow, item) => Math.max(maxRow, item.y + item.h),
-    0,
-  )
+  const maxOccupiedRow = existingLayout.reduce((maxRow, item) => {
+    const itemBottomEdge = item.y + item.h
+    if (!Number.isFinite(itemBottomEdge)) {
+      return maxRow
+    }
+    return Math.max(maxRow, itemBottomEdge)
+  }, 0)
 
   for (let y = 0; y <= maxOccupiedRow; y += 1) {
     for (let x = 0; x <= GRID_COLS - width; x += 1) {
