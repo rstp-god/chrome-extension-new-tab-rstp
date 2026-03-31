@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button.tsx'
-import { TodoTask } from '@/widgets/Todo/store/store.ts';
+import { TodoTask } from '@/widgets/Todo/store/store.ts'
 import clsx from 'clsx'
 import { CheckIcon, ExternalLinkIcon, Trash2Icon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -81,7 +81,9 @@ export function TodoTaskCard({
               onClick={() => onOpenLinkedTab(task.id)}
             >
               <ExternalLinkIcon className="size-4 shrink-0" />
-              <span className="truncate">{task.linkedTab.title ?? getHostname(task.linkedTab.url)}</span>
+              <span className="truncate">
+                {task.linkedTab.title ?? getHostname(task.linkedTab.url)}
+              </span>
             </button>
           )}
         </div>

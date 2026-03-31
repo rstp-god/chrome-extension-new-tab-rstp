@@ -1,9 +1,9 @@
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
-import { AddTodoDialog } from '@/widgets/Todo/components/AddTodoDialog.tsx';
-import { TodoFooter } from '@/widgets/Todo/components/TodoFooter.tsx';
-import { TodoSettingsDialog } from '@/widgets/Todo/components/TodoSettingsDialog.tsx';
-import { TodoTaskCard } from '@/widgets/Todo/components/TodoTaskCard.tsx';
-import { TodoTask, useTodoStore } from '@/widgets/Todo/store/store.ts';
+import { AddTodoDialog } from '@/widgets/Todo/components/AddTodoDialog.tsx'
+import { TodoFooter } from '@/widgets/Todo/components/TodoFooter.tsx'
+import { TodoSettingsDialog } from '@/widgets/Todo/components/TodoSettingsDialog.tsx'
+import { TodoTaskCard } from '@/widgets/Todo/components/TodoTaskCard.tsx'
+import { TodoTask, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 

@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/select.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { LinkableTab, listLinkableTabs } from '@/services/chrome/tabs.ts'
-import { LinkedTab } from '@/widgets/Todo/store/store.ts';
+import { LinkedTab } from '@/widgets/Todo/store/store.ts'
 import { GlobeIcon, LinkIcon } from 'lucide-react'
 import { SubmitEvent, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
