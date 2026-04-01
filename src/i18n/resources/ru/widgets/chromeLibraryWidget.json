@@ -1,0 +1,49 @@
+{
+  "title": "Chrome библиотека",
+  "description": "Группы и закладки из Chrome",
+  "searchPlaceholder": "Поиск по группам и закладкам...",
+  "actions": {
+    "refresh": "Обновить",
+    "openSettings": "Открыть настройки",
+    "openGroup": "Открыть группу"
+  },
+  "settings": {
+    "title": "Настройки отображения",
+    "description": "Выберите, как показывать списки внутри виджета.",
+    "sectioned": "Режим разделов",
+    "combined": "Общий список"
+  },
+  "labels": {
+    "groups": "Группы",
+    "bookmarks": "Закладки",
+    "combinedList": "Общий список",
+    "untitledGroup": "Группа без названия",
+    "untitledFolder": "Папка без названия",
+    "savedGroup": "Сохраненная группа",
+    "windowWithId": "Окно {{id}}",
+    "tabsCountUnknown": "вкладок: ?",
+    "tabsCount_one": "{{count}} вкладка",
+    "tabsCount_few": "{{count}} вкладки",
+    "tabsCount_many": "{{count}} вкладок",
+    "tabsCount_other": "{{count}} вкладки",
+    "root": "Корень"
+  },
+  "messages": {
+    "loading": "Загружаю данные Chrome...",
+    "apiUnavailable": "В этом контексте API Chrome недоступен.",
+    "loadError": "Не удалось загрузить группы и закладки.",
+    "openTabError": "Не удалось переключиться на эту вкладку.",
+    "openGroupError": "Не удалось открыть эту группу.",
+    "openBookmarkError": "Не удалось открыть эту закладку.",
+    "noTabs": "В этой группе нет вкладок.",
+    "noGroups": "Сейчас нет активных групп вкладок.",
+    "noBookmarks": "Закладки не найдены.",
+    "noResults": "По вашему запросу ничего не найдено."
+  },
+  "preview": {
+    "groupRowPrimary": "Рабочая группа",
+    "groupRowSecondary": "Группа исследований",
+    "bookmarkRowPrimary": "Доска проекта",
+    "bookmarkRowSecondary": "Референсы по дизайну"
+  }
+}
