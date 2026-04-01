@@ -37,7 +37,13 @@ function AddWidgetDialog() {
     () =>
       Object.values(widgetRegistry).reduce<AvailableWidget[]>((acc, widget) => {
         const {
-          meta: { description: fallbackDescription, descriptionI18nKey, title: fallbackTitle, titleI18nKey, widgetType },
+          meta: {
+            description: fallbackDescription,
+            descriptionI18nKey,
+            title: fallbackTitle,
+            titleI18nKey,
+            widgetType,
+          },
           PreviewComponent,
         } = widget
 
@@ -48,7 +54,9 @@ function AddWidgetDialog() {
         acc.push({
           widgetType: widgetType as WidgetType,
           title: titleI18nKey ? i18n.t(titleI18nKey) : fallbackTitle,
-          description: descriptionI18nKey ? i18n.t(descriptionI18nKey) : fallbackDescription ?? '',
+          description: descriptionI18nKey
+            ? i18n.t(descriptionI18nKey)
+            : (fallbackDescription ?? ''),
           PreviewComponent,
         })
 
@@ -57,7 +65,8 @@ function AddWidgetDialog() {
     [hasTodoWidget, i18n],
   )
 
-  const activeWidget = availableWidgets.find((widget) => widget.widgetType === activeWidgetType) ?? null
+  const activeWidget =
+    availableWidgets.find((widget) => widget.widgetType === activeWidgetType) ?? null
   const clearActiveWidget = () => setActiveWidgetType(null)
   const previewProps = {
     description: activeWidget?.description ?? '',

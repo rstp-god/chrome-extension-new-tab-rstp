@@ -54,7 +54,13 @@ export function TodoWidgetPreview() {
                       {description}
                     </div>
                   </div>
-                  <Button disabled type="button" variant="ghost" size="icon-sm" className="shrink-0">
+                  <Button
+                    disabled
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0"
+                  >
                     <Trash2Icon />
                   </Button>
                 </div>
