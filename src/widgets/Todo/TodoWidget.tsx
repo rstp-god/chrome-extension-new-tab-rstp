@@ -96,7 +96,7 @@ export function TodoWidget() {
     <div className="flex h-full min-h-0 flex-col gap-5">
       {visibleTasks.length === 0 ? (
         <div className="flex flex-1 items-center">
-          <div className="w-full rounded-[2rem] border border-dashed border-border px-5 py-8 text-center text-sm text-muted-foreground">
+          <div className="w-full rounded-[2rem] h-full border border-dashed border-border px-5 py-8 text-center content-center text-sm text-muted-foreground">
             {t('empty')}
           </div>
         </div>
