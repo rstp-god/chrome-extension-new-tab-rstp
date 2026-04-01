@@ -1,4 +1,4 @@
-import { hasChromeApis, openUrlInNewTab } from '@/services/chrome/common.ts'
+import { openUrlInNewTab } from '@/services/chrome/common.ts'
 import {
   BookmarkTreeItem,
   ChromeGroupedTab,
@@ -69,10 +69,6 @@ function createTabGroupView(
     tabsCount: tabs.length,
     tabs,
   }
-}
-
-export function isChromeLibraryApiAvailable() {
-  return hasChromeApis(['bookmarks', 'tabGroups', 'tabs'])
 }
 
 export async function getBookmarkTree(): Promise<BookmarkTreeItem[]> {

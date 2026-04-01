@@ -1,31 +1,33 @@
-import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
 import {
-  getBookmarkTree,
   focusGroupedTab,
+  getBookmarkTree,
   getTabGroupsWithTabs,
-  isChromeLibraryApiAvailable,
   openBookmark,
   openTabGroup,
 } from '@/services/chrome/chromeLibrary.ts'
-import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
 import {
-  BookmarkTreeItem,
-  ChromeLibraryViewMode,
-  ChromeTabGroupView,
-} from '@/widgets/ChromeLibrary/types/types.ts'
+  CHROME_BOOKMARK_EVENTS,
+  CHROME_TAB_EVENTS,
+  CHROME_TAB_GROUP_EVENTS,
+} from '@/services/chrome/events.ts'
+import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
+import { debounce } from '@/utils/debounce.ts'
+import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
+import { BookmarkTreeItem, ChromeLibraryViewMode, ChromeTabGroupView, } from '@/widgets/ChromeLibrary/types/types.ts'
 import { z } from 'zod'
 import { create } from 'zustand/react'
 
 export const CHROME_LIBRARY_WIDGET_STORAGE_KEY = 'chrome-library-widget:v1'
 
+const LIBRARY_RELOAD_DEBOUNCE_MS = 150
+
 const chromeLibraryPersistedStateSchema = z.object({
-  viewMode: z.union([z.literal('sectioned'), z.literal('combined')]),
+  viewMode: z.union([ z.literal('sectioned'), z.literal('combined') ]),
 })
 
 const chromeLibraryEnvelopeSchema = makeEnvelopeSchema(chromeLibraryPersistedStateSchema)
 
 type ChromeLibraryPersistedState = z.infer<typeof chromeLibraryPersistedStateSchema>
-const REFRESH_INTERVAL_MS = 15000
 
 interface ChromeLibraryWidgetState {
   viewMode: ChromeLibraryViewMode
@@ -40,7 +42,6 @@ interface ChromeLibraryWidgetState {
   setViewMode: (nextMode: ChromeLibraryViewMode) => void
   setSectionedMode: (nextMode: 'groups' | 'bookmarks') => void
   setQuery: (nextQuery: string) => void
-  refreshData: () => void
   toggleGroupExpanded: (groupId: number) => void
   openGroup: (groupId: number, windowId: number) => void
   openGroupTab: (tabId: number, windowId: number) => void
@@ -53,26 +54,20 @@ export const useChromeLibraryStore = create<ChromeLibraryWidgetState & ChromeSyn
   withChromeSync<ChromeLibraryWidgetState, ChromeLibraryPersistedState>({
     key: CHROME_LIBRARY_WIDGET_STORAGE_KEY,
     schema: chromeLibraryEnvelopeSchema,
-    autoPersist: false,
+    autoPersist: true,
     partialize: (state) => ({
       viewMode: state.viewMode,
     }),
     merge: (_current, incoming) => incoming,
-  })((setState, getState) => {
-    const refreshData = () => {
-      if (!isChromeLibraryApiAvailable()) {
-        setState({
-          errorKey: 'apiUnavailable',
-          groups: [],
-          bookmarks: [],
-          loading: false,
-        })
-        return
-      }
+  })((setState) => {
+    let reloadInFlight: Promise<void> | null = null
+
+    const reloadLibrary = async () => {
+      if (reloadInFlight) return reloadInFlight
 
       setState({ loading: true, errorKey: null })
-      void Promise.all([getTabGroupsWithTabs(), getBookmarkTree()])
-        .then(([groups, bookmarks]) => {
+      reloadInFlight = Promise.all([ getTabGroupsWithTabs(), getBookmarkTree() ])
+        .then(([ groups, bookmarks ]) => {
           setState({
             groups,
             bookmarks,
@@ -87,10 +82,22 @@ export const useChromeLibraryStore = create<ChromeLibraryWidgetState & ChromeSyn
             loading: false,
           })
         })
+        .finally(() => {
+          reloadInFlight = null
+        })
+
+      return reloadInFlight
     }
 
-    refreshData()
-    globalThis.setInterval(refreshData, REFRESH_INTERVAL_MS)
+    const scheduleReload = debounce(() => {
+      void reloadLibrary()
+    }, LIBRARY_RELOAD_DEBOUNCE_MS)
+
+    ;[...CHROME_TAB_EVENTS, ...CHROME_TAB_GROUP_EVENTS, ...CHROME_BOOKMARK_EVENTS].forEach((event) => {
+      event?.addListener(scheduleReload)
+    })
+
+    void reloadLibrary()
 
     return {
       viewMode: 'sectioned',
@@ -104,12 +111,9 @@ export const useChromeLibraryStore = create<ChromeLibraryWidgetState & ChromeSyn
       expandedFolderIds: {},
       setViewMode: (nextMode) => {
         setState({ viewMode: nextMode })
-        const withSync = getState() as ChromeLibraryWidgetState & ChromeSyncActions
-        void withSync.commit()
       },
       setSectionedMode: (nextMode) => setState({ sectionedMode: nextMode }),
       setQuery: (nextQuery) => setState({ query: nextQuery }),
-      refreshData,
       toggleGroupExpanded: (groupId) => {
         setState((state) => ({
           expandedGroupIds: {
@@ -119,21 +123,17 @@ export const useChromeLibraryStore = create<ChromeLibraryWidgetState & ChromeSyn
         }))
       },
       openGroup: (groupId, windowId) => {
-        void openTabGroup(groupId, windowId)
-          .then(() => {
-            getState().refreshData()
-          })
-          .catch(() => {
-            setState({ errorKey: 'openTabError' })
-          })
+        openTabGroup(groupId, windowId).catch(() => {
+          setState({ errorKey: 'openTabError' })
+        })
       },
       openGroupTab: (tabId, windowId) => {
-        void focusGroupedTab(tabId, windowId).catch(() => {
+        focusGroupedTab(tabId, windowId).catch(() => {
           setState({ errorKey: 'openTabError' })
         })
       },
       openBookmarkUrl: (url) => {
-        void openBookmark(url).catch(() => {
+        openBookmark(url).catch(() => {
           setState({ errorKey: 'openBookmarkError' })
         })
       },
