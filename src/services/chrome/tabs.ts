@@ -14,27 +14,12 @@ export async function listLinkableTabs() {
     .sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0))
 }
 
-export async function getPreferredAttachableTab() {
-  const attachableTabs = await listLinkableTabs()
-
-  if (attachableTabs.length === 0) return
-
-  const activeTab = [...attachableTabs]
-    .filter((tab) => tab.active)
-    .sort((left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0))[0]
-  if (activeTab) return activeTab
-
-  return [...attachableTabs].sort(
-    (left, right) => (right.lastAccessed ?? 0) - (left.lastAccessed ?? 0),
-  )[0]
-}
-
 export async function focusOrOpenTab(linkedTab: Pick<LinkableTab, 'url'>) {
   const tabs = await chrome.tabs.query({})
   const exactMatches = tabs.filter((tab) => tab.url === linkedTab.url)
   const targetTab = exactMatches.find((tab) => tab.active) ?? exactMatches[0]
 
-  if (targetTab?.id && typeof targetTab.windowId === 'number') {
+  if (targetTab?.id) {
     await chrome.windows.update(targetTab.windowId, { focused: true })
     await chrome.tabs.update(targetTab.id, { active: true })
     return

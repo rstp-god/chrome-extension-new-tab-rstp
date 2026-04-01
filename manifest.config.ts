@@ -17,7 +17,7 @@ export default defineManifest({
   chrome_url_overrides: {
     newtab: 'src/newtab/index.html',
   },
-  permissions: ['sidePanel', 'contentSettings', 'storage', 'tabs'],
+  permissions: ['sidePanel', 'contentSettings', 'storage', 'tabs', 'bookmarks', 'tabGroups'],
   content_scripts: [
     {
       js: ['src/content/main.tsx'],

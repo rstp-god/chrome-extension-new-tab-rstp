@@ -1,0 +1,47 @@
+{
+  "title": "Chrome Library",
+  "description": "Groups and bookmarks from Chrome",
+  "searchPlaceholder": "Search groups and bookmarks...",
+  "actions": {
+    "refresh": "Refresh",
+    "openSettings": "Open settings",
+    "openGroup": "Open group"
+  },
+  "settings": {
+    "title": "Display settings",
+    "description": "Choose how lists should be rendered inside the widget.",
+    "sectioned": "Sectioned view",
+    "combined": "Combined list"
+  },
+  "labels": {
+    "groups": "Groups",
+    "bookmarks": "Bookmarks",
+    "combinedList": "Combined list",
+    "untitledGroup": "Untitled group",
+    "untitledFolder": "Untitled folder",
+    "savedGroup": "Saved group",
+    "windowWithId": "Window {{id}}",
+    "tabsCountUnknown": "tabs: ?",
+    "tabsCount_one": "{{count}} tab",
+    "tabsCount_other": "{{count}} tabs",
+    "root": "Root"
+  },
+  "messages": {
+    "loading": "Loading Chrome data...",
+    "apiUnavailable": "Chrome API is unavailable in this context.",
+    "loadError": "Failed to load groups and bookmarks.",
+    "openTabError": "Unable to focus this tab.",
+    "openGroupError": "Unable to open this group.",
+    "openBookmarkError": "Unable to open this bookmark.",
+    "noTabs": "No tabs in this group.",
+    "noGroups": "No tab groups right now.",
+    "noBookmarks": "No bookmarks found.",
+    "noResults": "Nothing matches your search."
+  },
+  "preview": {
+    "groupRowPrimary": "Work Group",
+    "groupRowSecondary": "Research Group",
+    "bookmarkRowPrimary": "Project board",
+    "bookmarkRowSecondary": "Design references"
+  }
+}
