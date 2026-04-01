@@ -1,6 +1,6 @@
 import { Button } from '@/components/ui/button.tsx'
 import { ChromeLibraryFavicon } from '@/widgets/ChromeLibrary/components/ChromeLibraryFavicon.tsx'
-import { ChromeTabGroupColor, ChromeTabGroupView } from '@/widgets/ChromeLibrary/types/types.ts';
+import { ChromeTabGroupColor, ChromeTabGroupView } from '@/widgets/ChromeLibrary/types/types.ts'
 import { ChevronDownIcon, ChevronRightIcon } from 'lucide-react'
 
 interface Props {
@@ -69,11 +69,17 @@ export function ChromeLibraryGroupList({
                 className="flex h-auto min-w-0 flex-1 items-center justify-start gap-3 rounded-xl px-3 py-3"
                 onClick={() => onToggleGroup(groupId)}
               >
-                {isExpanded ? <ChevronDownIcon className="size-4 shrink-0" /> : <ChevronRightIcon className="size-4 shrink-0" />}
+                {isExpanded ? (
+                  <ChevronDownIcon className="size-4 shrink-0" />
+                ) : (
+                  <ChevronRightIcon className="size-4 shrink-0" />
+                )}
                 <span className={`size-2.5 rounded-full ${getGroupColorClass(color)}`} />
                 <div className="min-w-0 flex-1 text-left">
                   <div className="flex items-center gap-2">
-                    <div className="truncate text-sm font-medium">{title ?? untitledGroupLabel}</div>
+                    <div className="truncate text-sm font-medium">
+                      {title ?? untitledGroupLabel}
+                    </div>
                     <span className="shrink-0 text-xs text-muted-foreground">
                       {tabsCountLabel(tabsCount)}
                     </span>
@@ -94,7 +100,9 @@ export function ChromeLibraryGroupList({
             {isExpanded && (
               <div className="mt-1 grid grid-cols-1 gap-1 px-1 pb-1">
                 {tabs.length === 0 ? (
-                  <div className="rounded-xl px-3 py-2 text-xs text-muted-foreground">{noTabsLabel}</div>
+                  <div className="rounded-xl px-3 py-2 text-xs text-muted-foreground">
+                    {noTabsLabel}
+                  </div>
                 ) : (
                   tabs.map((tab) => {
                     return (
@@ -105,10 +113,15 @@ export function ChromeLibraryGroupList({
                         className="h-auto min-w-0 justify-start rounded-xl px-3 py-2 text-left"
                         onClick={() => onOpenTab(tab.tabId, tab.windowId)}
                       >
-                        <ChromeLibraryFavicon url={tab.url} className="mr-2 size-4 shrink-0 rounded-sm" />
+                        <ChromeLibraryFavicon
+                          url={tab.url}
+                          className="mr-2 size-4 shrink-0 rounded-sm"
+                        />
                         <div className="min-w-0">
                           <div className="truncate text-xs font-medium">{tab.title || ' '}</div>
-                          <div className="truncate text-[11px] text-muted-foreground">{tab.url}</div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {tab.url}
+                          </div>
                         </div>
                       </Button>
                     )

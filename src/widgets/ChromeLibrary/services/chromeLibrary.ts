@@ -3,9 +3,8 @@ import {
   BookmarkLinkNode,
   BookmarkTreeItem,
   ChromeTabGroupView,
-  CombinedLibraryItem
-} from '@/widgets/ChromeLibrary/types/types.ts';
-
+  CombinedLibraryItem,
+} from '@/widgets/ChromeLibrary/types/types.ts'
 
 function normalizeTitle(title: string | undefined | null) {
   return title?.trim() ?? ''
@@ -37,7 +36,9 @@ function groupMatchesQuery(group: ChromeTabGroupView, query: string) {
   if (groupTitle.includes(normalized)) return true
 
   return group.tabs.some((tab) => {
-    return tab.title.toLowerCase().includes(normalized) || tab.url.toLowerCase().includes(normalized)
+    return (
+      tab.title.toLowerCase().includes(normalized) || tab.url.toLowerCase().includes(normalized)
+    )
   })
 }
 

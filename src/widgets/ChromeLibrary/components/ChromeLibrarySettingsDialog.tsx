@@ -6,7 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
-import { ChromeLibraryViewMode } from '@/widgets/ChromeLibrary/types/types.ts';
+import { ChromeLibraryViewMode } from '@/widgets/ChromeLibrary/types/types.ts'
 
 interface Props {
   open: boolean

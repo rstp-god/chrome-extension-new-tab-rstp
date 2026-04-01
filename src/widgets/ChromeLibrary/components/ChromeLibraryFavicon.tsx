@@ -6,5 +6,7 @@ interface Props {
 }
 
 export function ChromeLibraryFavicon({ url, className }: Props) {
-  return <img src={getFaviconUrl(url)} alt="" className={className ?? 'size-4 shrink-0 rounded-sm'} />
+  return (
+    <img src={getFaviconUrl(url)} alt="" className={className ?? 'size-4 shrink-0 rounded-sm'} />
+  )
 }

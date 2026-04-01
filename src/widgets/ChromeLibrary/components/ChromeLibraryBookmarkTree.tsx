@@ -5,13 +5,8 @@ import {
   getFolderNodes,
   toBreadcrumb,
 } from '@/widgets/ChromeLibrary/services/chromeLibrary.ts'
-import { BookmarkFolderNode, BookmarkTreeItem } from '@/widgets/ChromeLibrary/types/types.ts';
-import {
-  ChevronDownIcon,
-  ChevronRightIcon,
-  FolderIcon,
-  FolderOpenIcon,
-} from 'lucide-react'
+import { BookmarkFolderNode, BookmarkTreeItem } from '@/widgets/ChromeLibrary/types/types.ts'
+import { ChevronDownIcon, ChevronRightIcon, FolderIcon, FolderOpenIcon } from 'lucide-react'
 import { ReactNode } from 'react'
 
 interface Props {
@@ -86,7 +81,10 @@ export function ChromeLibraryBookmarkTree({
                   style={{ paddingLeft: `${8 + (depth + 1) * 12}px` }}
                   onClick={() => onOpenBookmark(item.url)}
                 >
-                  <ChromeLibraryFavicon url={item.url} className="mr-2 size-4 shrink-0 rounded-sm" />
+                  <ChromeLibraryFavicon
+                    url={item.url}
+                    className="mr-2 size-4 shrink-0 rounded-sm"
+                  />
                   <span className="truncate text-xs">{item.title}</span>
                 </Button>
               )

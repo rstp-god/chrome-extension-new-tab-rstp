@@ -8,7 +8,11 @@ import {
   openTabGroup,
 } from '@/services/chrome/chromeLibrary.ts'
 import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
-import { BookmarkTreeItem, ChromeLibraryViewMode, ChromeTabGroupView } from '@/widgets/ChromeLibrary/types/types.ts';
+import {
+  BookmarkTreeItem,
+  ChromeLibraryViewMode,
+  ChromeTabGroupView,
+} from '@/widgets/ChromeLibrary/types/types.ts'
 import { z } from 'zod'
 import { create } from 'zustand/react'
 

@@ -1,11 +1,10 @@
-
 import { hasChromeApis, openUrlInNewTab } from '@/services/chrome/common.ts'
 import {
   BookmarkTreeItem,
   ChromeGroupedTab,
   ChromeTabGroupColor,
-  ChromeTabGroupView
-} from '@/widgets/ChromeLibrary/types/types.ts';
+  ChromeTabGroupView,
+} from '@/widgets/ChromeLibrary/types/types.ts'
 
 function normalizeTitle(title: string | undefined | null) {
   return title?.trim() ?? ''

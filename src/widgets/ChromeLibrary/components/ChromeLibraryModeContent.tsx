@@ -8,8 +8,8 @@ import {
   BookmarkLinkNode,
   BookmarkTreeItem,
   ChromeTabGroupView,
-  CombinedLibraryItem
-} from '@/widgets/ChromeLibrary/types/types.ts';
+  CombinedLibraryItem,
+} from '@/widgets/ChromeLibrary/types/types.ts'
 import { BookmarkIcon, LayersIcon, MonitorIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
