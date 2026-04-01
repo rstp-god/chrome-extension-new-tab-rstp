@@ -1,5 +1,6 @@
 import { WidgetMeta } from '@/types/widgets.ts'
 import { TodoWidget } from './TodoWidget.tsx'
+import { TodoWidgetPreview } from './TodoWidgetPreview.tsx'
 
 export const meta = {
   widgetType: 'todo',
@@ -11,3 +12,4 @@ export const meta = {
 } satisfies WidgetMeta
 
 export const Component = TodoWidget
+export const PreviewComponent = TodoWidgetPreview

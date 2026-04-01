@@ -85,6 +85,7 @@ import.meta.glob('../widgets/*/index.ts', { eager: true })
 
 - `meta` (`WidgetMeta`) — метаинформация виджета
 - `Component` — React-компонент виджета
+- `PreviewComponent` — необязательный React-компонент превью для диалога добавления виджета
 
 На основе `meta.widgetType` формируется словарь `widgetRegistry`, который используется:
 
@@ -178,18 +179,69 @@ export const meta = {
 export const Component = WeatherWidget
 ```
 
-### Шаг 4. Проверьте уникальность `widgetType`
+### Шаг 4. Добавьте `PreviewComponent` для preview в диалоге
+
+Если виджет должен красиво отображаться в диалоге добавления, экспортируйте отдельный preview-компонент.
+
+`src/widgets/Weather/WeatherWidgetPreview.tsx`:
+
+```tsx
+import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { WidgetFrame } from '@/newtab/components/WidgetLayout/WidgetFrame.tsx'
+
+export function WeatherWidgetPreview() {
+  return (
+    <WidgetFrame title="Погода" pinned={false}>
+      <div className="flex items-center gap-2">
+        <Input disabled value="" placeholder="Введите город" />
+        <Button disabled>Погода</Button>
+      </div>
+    </WidgetFrame>
+  )
+}
+```
+
+И подключите его в `src/widgets/Weather/index.ts`:
+
+```ts
+import { WidgetMeta } from '@/types/widgets.ts'
+import { WeatherWidget } from './WeatherWidget.tsx'
+import { WeatherWidgetPreview } from './WeatherWidgetPreview.tsx'
+
+export const meta = {
+  widgetType: 'weather',
+  title: 'Погода',
+  description: 'Быстрый поиск прогноза',
+  defaultLayout: { w: 2, h: 4, minW: 2, minH: 4 },
+} satisfies WidgetMeta
+
+export const Component = WeatherWidget
+export const PreviewComponent = WeatherWidgetPreview
+```
+
+### Рекомендации по preview-компоненту
+
+- Делайте preview упрощенным и статичным: это шаблон, а не полноценный live-виджет.
+- Не используйте в preview побочные эффекты, `chrome.*`, сетевые запросы и запись в store.
+- По возможности визуально переиспользуйте `WidgetFrame` и знакомые элементы из боевого виджета.
+- Используйте `disabled`-состояния и mock-данные, чтобы показать структуру виджета без настоящего интерактива.
+- Держите preview компактным: он должен хорошо смотреться в узкой плавающей панели рядом с модалкой.
+- Если у виджета нет `PreviewComponent`, диалог покажет fallback-превью с заголовком и описанием.
+
+### Шаг 5. Проверьте уникальность `widgetType`
 
 `widgetType` должен быть уникальным среди всех виджетов. Если повторится, registry перезапишет запись.
 
-### Шаг 5. Запустите приложение и добавьте виджет
+### Шаг 6. Запустите приложение и добавьте виджет
 
 После запуска `yarn dev` и перезагрузки расширения:
 
 - виджет автоматически появится в списке «Добавить виджет»
 - при добавлении создастся инстанс с layout из `meta.defaultLayout`
+- если экспортирован `PreviewComponent`, он будет показан в hover-preview рядом с диалогом
 
-### Шаг 6. Если виджет хранит свои данные
+### Шаг 7. Если виджет хранит свои данные
 
 Если вашему виджету нужно состояние (например, выбранный город), добавьте отдельный zustand-стор с `withChromeSync`:
 
@@ -231,6 +283,7 @@ export const Component = WeatherWidget
 
 - [ ] Создана папка `src/widgets/<Name>/`
 - [ ] Есть `index.ts` с `meta` и `Component`
+- [ ] При необходимости добавлен `PreviewComponent`
 - [ ] `widgetType` уникален
 - [ ] Корректно заполнен `defaultLayout`
 - [ ] Нужные Chrome permissions учтены
@@ -329,6 +382,7 @@ Every `src/widgets/<WidgetName>/index.ts` must export:
 
 - `meta` (`WidgetMeta`) — widget metadata
 - `Component` — widget React component
+- `PreviewComponent` — optional React preview component for the add-widget dialog
 
 The app builds `widgetRegistry` from `meta.widgetType`. This registry is used by:
 
@@ -416,18 +470,69 @@ export const meta = {
 export const Component = WeatherWidget
 ```
 
-### 4) Keep `widgetType` unique
+### 4) Add `PreviewComponent` for dialog preview
+
+If you want the widget to render nicely inside the add-widget dialog, export a dedicated preview component.
+
+`src/widgets/Weather/WeatherWidgetPreview.tsx`:
+
+```tsx
+import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { WidgetFrame } from '@/newtab/components/WidgetLayout/WidgetFrame.tsx'
+
+export function WeatherWidgetPreview() {
+  return (
+    <WidgetFrame title="Weather" pinned={false}>
+      <div className="flex items-center gap-2">
+        <Input disabled value="" placeholder="Enter city" />
+        <Button disabled>Weather</Button>
+      </div>
+    </WidgetFrame>
+  )
+}
+```
+
+Then wire it in `src/widgets/Weather/index.ts`:
+
+```ts
+import { WidgetMeta } from '@/types/widgets.ts'
+import { WeatherWidget } from './WeatherWidget.tsx'
+import { WeatherWidgetPreview } from './WeatherWidgetPreview.tsx'
+
+export const meta = {
+  widgetType: 'weather',
+  title: 'Weather',
+  description: 'Quick forecast lookup',
+  defaultLayout: { w: 2, h: 4, minW: 2, minH: 4 },
+} satisfies WidgetMeta
+
+export const Component = WeatherWidget
+export const PreviewComponent = WeatherWidgetPreview
+```
+
+### Preview component recommendations
+
+- Keep previews simplified and static: they are templates, not live widgets.
+- Do not use side effects, `chrome.*`, network calls, or store writes inside previews.
+- Reuse `WidgetFrame` and visual patterns from the real widget whenever possible.
+- Prefer disabled controls and mock data to show the widget structure safely.
+- Keep the preview compact so it fits well into the narrow floating panel next to the dialog.
+- If a widget does not export `PreviewComponent`, the dialog falls back to a generic title/description preview.
+
+### 5) Keep `widgetType` unique
 
 `widgetType` must be unique across all widgets. Duplicates can overwrite entries in the registry map.
 
-### 5) Run and add widget
+### 6) Run and add widget
 
 After `yarn dev` and extension reload:
 
 - the widget should appear in “Add widget” dialog
 - adding it creates an instance with `meta.defaultLayout`
+- if `PreviewComponent` is exported, it appears in the hover preview next to the dialog
 
-### 6) Persist widget-specific state (optional)
+### 7) Persist widget-specific state (optional)
 
 If your widget stores settings/data (e.g., selected city), create a dedicated Zustand store with `withChromeSync`:
 
@@ -469,6 +574,7 @@ Current manifest permissions include:
 
 - [ ] Folder created: `src/widgets/<Name>/`
 - [ ] `index.ts` exports `meta` and `Component`
+- [ ] `PreviewComponent` added when a custom preview is needed
 - [ ] Unique `widgetType`
 - [ ] Correct `defaultLayout`
 - [ ] Required Chrome permissions reviewed

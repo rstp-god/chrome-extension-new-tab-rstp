@@ -8,5 +8,7 @@
     "night": "Доброй ночи"
   },
   "addWidget": "Добавить виджет",
-  "addWidgetTitle": "Добавление виджета"
+  "addWidgetTitle": "Добавление виджета",
+  "templatePreview": "Пример виджета",
+  "previewComingSoon": "Превью скоро появится"
 }

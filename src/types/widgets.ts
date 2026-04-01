@@ -16,6 +16,7 @@ export interface WidgetMeta {
 export interface WidgetModule {
   meta: WidgetMeta
   Component: ComponentType<unknown>
+  PreviewComponent?: ComponentType<unknown>
 }
 
 const modules = import.meta.glob('../widgets/*/index.ts', { eager: true }) as Record<
