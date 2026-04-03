@@ -1,0 +1,22 @@
+name: Branch Naming Policy
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+jobs:
+  branch-naming-policy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run Branch Naming Policy Action
+        uses: nicklegan/github-repo-branch-naming-policy-action@v1.1.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          regex: '^(widget|fix|feature)\/.+$'
