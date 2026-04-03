@@ -3,6 +3,9 @@ name: Validate PR body
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
+  push:
+    branches:
+      - main
 
 jobs:
   validate:
