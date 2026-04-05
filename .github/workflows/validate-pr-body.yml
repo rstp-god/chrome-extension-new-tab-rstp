@@ -15,15 +15,31 @@ jobs:
           script: |
             const body = context.payload.pull_request.body || "";
 
-            const requiredSections = [
-              "## Summary",
-              "## Why",
-              "## Changes",
-              "## Testing",
-              "## Checklist"
-            ];
+            const templates = {
+              en: [
+                "## Summary",
+                "## Why",
+                "## Changes",
+                "## Testing",
+                "## Checklist"
+              ],
+              ru: [
+                "## Кратко",
+                "## Почему",
+                "## Изменения",
+                "## Тестирование",
+                "## Чеклист"
+              ]
+            };
 
-            const missingSections = requiredSections.filter(section => !body.includes(section));
+            const missingByTemplate = Object.fromEntries(
+              Object.entries(templates).map(([lang, sections]) => [
+                lang,
+                sections.filter(section => !body.includes(section))
+              ])
+            );
+
+            const matchesTemplate = Object.values(missingByTemplate).some(missing => missing.length === 0);
 
             const stripped = body
               .replace(/<!--[\s\S]*?-->/g, "")
@@ -32,16 +48,20 @@ jobs:
 
             const isTooShort = stripped.length < 80;
 
-            if (missingSections.length > 0 || isTooShort) {
-              core.setFailed(
-                [
-                  "PR description is invalid.",
-                  missingSections.length
-                    ? `Missing sections: ${missingSections.join(", ")}`
-                    : null,
-                  isTooShort
-                    ? "Description is too short. Fill the template properly."
-                    : null
-                ].filter(Boolean).join("\n")
-              );
+            if (!matchesTemplate || isTooShort) {
+              const details = [];
+
+              if (!matchesTemplate) {
+                details.push(
+                  "PR description must match either EN or RU template structure.",
+                  `Missing (EN): ${missingByTemplate.en.join(", ") || "none"}`,
+                  `Missing (RU): ${missingByTemplate.ru.join(", ") || "none"}`
+                );
+              }
+
+              if (isTooShort) {
+                details.push("Description is too short. Fill the template properly.");
+              }
+
+              core.setFailed(["PR description is invalid.", ...details].join("\n"));
             }

@@ -1,0 +1,67 @@
+name: '🧩 Запрос нового виджета'
+description: 'Предложить новый виджет для страницы новой вкладки'
+title: '[WIDGET]: '
+labels: ['widget', 'enhancement', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Этот шаблон для предложений **новых виджетов**.
+
+  - type: input
+    id: widget_name
+    attributes:
+      label: Название виджета
+      placeholder: Например, "Pomodoro Timer"
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_value
+    attributes:
+      label: Пользовательская ценность
+      description: Почему этот виджет нужен и кому?
+    validations:
+      required: true
+
+  - type: textarea
+    id: functionality
+    attributes:
+      label: Основная функциональность
+      description: Какие ключевые возможности должен иметь виджет?
+      placeholder: |
+        - Настройка ...
+        - Отображение ...
+        - Интеграция ...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: persistence
+    attributes:
+      label: Хранение данных
+      options:
+        - label: Нужна синхронизация между устройствами
+        - label: Достаточно локального хранения
+        - label: Не требует хранения
+    validations:
+      required: true
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Оценка сложности (на ваш взгляд)
+      options:
+        - Низкая
+        - Средняя
+        - Высокая
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: Референсы и примеры (опционально)
+      description: Ссылки на похожие решения, макеты, скриншоты.
+    validations:
+      required: false

@@ -1,0 +1,120 @@
+name: Validate issue template
+
+on:
+  issues:
+    types: [opened, edited, reopened, labeled]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Validate issue body
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const body = issue.body || "";
+            const labels = (issue.labels || []).map((l) => l.name);
+
+            let kind = "feature";
+            if (labels.includes("widget")) {
+              kind = "widget";
+            } else if (labels.includes("bug")) {
+              kind = "bug";
+            }
+
+            const rules = {
+              bug: {
+                minLength: 120,
+                requiredSections: [
+                  ["### Краткое описание бага", "### Bug summary"],
+                  ["### Шаги воспроизведения", "### Steps to reproduce"],
+                  ["### Ожидаемое поведение", "### Expected behavior"],
+                  ["### Фактическое поведение", "### Actual behavior"],
+                  ["### Окружение", "### Environment"]
+                ]
+              },
+              feature: {
+                minLength: 100,
+                requiredSections: [
+                  ["### Какую проблему вы решаете?", "### What problem does this solve?"],
+                  ["### Предлагаемое решение", "### Proposed solution"],
+                  ["### Ожидаемый эффект", "### Expected impact"]
+                ]
+              },
+              widget: {
+                minLength: 120,
+                requiredSections: [
+                  ["### Название виджета", "### Widget name"],
+                  ["### Пользовательская ценность", "### User value"],
+                  ["### Основная функциональность", "### Core functionality"],
+                  ["### Хранение данных", "### Data persistence"],
+                  ["### Оценка сложности (на ваш взгляд)", "### Estimated complexity"]
+                ]
+              }
+            };
+
+            const selectedRule = rules[kind];
+
+            const missingSections = selectedRule.requiredSections
+              .filter((sectionVariants) => !sectionVariants.some((header) => body.includes(header)))
+              .map((sectionVariants) => sectionVariants.join(" / "));
+
+            const stripped = body
+              .replace(/<!--([\s\S]*?)-->/g, "")
+              .replace(/\s+/g, " ")
+              .trim();
+
+            const isTooShort = stripped.length < selectedRule.minLength;
+            const isInvalid = missingSections.length > 0 || isTooShort;
+
+            if (!isInvalid) {
+              core.info(`Issue #${issue.number} passed validation as '${kind}'.`);
+              return;
+            }
+
+            const lines = [
+              "Hi! This issue didn't pass the automatic template validation.",
+              "Привет! Этот issue не прошёл автоматическую проверку шаблона.",
+              "",
+              `Issue type / Тип issue: **${kind}**`
+            ];
+
+            if (missingSections.length > 0) {
+              lines.push("", "Missing required sections / Не заполнены обязательные разделы:");
+              missingSections.forEach((header) => lines.push(`- ${header}`));
+            }
+
+            if (isTooShort) {
+              lines.push(
+                "",
+                `Description is too short / Описание слишком короткое: minimum ${selectedRule.minLength} meaningful characters.`
+              );
+            }
+
+            lines.push(
+              "",
+              "Please reopen the issue with the proper template and fill all required fields. / Пожалуйста, откройте issue заново через подходящий шаблон и заполните обязательные поля."
+            );
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: lines.join("\n")
+            });
+
+            if (issue.state === "open") {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                state: "closed",
+                state_reason: "not_planned"
+              });
+            }
+
+            core.setFailed("Issue does not match required template.");
