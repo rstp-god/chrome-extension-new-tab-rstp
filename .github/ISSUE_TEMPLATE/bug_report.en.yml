@@ -1,0 +1,66 @@
+name: '🐞 Bug report'
+description: 'Report a reproducible bug in the extension'
+title: '[BUG]: '
+labels: ['bug', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug! Please fill in all required fields.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Bug summary
+      description: What is broken?
+      placeholder: e.g. "Todo widget disappears after browser restart".
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide a step-by-step reproduction scenario.
+      placeholder: |
+        1. Open a new tab
+        2. Click ...
+        3. See error ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: What happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Provide platform and version details.
+      placeholder: |
+        - OS: Windows 11
+        - Browser: Chrome 124
+        - Extension version: 1.2.3
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots (optional)
+      description: Paste console logs or attach screenshots.
+    validations:
+      required: false

@@ -1,0 +1,67 @@
+name: '🧩 New widget request'
+description: 'Suggest a brand new widget for the new tab page'
+title: '[WIDGET]: '
+labels: ['widget', 'enhancement', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template to suggest **new widgets**.
+
+  - type: input
+    id: widget_name
+    attributes:
+      label: Widget name
+      placeholder: e.g. "Pomodoro Timer"
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_value
+    attributes:
+      label: User value
+      description: Why is this widget useful and for whom?
+    validations:
+      required: true
+
+  - type: textarea
+    id: functionality
+    attributes:
+      label: Core functionality
+      description: What key capabilities should this widget have?
+      placeholder: |
+        - Setting ...
+        - Displaying ...
+        - Integration with ...
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: persistence
+    attributes:
+      label: Data persistence
+      options:
+        - label: Should sync between devices
+        - label: Local storage is enough
+        - label: No storage required
+    validations:
+      required: true
+
+  - type: dropdown
+    id: complexity
+    attributes:
+      label: Estimated complexity
+      options:
+        - Low
+        - Medium
+        - High
+    validations:
+      required: true
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References and examples (optional)
+      description: Links to similar solutions, mockups, screenshots.
+    validations:
+      required: false

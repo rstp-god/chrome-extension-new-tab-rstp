@@ -1,0 +1,66 @@
+name: '🐞 Баг-репорт'
+description: 'Сообщить об ошибке в расширении'
+title: '[BUG]: '
+labels: ['bug', 'needs-triage']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за репорт! Пожалуйста, заполните поля как можно подробнее.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Краткое описание бага
+      description: Что не работает?
+      placeholder: Например, "После перезагрузки браузера пропадает виджет задач".
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Пошагово опишите, как повторить проблему.
+      placeholder: |
+        1. Открыть новую вкладку
+        2. Нажать на ...
+        3. Увидеть ошибку ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+      placeholder: Что должно было произойти?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактическое поведение
+      placeholder: Что произошло на самом деле?
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Окружение
+      description: Укажите платформу и версии.
+      placeholder: |
+        - OS: Windows 11
+        - Browser: Chrome 124
+        - Extension version: 1.2.3
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи / скриншоты (опционально)
+      description: Вставьте логи из консоли или приложите скриншоты.
+    validations:
+      required: false
