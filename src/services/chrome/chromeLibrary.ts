@@ -1,4 +1,6 @@
 import { openUrlInNewTab } from '@/services/chrome/common.ts'
+import { getDemoBookmarkTree, getDemoTabGroupsWithTabs } from '@/services/chrome/demoProvider.ts'
+import { getChromeObject, isShowcaseMode } from '@/services/chrome/runtime.ts'
 import {
   BookmarkTreeItem,
   ChromeGroupedTab,
@@ -72,9 +74,14 @@ function createTabGroupView(
 }
 
 export async function getBookmarkTree(): Promise<BookmarkTreeItem[]> {
-  if (!chrome.bookmarks?.getTree) return []
+  if (isShowcaseMode()) {
+    return getDemoBookmarkTree()
+  }
 
-  const roots = await chrome.bookmarks.getTree()
+  const chromeObject = getChromeObject()
+  if (!chromeObject?.bookmarks?.getTree) return []
+
+  const roots = await chromeObject.bookmarks.getTree()
   const root = roots[0]
   const children = root?.children ?? []
 
@@ -84,9 +91,14 @@ export async function getBookmarkTree(): Promise<BookmarkTreeItem[]> {
 }
 
 export async function getTabGroupsWithTabs(): Promise<ChromeTabGroupView[]> {
-  if (!chrome.tabGroups?.query || !chrome.tabs?.query) return []
+  if (isShowcaseMode()) {
+    return getDemoTabGroupsWithTabs()
+  }
 
-  const [groups, tabs] = await Promise.all([chrome.tabGroups.query({}), chrome.tabs.query({})])
+  const chromeObject = getChromeObject()
+  if (!chromeObject?.tabGroups?.query || !chromeObject?.tabs?.query) return []
+
+  const [groups, tabs] = await Promise.all([chromeObject.tabGroups.query({}), chromeObject.tabs.query({})])
   const tabsByGroup = new Map<number, ChromeGroupedTab[]>()
 
   tabs.forEach((tab) => {
@@ -106,13 +118,23 @@ export async function getTabGroupsWithTabs(): Promise<ChromeTabGroupView[]> {
 }
 
 export async function focusGroupedTab(tabId: number, windowId: number) {
-  await chrome.windows.update(windowId, { focused: true })
-  await chrome.tabs.update(tabId, { active: true })
+  if (isShowcaseMode()) return
+
+  const chromeObject = getChromeObject()
+  if (!chromeObject?.windows?.update || !chromeObject?.tabs?.update) return
+
+  await chromeObject.windows.update(windowId, { focused: true })
+  await chromeObject.tabs.update(tabId, { active: true })
 }
 
 export async function openTabGroup(groupId: number, windowId: number) {
-  await chrome.tabGroups.update(groupId, { collapsed: false })
-  const tabs = await chrome.tabs.query({ groupId, windowId })
+  if (isShowcaseMode()) return
+
+  const chromeObject = getChromeObject()
+  if (!chromeObject?.tabGroups?.update || !chromeObject?.tabs?.query || !chromeObject?.windows?.update) return
+
+  await chromeObject.tabGroups.update(groupId, { collapsed: false })
+  const tabs = await chromeObject.tabs.query({ groupId, windowId })
   const targetTabId = (tabs.find((tab) => tab.active) ?? tabs[0])?.id
 
   if (targetTabId != null) {
@@ -120,7 +142,7 @@ export async function openTabGroup(groupId: number, windowId: number) {
     return
   }
 
-  await chrome.windows.update(windowId, { focused: true })
+  await chromeObject.windows.update(windowId, { focused: true })
 }
 
 export function openBookmark(url: string) {

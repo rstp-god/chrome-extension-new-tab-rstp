@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button.tsx'
 import AddWidgetDialog from '@/newtab/components/Header/AddWidgetDialog.tsx'
 import { getGreetingPeriod } from '@/newtab/components/Header/utils/getGreetings.ts'
+import { isShowcaseMode } from '@/services/chrome/runtime.ts'
 import { useHeaderStore } from '@/store/header.ts'
 import { useWidgetStore } from '@/store/widget.ts'
 import { BackgroundStateV1 } from '@/types/background.ts'
@@ -28,7 +29,14 @@ export function Header(props: Props) {
 
   return (
     <div className="flex items-center justify-between">
-      <div className="text-lg font-semibold tracking-tight">{greetingLine}</div>
+      <div className="flex items-center gap-2">
+        <div className="text-lg font-semibold tracking-tight">{greetingLine}</div>
+        {isShowcaseMode() && (
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">
+            {t('demoMode')}
+          </span>
+        )}
+      </div>
 
       <div className="flex items-center gap-2">
         <Button

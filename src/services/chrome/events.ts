@@ -1,25 +1,29 @@
+import { getChromeObject } from '@/services/chrome/runtime.ts'
+
+const chromeObject = getChromeObject()
+
 export const CHROME_TAB_EVENTS = [
-  chrome.tabs?.onCreated,
-  chrome.tabs?.onRemoved,
-  chrome.tabs?.onUpdated,
-  chrome.tabs?.onMoved,
-  chrome.tabs?.onAttached,
-  chrome.tabs?.onDetached,
-  chrome.tabs?.onActivated,
+  chromeObject?.tabs?.onCreated,
+  chromeObject?.tabs?.onRemoved,
+  chromeObject?.tabs?.onUpdated,
+  chromeObject?.tabs?.onMoved,
+  chromeObject?.tabs?.onAttached,
+  chromeObject?.tabs?.onDetached,
+  chromeObject?.tabs?.onActivated,
 ]
 
 export const CHROME_TAB_GROUP_EVENTS = [
-  chrome.tabGroups?.onCreated,
-  chrome.tabGroups?.onRemoved,
-  chrome.tabGroups?.onUpdated,
-  chrome.tabGroups?.onMoved,
+  chromeObject?.tabGroups?.onCreated,
+  chromeObject?.tabGroups?.onRemoved,
+  chromeObject?.tabGroups?.onUpdated,
+  chromeObject?.tabGroups?.onMoved,
 ]
 
 export const CHROME_BOOKMARK_EVENTS = [
-  chrome.bookmarks?.onCreated,
-  chrome.bookmarks?.onRemoved,
-  chrome.bookmarks?.onChanged,
-  chrome.bookmarks?.onMoved,
-  chrome.bookmarks?.onChildrenReordered,
-  chrome.bookmarks?.onImportEnded,
+  chromeObject?.bookmarks?.onCreated,
+  chromeObject?.bookmarks?.onRemoved,
+  chromeObject?.bookmarks?.onChanged,
+  chromeObject?.bookmarks?.onMoved,
+  chromeObject?.bookmarks?.onChildrenReordered,
+  chromeObject?.bookmarks?.onImportEnded,
 ]

@@ -35,7 +35,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [linkedTab, setLinkedTab] = useState<LinkedTab | undefined>()
-  const [availableTabs, setAvailableTabs] = useState<chrome.tabs.Tab[]>([])
+  const [availableTabs, setAvailableTabs] = useState<LinkableTab[]>([])
   const [selectedTabUrl, setSelectedTabUrl] = useState<string>()
   const [tabError, setTabError] = useState<string | null>(null)
 
@@ -141,7 +141,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
                     </SelectItem>
                   ) : (
                     availableTabs.map((tab) => (
-                      <SelectItem key={`${tab.windowId}-${tab.id}`} value={tab.url ?? ''}>
+                      <SelectItem key={tab.url} value={tab.url}>
                         {tab.title ?? tab.url ?? t('messages.untitledTab')}
                       </SelectItem>
                     ))

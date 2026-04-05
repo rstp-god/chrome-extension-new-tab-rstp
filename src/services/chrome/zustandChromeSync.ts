@@ -1,3 +1,4 @@
+import { hasChromeStorageEvents, isShowcaseMode, getChromeObject } from '@/services/chrome/runtime.ts'
 import { getLocal, setLocal } from '@/services/chrome/storage.ts'
 import type { StateCreator, StoreApi } from 'zustand'
 import type { z } from 'zod'
@@ -99,7 +100,10 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
         applyingRemote = false
       }
 
-      chrome.storage.onChanged.addListener(onChanged)
+      const chromeObject = getChromeObject()
+      if (!isShowcaseMode() && hasChromeStorageEvents()) {
+        chromeObject?.storage.onChanged.addListener(onChanged)
+      }
 
       if (autoPersist) {
         const storeApi = api as StoreApi<TState>

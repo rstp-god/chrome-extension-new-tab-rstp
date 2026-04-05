@@ -1,5 +1,6 @@
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
+import { openUrlInNewTab } from '@/services/chrome/common.ts'
 import { SubmitEvent, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -13,10 +14,7 @@ export function SearchWidget() {
     if (!query) return
 
     const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`
-    chrome.tabs?.create?.({ url }).then((tab) => {
-      if (tab) return
-      window.open(url, '_blank')
-    })
+    void openUrlInNewTab(url)
   }
 
   return (

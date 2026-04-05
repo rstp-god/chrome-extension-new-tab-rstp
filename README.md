@@ -61,6 +61,15 @@ yarn dev
 yarn build
 ```
 
+Showcase (без установки расширения):
+
+```bash
+yarn build:showcase
+yarn preview:showcase
+```
+
+Для showcase используется режим `VITE_RUNTIME_MODE=showcase` и демо-данные вместо Chrome API.
+
 ## 🧩 Архитектура (для стороннего разработчика)
 
 ### Где что находится
@@ -358,6 +367,15 @@ Production build:
 ```bash
 yarn build
 ```
+
+Showcase build (no extension install required):
+
+```bash
+yarn build:showcase
+yarn preview:showcase
+```
+
+Showcase runs with `VITE_RUNTIME_MODE=showcase` and uses demo data instead of live Chrome APIs.
 
 ## 🧩 Architecture for third-party developers
 
