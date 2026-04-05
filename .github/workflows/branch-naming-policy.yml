@@ -9,9 +9,6 @@ on:
       - edited
       - synchronize
       - reopened
-  push:
-    branches:
-      - main
 
 jobs:
   branch-naming-policy:
