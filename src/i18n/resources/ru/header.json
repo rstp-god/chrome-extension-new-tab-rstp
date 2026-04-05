@@ -10,5 +10,6 @@
   "addWidget": "Добавить виджет",
   "addWidgetTitle": "Добавление виджета",
   "templatePreview": "Пример виджета",
-  "previewComingSoon": "Превью скоро появится"
+  "previewComingSoon": "Превью скоро появится",
+  "demoMode": "Демо режим"
 }

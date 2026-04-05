@@ -11,7 +11,10 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier . --write",
     "format:check": "prettier . --check",
-    "prepare": "husky"
+    "prepare": "husky",
+    "dev:showcase": "vite --config vite.showcase.config.ts --mode showcase",
+    "build:showcase": "tsc -b && vite build --config vite.showcase.config.ts --mode showcase",
+    "preview:showcase": "vite preview --config vite.showcase.config.ts --mode showcase"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
