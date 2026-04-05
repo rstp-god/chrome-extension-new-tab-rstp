@@ -12,15 +12,24 @@ interface Props {
 
 export function WidgetFrame({ title, children, pinned, onRemove }: Props) {
   return (
-    <Card className="handle flex h-full min-h-0 flex-col">
+    <Card className="flex h-full min-h-0 flex-col">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
         <CardTitle className="text-sm">{title}</CardTitle>
         {pinned && (
           <div className="flex items-center">
-            <Button className="cursor-pointer" size="sm" variant="ghost" onClick={onRemove}>
+            <Button
+              className="cursor-pointer"
+              size="sm"
+              variant="ghost"
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.stopPropagation()
+                onRemove?.()
+              }}
+            >
               <XIcon color="red" />{' '}
             </Button>
-            <div className="cursor-grab select-none text-muted-foreground">
+            <div className="handle cursor-grab select-none text-muted-foreground">
               <GripVerticalIcon className="size-4" />
             </div>
           </div>
