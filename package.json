@@ -14,7 +14,16 @@
     "prepare": "husky",
     "dev:showcase": "vite --config vite.showcase.config.ts --mode showcase",
     "build:showcase": "tsc -b && vite build --config vite.showcase.config.ts --mode showcase",
-    "preview:showcase": "vite preview --config vite.showcase.config.ts --mode showcase"
+    "preview:showcase": "vite preview --config vite.showcase.config.ts --mode showcase",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "test:smoke": "playwright test",
+    "test:extension": "xvfb-run -a node tests/extension/run.mjs",
+    "test:extension:update-snapshots": "xvfb-run -a node tests/extension/run.mjs --update-snapshots",
+    "build:test-extension": "yarn build",
+    "test:coverage:unit": "vitest run --coverage"
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
@@ -40,6 +49,11 @@
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.4.0",
     "@eslint/js": "^9.39.2",
+    "@playwright/test": "^1.59.1",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/chrome": "^0.1.37",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
@@ -53,10 +67,16 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "husky": "^9.1.7",
+    "jsdom": "^29.0.1",
+    "pixelmatch": "^7.1.0",
+    "pngjs": "^7.0.0",
     "prettier": "^3.8.1",
+    "puppeteer": "^24.40.0",
+    "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.2",
     "vite": "^8.0.0",
-    "vite-plugin-zip-pack": "^1.2.4"
+    "vite-plugin-zip-pack": "^1.2.4",
+    "vitest": "^4.1.2"
   }
 }

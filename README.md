@@ -599,3 +599,39 @@ Current manifest permissions include:
 - [ ] Fallbacks for missing `chrome.*` API
 - [ ] Add/remove flow tested in UI
 - [ ] State restore tested after extension reload
+
+### 🧪 Testing
+
+- Unit/Component tests: `yarn test`
+- Coverage (Vitest unit/component suites): `yarn test:coverage`
+- Playwright smoke: `yarn test:smoke`
+- Extension screenshot tests (Puppeteer):
+  1. `yarn build:test-extension`
+  2. `yarn test:extension`
+- Update baseline screenshots: `yarn test:extension:update-snapshots`
+- Snapshot PNG files are generated locally/CI and are not committed to Git.
+
+Test file placement:
+
+- Widget tests: `src/widgets/<WidgetName>/test/`
+- Chrome API and sync-store tests: `src/tests/`
+- Shared test constants: `src/test/constants/`
+
+
+### 🧪 Тестирование
+
+- Unit/Component тесты: `yarn test`
+- Coverage (покрытие unit/component тестов Vitest): `yarn test:coverage`
+- Playwright smoke: `yarn test:smoke`
+- Extension screenshot tests (Puppeteer):
+  1. `yarn build:test-extension`
+  2. `yarn test:extension`
+- Обновление baseline скриншотов: `yarn test:extension:update-snapshots`
+- PNG-скриншоты генерируются локально/в CI и не коммитятся в Git.
+
+Тестовые файлы хранятся так:
+
+- Тесты виджетов: `src/widgets/<WidgetName>/test/`
+- Chrome API и sync store тесты: `src/tests/`
+- Общие test-константы: `src/test/constants/`
+
