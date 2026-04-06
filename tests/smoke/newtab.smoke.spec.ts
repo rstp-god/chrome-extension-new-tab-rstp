@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { test, expect, chromium } from '@playwright/test'
 
-test('loads extension service worker in Chromium', async () => {
+test('loads extension newtab UI in Chromium', async () => {
   const distDir = path.resolve(process.cwd(), 'dist')
   expect(fs.existsSync(path.join(distDir, 'manifest.json'))).toBe(true)
 
@@ -17,8 +17,14 @@ test('loads extension service worker in Chromium', async () => {
   })
 
   try {
-    const worker = await context.waitForEvent('serviceworker')
-    expect(worker.url()).toContain('chrome-extension://')
+    const page = await context.newPage()
+    await page.goto('chrome://newtab/', { waitUntil: 'domcontentloaded' })
+
+    await expect
+      .poll(async () => page.evaluate(() => document.body.innerText), {
+        timeout: 20_000,
+      })
+      .toMatch(/(Settings|Search|Настройки)/)
   } finally {
     await context.close()
   }

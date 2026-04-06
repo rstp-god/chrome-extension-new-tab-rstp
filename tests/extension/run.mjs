@@ -1,3 +1,4 @@
+/* global process, console, setTimeout, document, HTMLElement, MouseEvent */
 import fs from 'node:fs'
 import path from 'node:path'
 import puppeteer from 'puppeteer'
@@ -119,9 +120,7 @@ async function run() {
     const page = await browser.newPage()
 
     await ensureTestPage(page)
-
     await screenshotPage(page, 'newtab-default')
-
 
     await page.evaluate(() => {
       const firstButton = document.querySelector('button')
