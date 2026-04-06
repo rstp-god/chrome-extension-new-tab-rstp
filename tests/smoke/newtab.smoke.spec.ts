@@ -19,6 +19,7 @@ test('loads extension newtab UI in Chromium', async () => {
   try {
     const page = await context.newPage()
     await page.goto('chrome://newtab/', { waitUntil: 'domcontentloaded' })
+    await page.waitForURL(/^chrome-extension:\/\//, { timeout: 20_000 })
 
     await expect
       .poll(async () => page.evaluate(() => document.body.innerText), {

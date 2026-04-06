@@ -13,6 +13,7 @@ const baselineDir = path.join(snapshotDir, 'baseline')
 const actualDir = path.join(snapshotDir, 'actual')
 const diffDir = path.join(snapshotDir, 'diff')
 const updateSnapshots = process.argv.includes('--update-snapshots')
+let hasCommittedBaselines = false
 
 function ensureDir(dir) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
@@ -22,6 +23,13 @@ function ensureBuildExists() {
   if (!fs.existsSync(manifestPath)) {
     throw new Error('dist/manifest.json not found. Run yarn build:test-extension before test:extension')
   }
+}
+
+function detectCommittedBaselines() {
+  if (!fs.existsSync(baselineDir)) return false
+
+  const entries = fs.readdirSync(baselineDir)
+  return entries.some((entry) => entry.endsWith('.png'))
 }
 
 function compareScreenshots(name) {
@@ -49,10 +57,22 @@ function assertSnapshot(name) {
   const baselinePath = path.join(baselineDir, `${name}.png`)
   const actualPath = path.join(actualDir, `${name}.png`)
 
-  if (updateSnapshots || !fs.existsSync(baselinePath)) {
+  if (updateSnapshots) {
     fs.copyFileSync(actualPath, baselinePath)
     console.log(`[snapshot] baseline updated: ${name}`)
     return
+  }
+
+  if (!fs.existsSync(baselinePath)) {
+    if (!hasCommittedBaselines) {
+      fs.copyFileSync(actualPath, baselinePath)
+      console.log(`[snapshot] baseline bootstrapped: ${name}`)
+      return
+    }
+
+    throw new Error(
+      `Missing baseline snapshot for ${name}. Run "yarn test:extension --update-snapshots" to create it.`,
+    )
   }
 
   const mismatches = compareScreenshots(name)
@@ -104,6 +124,7 @@ async function run() {
   ensureDir(baselineDir)
   ensureDir(actualDir)
   ensureDir(diffDir)
+  hasCommittedBaselines = detectCommittedBaselines()
 
   const browser = await puppeteer.launch({
     headless: false,
@@ -157,7 +178,7 @@ async function run() {
     await hoverAndShootPreview(page, 1, 'preview-todo')
     await hoverAndShootPreview(page, 2, 'preview-chrome-library')
 
-    console.log('[snapshot] all extension snapshots matched baseline')
+    console.log('[snapshot] extension snapshot run completed')
   } finally {
     await browser.close()
   }
