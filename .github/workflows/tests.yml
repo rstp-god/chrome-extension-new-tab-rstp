@@ -1,0 +1,64 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main, work, feature/create-test-environment]
+
+jobs:
+  unit-and-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Run Vitest suite
+        run: yarn test
+
+  browser-and-visual:
+    runs-on: ubuntu-latest
+    needs: unit-and-contract
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Install OS packages for Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libatk1.0-0 libatk-bridge2.0-0 libgtk-3-0 libnss3 libxss1 libasound2t64 libgbm1
+
+      - name: Install Playwright browsers
+        run: yarn playwright install --with-deps chromium
+
+      - name: Build extension
+        run: yarn build:test-extension
+
+      - name: Run Playwright smoke tests
+        run: xvfb-run -a yarn test:smoke
+
+      - name: Run extension visual snapshots
+        run: yarn test:extension
