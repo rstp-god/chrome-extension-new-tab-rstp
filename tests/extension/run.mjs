@@ -49,10 +49,15 @@ function assertSnapshot(name) {
   const baselinePath = path.join(baselineDir, `${name}.png`)
   const actualPath = path.join(actualDir, `${name}.png`)
 
-  if (updateSnapshots || !fs.existsSync(baselinePath)) {
+  if (updateSnapshots) {
     fs.copyFileSync(actualPath, baselinePath)
     console.log(`[snapshot] baseline updated: ${name}`)
     return
+  }
+  if (!fs.existsSync(baselinePath)) {
+    throw new Error(
+      `Missing baseline snapshot for ${name}. Run "yarn test:extension --update-snapshots" to create it.`,
+    )
   }
 
   const mismatches = compareScreenshots(name)
