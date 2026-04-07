@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button.tsx'
+import { testIds } from '@tests/constants/testIds.ts'
 import { TodoTask } from '@/widgets/Todo/store/store.ts'
 import clsx from 'clsx'
 import { CheckIcon, ExternalLinkIcon, Trash2Icon } from 'lucide-react'
@@ -33,6 +34,7 @@ export function TodoTaskCard({
 
   return (
     <div
+      data-testid={testIds.todoTask(task.id)}
       className={clsx(
         'rounded-[2rem] border border-border bg-black/25 px-5 py-6 transition-all duration-300 ease-out',
         {
@@ -47,6 +49,7 @@ export function TodoTaskCard({
     >
       <div className="flex items-start gap-3">
         <Button
+          data-testid={testIds.todoComplete(task.id)}
           type="button"
           variant="outline"
           size="icon-sm"
@@ -76,6 +79,7 @@ export function TodoTaskCard({
 
           {task.linkedTab && (
             <button
+              data-testid={testIds.todoOpenLinkedTab(task.id)}
               type="button"
               className="mt-5 flex max-w-full items-center gap-2 text-left text-sm text-muted-foreground hover:text-foreground"
               onClick={() => onOpenLinkedTab(task.id)}
@@ -89,6 +93,7 @@ export function TodoTaskCard({
         </div>
 
         <Button
+          data-testid={testIds.todoDelete(task.id)}
           type="button"
           variant="ghost"
           size="icon-sm"

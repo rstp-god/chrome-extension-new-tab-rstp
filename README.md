@@ -12,6 +12,7 @@
 - [🌐 i18n](#-i18n-новое)
 - [🛠️ Технологии проекта](#️-технологии-проекта)
 - [⚡ Быстрый старт](#-быстрый-старт)
+- [🧪 Тестирование](#-тестирование)
 - [🧩 Архитектура](#-архитектура-для-стороннего-разработчика)
 - [🔄 Как работает синхронизация с Chrome](#-как-работает-синхронизация-с-chrome)
 - [🧪 Полный гайд: как сделать свой виджет](#-полный-гайд-как-сделать-свой-виджет)
@@ -69,6 +70,29 @@ yarn preview:showcase
 ```
 
 Для showcase используется режим `VITE_RUNTIME_MODE=showcase` и демо-данные вместо Chrome API.
+
+## 🧪 Тестирование
+
+- Unit/Component тесты: `yarn test`
+- Coverage (покрытие unit/component тестов Vitest): `yarn test:coverage`
+- Playwright smoke: `yarn test:smoke:local`
+- Playwright smoke в CI/headed Linux: `yarn test:smoke:ci`
+- Перед browser-тестами один раз соберите расширение: `yarn build`
+- Extension screenshot tests (Playwright): `yarn test:extension:local`
+- Playwright UI mode для browser-тестов: `yarn test:extension:ui`
+- Extension screenshot tests в CI/headed Linux: `yarn test:extension:ci`
+- Обновление baseline скриншотов локально: `yarn test:extension:update-snapshots`
+- Обновление baseline скриншотов в CI/headed Linux: `yarn test:extension:update-snapshots:ci`
+- Baseline PNG хранятся в snapshot-директориях Playwright и коммитятся в Git.
+- Спеки интерактивных сценариев виджетов лежат рядом с виджетами: `src/widgets/*/test/*.scenario.spec.ts`.
+- Browser job в GitHub Actions публикует скачиваемые артефакты: `playwright-report/` и `test-results/`.
+
+Тестовые файлы хранятся так:
+
+- Тесты виджетов: `src/widgets/<WidgetName>/test/`
+- Общие unit/contract/store тесты: `tests/unit/`, `tests/contracts/`, `tests/stores/`
+- Общая тестовая инфраструктура: `tests/constants/`, `tests/fixtures/`, `tests/helpers/`, `tests/mocks/`, `tests/setup.ts`
+- Browser-тесты новой вкладки: `tests/smoke/` и `tests/extension/`
 
 ## 🧩 Архитектура (для стороннего разработчика)
 
@@ -320,6 +344,7 @@ This extension replaces Chrome's default new tab with a customizable page that s
 - [🌐 i18n](#-i18n-new)
 - [🛠️ Tech stack](#️-tech-stack)
 - [⚡ Quick start](#-quick-start)
+- [🧪 Testing](#-testing)
 - [🧩 Architecture](#-architecture-for-third-party-developers)
 - [🔄 Chrome sync model](#-chrome-sync-model)
 - [🧪 Full guide: create your own widget](#-full-guide-create-your-own-widget)
@@ -376,6 +401,29 @@ yarn preview:showcase
 ```
 
 Showcase runs with `VITE_RUNTIME_MODE=showcase` and uses demo data instead of live Chrome APIs.
+
+## 🧪 Testing
+
+- Unit/Component tests: `yarn test`
+- Coverage (Vitest unit/component suites): `yarn test:coverage`
+- Playwright smoke: `yarn test:smoke:local`
+- Playwright smoke in CI/headed Linux: `yarn test:smoke:ci`
+- Before browser tests, build the extension once: `yarn build`
+- Extension screenshot tests (Playwright): `yarn test:extension:local`
+- Playwright UI mode for browser tests: `yarn test:extension:ui`
+- Extension screenshot tests in CI/headed Linux: `yarn test:extension:ci`
+- Update baseline screenshots locally: `yarn test:extension:update-snapshots`
+- Update baseline screenshots in CI/headed Linux: `yarn test:extension:update-snapshots:ci`
+- Baseline PNG files live in Playwright snapshot directories and are committed to Git.
+- Widget interaction scenario specs live next to widgets under `src/widgets/*/test/*.scenario.spec.ts`.
+- GitHub Actions browser job uploads downloadable artifacts: `playwright-report/` and `test-results/`.
+
+Test file placement:
+
+- Widget tests: `src/widgets/<WidgetName>/test/`
+- Shared unit/contract/store tests: `tests/unit/`, `tests/contracts/`, `tests/stores/`
+- Shared test infrastructure: `tests/constants/`, `tests/fixtures/`, `tests/helpers/`, `tests/mocks/`, `tests/setup.ts`
+- New tab browser tests: `tests/smoke/` and `tests/extension/`
 
 ## 🧩 Architecture for third-party developers
 
@@ -599,39 +647,3 @@ Current manifest permissions include:
 - [ ] Fallbacks for missing `chrome.*` API
 - [ ] Add/remove flow tested in UI
 - [ ] State restore tested after extension reload
-
-### 🧪 Testing
-
-- Unit/Component tests: `yarn test`
-- Coverage (Vitest unit/component suites): `yarn test:coverage`
-- Playwright smoke: `yarn test:smoke`
-- Extension screenshot tests (Puppeteer):
-  1. `yarn build:test-extension`
-  2. `yarn test:extension`
-- Update baseline screenshots: `yarn test:extension:update-snapshots`
-- Snapshot PNG files are generated locally/CI and are not committed to Git.
-
-Test file placement:
-
-- Widget tests: `src/widgets/<WidgetName>/test/`
-- Chrome API and sync-store tests: `src/tests/`
-- Shared test constants: `src/test/constants/`
-
-
-### 🧪 Тестирование
-
-- Unit/Component тесты: `yarn test`
-- Coverage (покрытие unit/component тестов Vitest): `yarn test:coverage`
-- Playwright smoke: `yarn test:smoke`
-- Extension screenshot tests (Puppeteer):
-  1. `yarn build:test-extension`
-  2. `yarn test:extension`
-- Обновление baseline скриншотов: `yarn test:extension:update-snapshots`
-- PNG-скриншоты генерируются локально/в CI и не коммитятся в Git.
-
-Тестовые файлы хранятся так:
-
-- Тесты виджетов: `src/widgets/<WidgetName>/test/`
-- Chrome API и sync store тесты: `src/tests/`
-- Общие test-константы: `src/test/constants/`
-

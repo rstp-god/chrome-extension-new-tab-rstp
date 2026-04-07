@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { AddWidgetDialogItem } from '@/newtab/components/Header/AddWidgetDialogItem.tsx'
 import { AddWidgetDialogPreview } from '@/newtab/components/Header/AddWidgetDialogPreview.tsx'
 import { useWidgetStore } from '@/store/widget.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 import { WidgetModule, WidgetType, widgetRegistry } from '@/types/widgets.ts'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -92,7 +93,9 @@ function AddWidgetDialog() {
   return (
     <Dialog open={open} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">{t('addWidget')}</Button>
+        <Button data-testid={TestId.AddWidgetTrigger} variant="outline">
+          {t('addWidget')}
+        </Button>
       </DialogTrigger>
       <DialogContent className="w-[calc(100%-2rem)] max-w-lg overflow-visible p-0">
         <DialogHeader className="px-6 pt-6">

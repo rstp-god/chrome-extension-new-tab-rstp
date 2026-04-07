@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { LinkableTab, listLinkableTabs } from '@/services/chrome/tabs.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 import { LinkedTab } from '@/widgets/Todo/store/store.ts'
 import { GlobeIcon, LinkIcon } from 'lucide-react'
 import { SubmitEvent, useEffect, useMemo, useState } from 'react'
@@ -93,7 +94,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="overflow-hidden sm:max-w-xl">
+      <DialogContent className="overflow-hidden sm:max-w-xl" data-testid={TestId.TodoAddDialog}>
         <DialogHeader>
           <DialogTitle>{t('dialog.title')}</DialogTitle>
           <DialogDescription>{t('dialog.description')}</DialogDescription>
@@ -103,6 +104,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
           <Field className="min-w-0">
             <FieldLabel htmlFor="todo-title">{t('form.titleLabel')}</FieldLabel>
             <Input
+              data-testid={TestId.TodoTitleInput}
               id="todo-title"
               className="min-w-0 max-w-full"
               value={title}
@@ -114,6 +116,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
           <Field className="min-w-0">
             <FieldLabel htmlFor="todo-description">{t('form.descriptionLabel')}</FieldLabel>
             <Textarea
+              data-testid={TestId.TodoDescriptionInput}
               id="todo-description"
               className="min-w-0 max-w-full"
               value={description}
@@ -131,7 +134,10 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
                   setTabError(null)
                 }}
               >
-                <SelectTrigger className="w-full min-w-0 max-w-full">
+                <SelectTrigger
+                  data-testid={TestId.TodoTabSelect}
+                  className="w-full min-w-0 max-w-full"
+                >
                   <SelectValue placeholder={t('form.selectTab')} />
                 </SelectTrigger>
                 <SelectContent position="popper" className="max-w-[min(32rem,calc(100vw-4rem))]">
@@ -150,6 +156,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
               </Select>
 
               <Button
+                data-testid={TestId.TodoAttachTab}
                 type="button"
                 variant="outline"
                 onClick={handleAttachTab}
@@ -177,7 +184,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
             <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
               {common('close')}
             </Button>
-            <Button type="submit" disabled={!title.trim()}>
+            <Button data-testid={TestId.TodoSubmit} type="submit" disabled={!title.trim()}>
               {t('form.submit')}
             </Button>
           </DialogFooter>

@@ -20,7 +20,7 @@ export const RenderWidget = ({ widgetType, pinned, title, onRemove }: Props) => 
   const Comp = mod.Component
 
   return (
-    <WidgetFrame title={widgetTitle} pinned={pinned} onRemove={onRemove}>
+    <WidgetFrame title={widgetTitle} widgetType={widgetType} pinned={pinned} onRemove={onRemove}>
       <Comp />
     </WidgetFrame>
   )

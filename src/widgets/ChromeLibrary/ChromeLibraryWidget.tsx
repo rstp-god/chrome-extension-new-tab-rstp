@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
+import { TestId } from '@tests/constants/testIds.ts'
 import {
   buildCombinedItems,
   filterBookmarks,
@@ -58,11 +59,13 @@ export function ChromeLibraryWidget() {
     <div className="flex h-full min-h-0 flex-col gap-4">
       <div className="flex items-center gap-2">
         <Input
+          data-testid={TestId.ChromeLibrarySearch}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder={t('searchPlaceholder')}
         />
         <Button
+          data-testid={TestId.ChromeLibraryOpenSettings}
           type="button"
           variant="ghost"
           size="icon-sm"
@@ -76,6 +79,7 @@ export function ChromeLibraryWidget() {
       {viewMode === 'sectioned' && (
         <div className="grid grid-cols-2 gap-2">
           <Button
+            data-testid={TestId.ChromeLibraryModeGroups}
             type="button"
             variant={sectionedMode === 'groups' ? 'default' : 'outline'}
             onClick={() => setSectionedMode('groups')}
@@ -83,6 +87,7 @@ export function ChromeLibraryWidget() {
             {t('labels.groups')}
           </Button>
           <Button
+            data-testid={TestId.ChromeLibraryModeBookmarks}
             type="button"
             variant={sectionedMode === 'bookmarks' ? 'default' : 'outline'}
             onClick={() => setSectionedMode('bookmarks')}

@@ -55,10 +55,26 @@ jobs:
         run: yarn playwright install --with-deps chromium
 
       - name: Build extension
-        run: yarn build:test-extension
+        run: yarn build
 
       - name: Run Playwright smoke tests
-        run: xvfb-run -a yarn test:smoke
+        run: yarn test:smoke:ci
 
       - name: Run extension visual snapshots
-        run: yarn test:extension
+        run: yarn test:extension:ci
+
+      - name: Upload Playwright HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report
+          if-no-files-found: ignore
+
+      - name: Upload Playwright test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: test-results
+          if-no-files-found: ignore
