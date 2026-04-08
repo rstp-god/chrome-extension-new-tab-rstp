@@ -13,7 +13,11 @@ import {
 import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
 import { debounce } from '@/utils/debounce.ts'
 import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
-import { BookmarkTreeItem, ChromeLibraryViewMode, ChromeTabGroupView, } from '@/widgets/ChromeLibrary/types/types.ts'
+import {
+  BookmarkTreeItem,
+  ChromeLibraryViewMode,
+  ChromeTabGroupView,
+} from '@/widgets/ChromeLibrary/types/types.ts'
 import { z } from 'zod'
 import { create } from 'zustand/react'
 
@@ -22,7 +26,7 @@ export const CHROME_LIBRARY_WIDGET_STORAGE_KEY = 'chrome-library-widget:v1'
 const LIBRARY_RELOAD_DEBOUNCE_MS = 150
 
 const chromeLibraryPersistedStateSchema = z.object({
-  viewMode: z.union([ z.literal('sectioned'), z.literal('combined') ]),
+  viewMode: z.union([z.literal('sectioned'), z.literal('combined')]),
 })
 
 const chromeLibraryEnvelopeSchema = makeEnvelopeSchema(chromeLibraryPersistedStateSchema)
@@ -66,8 +70,8 @@ export const useChromeLibraryStore = create<ChromeLibraryWidgetState & ChromeSyn
       if (reloadInFlight) return reloadInFlight
 
       setState({ loading: true, errorKey: null })
-      reloadInFlight = Promise.all([ getTabGroupsWithTabs(), getBookmarkTree() ])
-        .then(([ groups, bookmarks ]) => {
+      reloadInFlight = Promise.all([getTabGroupsWithTabs(), getBookmarkTree()])
+        .then(([groups, bookmarks]) => {
           setState({
             groups,
             bookmarks,
@@ -93,9 +97,11 @@ export const useChromeLibraryStore = create<ChromeLibraryWidgetState & ChromeSyn
       void reloadLibrary()
     }, LIBRARY_RELOAD_DEBOUNCE_MS)
 
-    ;[...CHROME_TAB_EVENTS, ...CHROME_TAB_GROUP_EVENTS, ...CHROME_BOOKMARK_EVENTS].forEach((event) => {
-      event?.addListener(scheduleReload)
-    })
+    ;[...CHROME_TAB_EVENTS, ...CHROME_TAB_GROUP_EVENTS, ...CHROME_BOOKMARK_EVENTS].forEach(
+      (event) => {
+        event?.addListener(scheduleReload)
+      },
+    )
 
     void reloadLibrary()
 

@@ -1,4 +1,8 @@
-import { hasChromeStorageEvents, isShowcaseMode, getChromeObject } from '@/services/chrome/runtime.ts'
+import {
+  hasChromeStorageEvents,
+  isShowcaseMode,
+  getChromeObject,
+} from '@/services/chrome/runtime.ts'
 import { getLocal, setLocal } from '@/services/chrome/storage.ts'
 import type { StateCreator, StoreApi } from 'zustand'
 import type { z } from 'zod'

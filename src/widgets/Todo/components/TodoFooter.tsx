@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button.tsx'
+import { TestId } from '@tests/constants/testIds.ts'
 import { CheckIcon, PlusIcon, Settings2Icon, Trash2Icon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -24,6 +25,7 @@ export function TodoFooter({
   return (
     <div className="mt-auto flex items-center gap-2">
       <Button
+        data-testid={TestId.TodoToggleCompleted}
         type="button"
         variant={showCompleted ? 'default' : 'outline'}
         size="icon"
@@ -34,6 +36,7 @@ export function TodoFooter({
         <CheckIcon />
       </Button>
       <Button
+        data-testid={TestId.TodoToggleDeleted}
         type="button"
         variant={showDeleted ? 'destructive' : 'outline'}
         size="icon"
@@ -42,11 +45,12 @@ export function TodoFooter({
       >
         <Trash2Icon />
       </Button>
-      <Button size="lg" className="flex-1" onClick={onOpenAdd}>
+      <Button data-testid={TestId.TodoOpenAdd} size="lg" className="flex-1" onClick={onOpenAdd}>
         <PlusIcon />
         {t('actions.addTodo')}
       </Button>
       <Button
+        data-testid={TestId.TodoOpenSettings}
         type="button"
         variant="ghost"
         size="icon-sm"

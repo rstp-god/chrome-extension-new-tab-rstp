@@ -3,6 +3,7 @@ import AddWidgetDialog from '@/newtab/components/Header/AddWidgetDialog.tsx'
 import { getGreetingPeriod } from '@/newtab/components/Header/utils/getGreetings.ts'
 import { isShowcaseMode } from '@/services/chrome/runtime.ts'
 import { useHeaderStore } from '@/store/header.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 import { useWidgetStore } from '@/store/widget.ts'
 import { BackgroundStateV1 } from '@/types/background.ts'
 import { PinIcon, PinOffIcon } from 'lucide-react'
@@ -40,6 +41,7 @@ export function Header(props: Props) {
 
       <div className="flex items-center gap-2">
         <Button
+          data-testid={TestId.PinToggle}
           variant="ghost"
           onClick={() => {
             commit()

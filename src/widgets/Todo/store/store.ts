@@ -7,7 +7,7 @@ import { create } from 'zustand/react'
 export const TODO_STORAGE_KEY = 'todo-widget:v1'
 
 const linkedTabSchema = z.object({
-  url: z.string().url(),
+  url: z.url(),
   title: z.string().nullable().optional(),
 })
 

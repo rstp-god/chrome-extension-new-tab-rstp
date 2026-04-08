@@ -10,8 +10,10 @@ import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { AddWidgetDialogItem } from '@/newtab/components/Header/AddWidgetDialogItem.tsx'
 import { AddWidgetDialogPreview } from '@/newtab/components/Header/AddWidgetDialogPreview.tsx'
 import { useWidgetStore } from '@/store/widget.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 import { WidgetModule, WidgetType, widgetRegistry } from '@/types/widgets.ts'
-import { useMemo, useState } from 'react'
+import { CSSProperties, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 
 interface AvailableWidgetPreview {
@@ -30,6 +32,8 @@ function AddWidgetDialog() {
 
   const [open, setOpen] = useState(false)
   const [activeWidgetType, setActiveWidgetType] = useState<WidgetType | null>(null)
+  const [previewStyle, setPreviewStyle] = useState<CSSProperties>()
+  const contentRef = useRef<HTMLDivElement | null>(null)
   const { addWidget, widgets } = useWidgetStore((s) => s)
   const hasTodoWidget = widgets.some((widget) => widget.widgetType === 'todo')
 
@@ -89,16 +93,50 @@ function AddWidgetDialog() {
     setDialogOpen(false)
   }
 
+  useLayoutEffect(() => {
+    if (!open || !activeWidget || !contentRef.current) return
+
+    const updatePreviewPosition = () => {
+      const rect = contentRef.current?.getBoundingClientRect()
+      if (!rect) return
+
+      setPreviewStyle({
+        position: 'fixed',
+        top: `${rect.top}px`,
+        left: `${rect.right + 12}px`,
+        width: '23rem',
+        zIndex: 60,
+      })
+    }
+
+    updatePreviewPosition()
+    window.addEventListener('resize', updatePreviewPosition)
+    window.addEventListener('scroll', updatePreviewPosition, true)
+
+    return () => {
+      window.removeEventListener('resize', updatePreviewPosition)
+      window.removeEventListener('scroll', updatePreviewPosition, true)
+    }
+  }, [activeWidget, open])
+
+  useEffect(() => {
+    if (!activeWidget) {
+      setPreviewStyle(undefined)
+    }
+  }, [activeWidget])
+
   return (
     <Dialog open={open} onOpenChange={setDialogOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">{t('addWidget')}</Button>
+        <Button data-testid={TestId.AddWidgetTrigger} variant="outline">
+          {t('addWidget')}
+        </Button>
       </DialogTrigger>
-      <DialogContent className="w-[calc(100%-2rem)] max-w-lg overflow-visible p-0">
+      <DialogContent ref={contentRef} className="w-[calc(100%-2rem)] max-w-lg overflow-visible p-0">
         <DialogHeader className="px-6 pt-6">
           <DialogTitle>{t('addWidgetTitle')}</DialogTitle>
         </DialogHeader>
-        <div className="relative rounded-4xl" onMouseLeave={clearActiveWidget}>
+        <div className="relative rounded-4xl">
           <div className="min-w-0 px-6 pb-6">
             <ScrollArea className="max-h-[70vh] pr-1">
               <div className="grid gap-3 py-1">
@@ -122,18 +160,20 @@ function AddWidgetDialog() {
             </ScrollArea>
           </div>
         </div>
-
-        {activeWidget && (
-          <div className="pointer-events-none absolute top-0 left-[calc(100%+0.75rem)] z-10 w-[23rem]">
+      </DialogContent>
+      {activeWidget &&
+        previewStyle &&
+        createPortal(
+          <div className="pointer-events-none" style={previewStyle}>
             <div className="absolute top-8 -left-3 h-px w-3 bg-border/70" />
             <div className="absolute top-3 -left-1 bottom-3 w-px bg-border/30" />
             <AddWidgetDialogPreview
               className="pointer-events-auto flex max-h-[min(75vh,calc(100vh-4rem))] flex-col overflow-y-auto rounded-[2rem] border border-border/70 bg-background/96 px-6 py-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur"
               {...previewProps}
             />
-          </div>
+          </div>,
+          document.body,
         )}
-      </DialogContent>
     </Dialog>
   )
 }

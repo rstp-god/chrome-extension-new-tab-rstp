@@ -1,2 +1,0 @@
-export const FIXED_TIMESTAMP = 1_746_000_000_000
-export const FIXED_DATE_ISO = '2025-05-03T00:00:00.000Z'

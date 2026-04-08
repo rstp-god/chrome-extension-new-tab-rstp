@@ -6,6 +6,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog.tsx'
+import { TestId } from '@tests/constants/testIds.ts'
 import { ChromeLibraryViewMode } from '@/widgets/ChromeLibrary/types/types.ts'
 
 interface Props {
@@ -33,7 +34,7 @@ export function ChromeLibrarySettingsDialog({
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" data-testid={TestId.ChromeLibrarySettingsDialog}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
@@ -41,6 +42,7 @@ export function ChromeLibrarySettingsDialog({
 
         <div className="grid gap-2">
           <Button
+            data-testid={TestId.ChromeLibrarySettingsSectioned}
             type="button"
             variant={viewMode === 'sectioned' ? 'default' : 'outline'}
             onClick={() => onSwitchMode('sectioned')}
@@ -48,6 +50,7 @@ export function ChromeLibrarySettingsDialog({
             {sectionedLabel}
           </Button>
           <Button
+            data-testid={TestId.ChromeLibrarySettingsCombined}
             type="button"
             variant={viewMode === 'combined' ? 'default' : 'outline'}
             onClick={() => onSwitchMode('combined')}

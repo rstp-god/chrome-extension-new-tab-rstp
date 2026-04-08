@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { filterBookmarks, filterGroups, getFaviconUrl, toBreadcrumb } from '@/widgets/ChromeLibrary/services/chromeLibrary.ts'
-import { bookmarksFixture, groupsFixture } from '@/test/fixtures/chromeLibrary.ts'
+import {
+  filterBookmarks,
+  filterGroups,
+  getFaviconUrl,
+  toBreadcrumb,
+} from '@/widgets/ChromeLibrary/services/chromeLibrary.ts'
+import { bookmarksFixture, groupsFixture } from '@tests/fixtures/chromeLibrary.ts'
 
 describe('chromeLibrary widget service', () => {
   it('filters groups by query', () => {

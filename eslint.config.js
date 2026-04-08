@@ -10,7 +10,16 @@ import tseslint from 'typescript-eslint'
 
 export default [
   {
-    ignores: ['dist', 'release', 'coverage', 'node_modules', '.yarn', '.pnp.*'],
+    ignores: [
+      'dist',
+      'release',
+      'coverage',
+      'node_modules',
+      '.yarn',
+      '.pnp.*',
+      'playwright-report',
+      'test-results',
+    ],
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

@@ -8,6 +8,7 @@ import {
   ItemTitle,
 } from '@/components/ui/item.tsx'
 import { cn } from '@/lib/utils.ts'
+import { testIds } from '@tests/constants/testIds.ts'
 import { WidgetType } from '@/types/widgets.ts'
 
 interface Props {
@@ -32,6 +33,7 @@ export function AddWidgetDialogItem({
   return (
     <ItemGroup>
       <Item
+        data-testid={testIds.addWidgetItem(widgetType)}
         className={cn(
           'rounded-[1.75rem] border-border/70 bg-background/70 transition-all',
           'hover:border-border hover:bg-muted/35',
@@ -46,6 +48,7 @@ export function AddWidgetDialogItem({
         </ItemContent>
         <ItemActions className="shrink-0">
           <Button
+            data-testid={testIds.addWidgetButton(widgetType)}
             className="shrink-0"
             variant={isActive ? 'default' : 'secondary'}
             onClick={() => onAdd(widgetType)}
