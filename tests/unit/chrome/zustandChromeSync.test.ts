@@ -4,7 +4,9 @@ import { withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
 import { z } from 'zod'
 
 const getLocalMock = vi.hoisted(() => vi.fn<() => Promise<unknown>>(async () => null))
-const setLocalMock = vi.hoisted(() => vi.fn<(key: string, value: unknown) => Promise<void>>(async () => {}))
+const setLocalMock = vi.hoisted(() =>
+  vi.fn<(key: string, value: unknown) => Promise<void>>(async () => {}),
+)
 
 vi.mock('@/services/chrome/runtime.ts', () => ({
   isShowcaseMode: () => true,

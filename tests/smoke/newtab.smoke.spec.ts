@@ -1,10 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { TestId, testIds } from '@tests/constants/testIds'
-import {
-  addWidget,
-  launchExtensionContext,
-  prepareExtensionPage,
-} from '../helpers/extension'
+import { addWidget, launchExtensionContext, prepareExtensionPage } from '../helpers/extension'
 
 test('loads extension newtab UI in Chromium', async () => {
   const context = await launchExtensionContext()

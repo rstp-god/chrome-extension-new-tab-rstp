@@ -98,7 +98,10 @@ export async function getTabGroupsWithTabs(): Promise<ChromeTabGroupView[]> {
   const chromeObject = getChromeObject()
   if (!chromeObject?.tabGroups?.query || !chromeObject?.tabs?.query) return []
 
-  const [groups, tabs] = await Promise.all([chromeObject.tabGroups.query({}), chromeObject.tabs.query({})])
+  const [groups, tabs] = await Promise.all([
+    chromeObject.tabGroups.query({}),
+    chromeObject.tabs.query({}),
+  ])
   const tabsByGroup = new Map<number, ChromeGroupedTab[]>()
 
   tabs.forEach((tab) => {
@@ -131,7 +134,12 @@ export async function openTabGroup(groupId: number, windowId: number) {
   if (isShowcaseMode()) return
 
   const chromeObject = getChromeObject()
-  if (!chromeObject?.tabGroups?.update || !chromeObject?.tabs?.query || !chromeObject?.windows?.update) return
+  if (
+    !chromeObject?.tabGroups?.update ||
+    !chromeObject?.tabs?.query ||
+    !chromeObject?.windows?.update
+  )
+    return
 
   await chromeObject.tabGroups.update(groupId, { collapsed: false })
   const tabs = await chromeObject.tabs.query({ groupId, windowId })

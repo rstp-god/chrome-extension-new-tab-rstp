@@ -15,9 +15,7 @@ export function ensureExtensionBuildExists() {
   const manifestPath = path.join(getDistDir(), 'manifest.json')
 
   if (!fs.existsSync(manifestPath)) {
-    throw new Error(
-      'dist/manifest.json not found. Run yarn build before browser tests.',
-    )
+    throw new Error('dist/manifest.json not found. Run yarn build before browser tests.')
   }
 }
 

@@ -19,8 +19,20 @@ const demoGroups: ChromeTabGroupView[] = [
     collapsed: false,
     tabsCount: 2,
     tabs: [
-      { kind: 'tab', tabId: 2001, windowId: DEMO_WINDOW_ID, title: 'GitHub', url: 'https://github.com/' },
-      { kind: 'tab', tabId: 2002, windowId: DEMO_WINDOW_ID, title: 'Vite', url: 'https://vite.dev/' },
+      {
+        kind: 'tab',
+        tabId: 2001,
+        windowId: DEMO_WINDOW_ID,
+        title: 'GitHub',
+        url: 'https://github.com/',
+      },
+      {
+        kind: 'tab',
+        tabId: 2002,
+        windowId: DEMO_WINDOW_ID,
+        title: 'Vite',
+        url: 'https://vite.dev/',
+      },
     ],
   },
   {
@@ -31,8 +43,20 @@ const demoGroups: ChromeTabGroupView[] = [
     collapsed: false,
     tabsCount: 2,
     tabs: [
-      { kind: 'tab', tabId: 2003, windowId: DEMO_WINDOW_ID, title: 'React', url: 'https://react.dev/' },
-      { kind: 'tab', tabId: 2004, windowId: DEMO_WINDOW_ID, title: 'OpenAI', url: 'https://openai.com/' },
+      {
+        kind: 'tab',
+        tabId: 2003,
+        windowId: DEMO_WINDOW_ID,
+        title: 'React',
+        url: 'https://react.dev/',
+      },
+      {
+        kind: 'tab',
+        tabId: 2004,
+        windowId: DEMO_WINDOW_ID,
+        title: 'OpenAI',
+        url: 'https://openai.com/',
+      },
     ],
   },
 ]

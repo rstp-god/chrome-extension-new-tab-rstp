@@ -18,10 +18,7 @@ export default defineConfig({
       name: 'showcase-root-index',
       async closeBundle() {
         const outDir = path.resolve(__dirname, 'dist-showcase')
-        await copyFile(
-          path.join(outDir, 'showcase.html'),
-          path.join(outDir, 'index.html')
-        )
+        await copyFile(path.join(outDir, 'showcase.html'), path.join(outDir, 'index.html'))
       },
     },
   ],

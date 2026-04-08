@@ -11,7 +11,8 @@ describe('chromeLibrary service', () => {
       getChromeObject: () => null,
     }))
 
-    const { getBookmarkTree, getTabGroupsWithTabs } = await import('@/services/chrome/chromeLibrary.ts')
+    const { getBookmarkTree, getTabGroupsWithTabs } =
+      await import('@/services/chrome/chromeLibrary.ts')
 
     await expect(getBookmarkTree()).resolves.toHaveLength(2)
     await expect(getTabGroupsWithTabs()).resolves.toHaveLength(2)
@@ -23,7 +24,8 @@ describe('chromeLibrary service', () => {
       getChromeObject: () => null,
     }))
 
-    const { getBookmarkTree, getTabGroupsWithTabs } = await import('@/services/chrome/chromeLibrary.ts')
+    const { getBookmarkTree, getTabGroupsWithTabs } =
+      await import('@/services/chrome/chromeLibrary.ts')
 
     await expect(getBookmarkTree()).resolves.toEqual([])
     await expect(getTabGroupsWithTabs()).resolves.toEqual([])
