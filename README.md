@@ -83,9 +83,13 @@ yarn preview:showcase
 - Extension screenshot tests в CI/headed Linux: `yarn test:extension:ci`
 - Обновление baseline скриншотов локально: `yarn test:extension:update-snapshots`
 - Обновление baseline скриншотов в CI/headed Linux: `yarn test:extension:update-snapshots:ci`
-- Baseline PNG хранятся в snapshot-директориях Playwright и коммитятся в Git.
+- Baseline PNG хранятся отдельно по средам:
+  - `chromium-mac` для локального macOS-прогона
+  - `chromium-ci` для Linux CI-прогона
+- Snapshot-пути формирует сам Playwright внутри папок с тестами, и эти PNG коммитятся в Git.
 - Спеки интерактивных сценариев виджетов лежат рядом с виджетами: `src/widgets/*/test/*.scenario.spec.ts`.
 - Browser job в GitHub Actions публикует скачиваемые артефакты: `playwright-report/` и `test-results/`.
+- Для пересъёма Linux CI-baselines есть отдельный manual workflow: `Update Visual Snapshots`.
 
 Тестовые файлы хранятся так:
 
@@ -414,9 +418,13 @@ Showcase runs with `VITE_RUNTIME_MODE=showcase` and uses demo data instead of li
 - Extension screenshot tests in CI/headed Linux: `yarn test:extension:ci`
 - Update baseline screenshots locally: `yarn test:extension:update-snapshots`
 - Update baseline screenshots in CI/headed Linux: `yarn test:extension:update-snapshots:ci`
-- Baseline PNG files live in Playwright snapshot directories and are committed to Git.
+- Baseline PNG files are stored separately per environment:
+  - `chromium-mac` for local macOS runs
+  - `chromium-ci` for Linux CI runs
+- Playwright generates snapshot paths inside the test folders, and those PNG files are committed to Git.
 - Widget interaction scenario specs live next to widgets under `src/widgets/*/test/*.scenario.spec.ts`.
 - GitHub Actions browser job uploads downloadable artifacts: `playwright-report/` and `test-results/`.
+- There is also a dedicated manual workflow for regenerating Linux CI baselines: `Update Visual Snapshots`.
 
 Test file placement:
 

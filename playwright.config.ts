@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
   testDir: '.',
   testMatch: ['tests/**/*.spec.ts', 'src/widgets/**/*.scenario.spec.ts'],
-  snapshotPathTemplate: '{testFileDir}/{arg}{ext}',
+  snapshotPathTemplate: '{testFileDir}/{projectName}/{arg}{ext}',
   timeout: 60_000,
   workers: 1,
   reporter: [['list'], ['html', { open: 'never' }]],
@@ -19,8 +19,20 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      name: 'chromium-mac',
+      use: {
+        ...devices['Desktop Chrome'],
+        locale: 'en-US',
+        timezoneId: 'UTC',
+      },
+    },
+    {
+      name: 'chromium-ci',
+      use: {
+        ...devices['Desktop Chrome'],
+        locale: 'en-US',
+        timezoneId: 'UTC',
+      },
     },
   ],
 })

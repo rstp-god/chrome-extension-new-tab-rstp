@@ -1,37 +1,13 @@
-name: Tests
+name: Update Visual Snapshots
 
 on:
-  pull_request:
-  push:
-    branches: [main, work, feature/create-test-environment]
+  workflow_dispatch:
 
 jobs:
-  unit-and-contract:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: yarn
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      - name: Run Vitest suite
-        run: yarn test
-
-  browser-and-visual:
+  update-visual-snapshots:
     runs-on: ubuntu-latest
     container:
       image: mcr.microsoft.com/playwright:v1.59.1-noble
-    needs: unit-and-contract
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,17 +27,24 @@ jobs:
       - name: Build extension
         run: yarn build
 
-      - name: Run Playwright smoke tests
-        run: yarn test:smoke:ci
+      - name: Regenerate CI visual snapshots
+        run: yarn test:extension:update-snapshots:ci
 
-      - name: Run extension visual snapshots
-        run: yarn test:extension:ci
+      - name: Upload CI visual snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-snapshots-ci
+          path: |
+            tests/extension/chromium-ci
+            src/widgets/**/test/chromium-ci
+          if-no-files-found: ignore
 
       - name: Upload Playwright HTML report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          name: playwright-report-update-snapshots
           path: playwright-report
           if-no-files-found: ignore
 
@@ -69,6 +52,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-test-results
+          name: playwright-test-results-update-snapshots
           path: test-results
           if-no-files-found: ignore
