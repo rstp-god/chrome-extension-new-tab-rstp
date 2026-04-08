@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createChromeMock, installChromeMock } from '../../mocks/chrome';
+import { createChromeMock, installChromeMock } from '../../mocks/chrome'
 
 describe('runtime helpers', () => {
   it('returns chrome object when present', async () => {

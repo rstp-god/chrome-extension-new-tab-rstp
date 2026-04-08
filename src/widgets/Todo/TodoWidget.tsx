@@ -26,7 +26,7 @@ function shouldIncludeTask(task: TodoTask, showCompleted: boolean, showDeleted: 
     return false
   }
 
-  return !task.completed;
+  return !task.completed
 }
 
 function getTaskSortTimestamp(task: TodoTask) {

@@ -33,7 +33,9 @@ test('submits search query into a new browser tab', async () => {
 
     const currentUrl = searchPage.url()
 
-    const isDirectSearch = /google\..*\/search\?q=playwright(\+|%20)smoke(\+|%20)test/i.test(currentUrl)
+    const isDirectSearch = /google\..*\/search\?q=playwright(\+|%20)smoke(\+|%20)test/i.test(
+      currentUrl,
+    )
 
     let isGoogleSorryRedirect = false
 
@@ -42,8 +44,9 @@ test('submits search query into a new browser tab', async () => {
 
       if (/google\./i.test(parsed.hostname) && parsed.pathname.includes('/sorry/')) {
         const continueUrl = parsed.searchParams.get('continue') ?? ''
-        isGoogleSorryRedirect =
-          /google\..*\/search\?q=playwright(\+|%20)smoke(\+|%20)test/i.test(continueUrl)
+        isGoogleSorryRedirect = /google\..*\/search\?q=playwright(\+|%20)smoke(\+|%20)test/i.test(
+          continueUrl,
+        )
       }
     } catch {
       // ignore malformed url parsing

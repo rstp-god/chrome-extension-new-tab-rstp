@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { createI18nModuleMock } from './i18n';
+import { createI18nModuleMock } from './i18n'
 
 describe('createI18nModuleMock', () => {
   it('returns react-i18next compatible mock', () => {

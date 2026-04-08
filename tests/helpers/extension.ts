@@ -118,7 +118,9 @@ export async function setExtensionTheme(page: Page, theme: 'light' | 'dark') {
   const themeSwitch = page.getByTestId(TestId.ThemeSwitch)
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const currentTheme = await page.evaluate(() => document.documentElement.classList.contains('dark'))
+    const currentTheme = await page.evaluate(() =>
+      document.documentElement.classList.contains('dark'),
+    )
     if (currentTheme === (theme === 'dark')) break
 
     await themeSwitch.click()

@@ -132,10 +132,7 @@ function AddWidgetDialog() {
           {t('addWidget')}
         </Button>
       </DialogTrigger>
-      <DialogContent
-        ref={contentRef}
-        className="w-[calc(100%-2rem)] max-w-lg overflow-visible p-0"
-      >
+      <DialogContent ref={contentRef} className="w-[calc(100%-2rem)] max-w-lg overflow-visible p-0">
         <DialogHeader className="px-6 pt-6">
           <DialogTitle>{t('addWidgetTitle')}</DialogTitle>
         </DialogHeader>
@@ -164,17 +161,19 @@ function AddWidgetDialog() {
           </div>
         </div>
       </DialogContent>
-      {activeWidget && previewStyle && createPortal(
-        <div className="pointer-events-none" style={previewStyle}>
-          <div className="absolute top-8 -left-3 h-px w-3 bg-border/70" />
-          <div className="absolute top-3 -left-1 bottom-3 w-px bg-border/30" />
-          <AddWidgetDialogPreview
-            className="pointer-events-auto flex max-h-[min(75vh,calc(100vh-4rem))] flex-col overflow-y-auto rounded-[2rem] border border-border/70 bg-background/96 px-6 py-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur"
-            {...previewProps}
-          />
-        </div>,
-        document.body,
-      )}
+      {activeWidget &&
+        previewStyle &&
+        createPortal(
+          <div className="pointer-events-none" style={previewStyle}>
+            <div className="absolute top-8 -left-3 h-px w-3 bg-border/70" />
+            <div className="absolute top-3 -left-1 bottom-3 w-px bg-border/30" />
+            <AddWidgetDialogPreview
+              className="pointer-events-auto flex max-h-[min(75vh,calc(100vh-4rem))] flex-col overflow-y-auto rounded-[2rem] border border-border/70 bg-background/96 px-6 py-6 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur"
+              {...previewProps}
+            />
+          </div>,
+          document.body,
+        )}
     </Dialog>
   )
 }

@@ -1,4 +1,4 @@
-import { BookmarkTreeItem, ChromeTabGroupView } from '@/widgets/ChromeLibrary/types/types.ts';
+import { BookmarkTreeItem, ChromeTabGroupView } from '@/widgets/ChromeLibrary/types/types.ts'
 
 export const groupsFixture: ChromeTabGroupView[] = [
   {

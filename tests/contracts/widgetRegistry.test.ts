@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { widgetRegistry } from '@/types/widgets.ts';
+import { widgetRegistry } from '@/types/widgets.ts'
 
 describe('widget registry contract', () => {
   it('contains unique widget types with required exports', () => {
