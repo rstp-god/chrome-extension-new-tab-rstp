@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { TestId, testIds } from '@tests/constants/testIds'
+import { TestId, testIds } from '../constants/testIds'
 import {
   installDeterministicPageState,
   launchExtensionContext,
   openExtensionNewTab,
+  setExtensionTheme,
   stabilizeExtensionUi,
 } from '../helpers/extension'
 
@@ -24,7 +25,9 @@ async function expectPreviewScreenshot(
   await page.getByTestId(testIds.addWidgetItem(widgetType)).hover()
   const preview = page.getByTestId(TestId.AddWidgetPreview)
 
+  await expect(preview).toBeVisible()
   await expect(page.getByTestId(TestId.AddWidgetPreviewTitle)).toHaveText(previewTitle)
+  await page.waitForTimeout(100)
 
   const box = await preview.boundingBox()
   if (!box) {
@@ -40,6 +43,25 @@ async function expectPreviewScreenshot(
   expect(screenshot).toMatchSnapshot(['NewTab', screenshotName])
 }
 
+async function expectNewTabVisuals(
+  page: Parameters<typeof stabilizeExtensionUi>[0],
+  options?: { dark?: boolean },
+) {
+  const suffix = options?.dark ? '-dark' : ''
+
+  await expect(page).toHaveScreenshot(['NewTab', `newtab-default${suffix}.png`])
+
+  await openAddWidgetDialog(page)
+  await expectPreviewScreenshot(page, 'search', 'Search', `preview-search${suffix}.png`)
+  await expectPreviewScreenshot(page, 'todo', 'Todo', `preview-todo${suffix}.png`)
+  await expectPreviewScreenshot(
+    page,
+    'chromeLibrary',
+    'Chrome Library',
+    `preview-chrome-library${suffix}.png`,
+  )
+}
+
 test('matches extension newtab screenshots', async () => {
   const context = await launchExtensionContext()
 
@@ -48,18 +70,22 @@ test('matches extension newtab screenshots', async () => {
     await installDeterministicPageState(page)
     await openExtensionNewTab(page)
     await stabilizeExtensionUi(page)
+    await expectNewTabVisuals(page)
+  } finally {
+    await context.close()
+  }
+})
 
-    await expect(page).toHaveScreenshot(['NewTab', 'newtab-default.png'])
+test('matches extension newtab screenshots in dark theme', async () => {
+  const context = await launchExtensionContext()
 
-    await openAddWidgetDialog(page)
-    await expectPreviewScreenshot(page, 'search', 'Search', 'preview-search.png')
-    await expectPreviewScreenshot(page, 'todo', 'Todo', 'preview-todo.png')
-    await expectPreviewScreenshot(
-      page,
-      'chromeLibrary',
-      'Chrome Library',
-      'preview-chrome-library.png',
-    )
+  try {
+    const page = await context.newPage()
+    await installDeterministicPageState(page)
+    await openExtensionNewTab(page)
+    await stabilizeExtensionUi(page)
+    await setExtensionTheme(page, 'dark')
+    await expectNewTabVisuals(page, { dark: true })
   } finally {
     await context.close()
   }

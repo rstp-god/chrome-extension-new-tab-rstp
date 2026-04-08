@@ -20,14 +20,14 @@
     "test:coverage": "vitest run --coverage",
     "test:coverage:unit": "vitest run --coverage",
     "test:ui": "vitest --ui",
+    "test:extension:ui": "playwright test tests/extension src/widgets --ui",
     "test:smoke": "playwright test tests/smoke/newtab.smoke.spec.ts",
     "test:smoke:local": "playwright test tests/smoke/newtab.smoke.spec.ts",
-    "test:smoke:ci": "xvfb-run -a playwright test tests/smoke/newtab.smoke.spec.ts",
     "test:extension": "playwright test tests/extension src/widgets",
     "test:extension:local": "playwright test tests/extension src/widgets",
-    "test:extension:ui": "playwright test tests/extension src/widgets --ui",
-    "test:extension:ci": "xvfb-run -a playwright test tests/extension src/widgets",
     "test:extension:update-snapshots": "playwright test tests/extension src/widgets --update-snapshots",
+    "test:smoke:ci": "xvfb-run -a playwright test tests/smoke/newtab.smoke.spec.ts",
+    "test:extension:ci": "xvfb-run -a playwright test tests/extension src/widgets",
     "test:extension:update-snapshots:ci": "xvfb-run -a playwright test tests/extension src/widgets --update-snapshots"
   },
   "dependencies": {

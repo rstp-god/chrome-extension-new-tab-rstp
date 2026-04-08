@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createChromeMock, installChromeMock } from '@tests/mocks/chrome.ts'
+import { createChromeMock, installChromeMock } from '../../mocks/chrome';
 
 describe('runtime helpers', () => {
   it('returns chrome object when present', async () => {
-    const runtime = await import('@/services/chrome/runtime.ts')
+    const runtime = await import('../../../src/services/chrome/runtime.ts')
     const chromeMock = createChromeMock()
     installChromeMock(chromeMock)
 
@@ -12,7 +12,7 @@ describe('runtime helpers', () => {
   })
 
   it('returns null when chrome object absent', async () => {
-    const runtime = await import('@/services/chrome/runtime.ts')
+    const runtime = await import('../../../src/services/chrome/runtime.ts')
     Object.defineProperty(globalThis, 'chrome', { value: undefined, configurable: true })
 
     expect(runtime.getChromeObject()).toBeNull()
@@ -22,7 +22,7 @@ describe('runtime helpers', () => {
 
   it('resolves runtime mode as extension by default', async () => {
     vi.stubEnv('VITE_RUNTIME_MODE', '')
-    const runtime = await import('@/services/chrome/runtime.ts')
+    const runtime = await import('../../../src/services/chrome/runtime.ts')
     expect(runtime.getRuntimeMode()).toBe('extension')
   })
 })

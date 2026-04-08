@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { BackgroundDialog } from '@/newtab/components/Background/BackgroundDialog.tsx'
 import { useHeaderStore } from '@/store/header.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 import { BackgroundStateV1 } from '@/types/background.ts'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,10 +37,12 @@ export function SettingsDialog({ bgState, onSaveBackground }: Props) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="outline">{header('settings')}</Button>
+        <Button data-testid={TestId.SettingsTrigger} variant="outline">
+          {header('settings')}
+        </Button>
       </DialogTrigger>
 
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" data-testid={TestId.SettingsDialog}>
         <DialogHeader>
           <DialogTitle>{header('settings')}</DialogTitle>
           <DialogDescription>{t('description')}</DialogDescription>
@@ -54,7 +57,11 @@ export function SettingsDialog({ bgState, onSaveBackground }: Props) {
 
             <div className="flex items-center gap-2">
               <Label className="text-xs text-muted-foreground">{common('light')}</Label>
-              <Switch checked={theme === 'dark'} onCheckedChange={toggleTheme} />
+              <Switch
+                data-testid={TestId.ThemeSwitch}
+                checked={theme === 'dark'}
+                onCheckedChange={toggleTheme}
+              />
               <Label className="text-xs text-muted-foreground">{common('dark')}</Label>
             </div>
           </div>

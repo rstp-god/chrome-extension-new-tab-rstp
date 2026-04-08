@@ -29,7 +29,30 @@ test('submits search query into a new browser tab', async () => {
     await page.getByTestId(TestId.SearchWidgetSubmit).click()
 
     const searchPage = await newPagePromise
-    await expect(searchPage).toHaveURL(/google\..*search\?q=playwright(\+|%20)smoke(\+|%20)test/i)
+    await searchPage.waitForLoadState('domcontentloaded')
+
+    const currentUrl = searchPage.url()
+
+    const isDirectSearch = /google\..*\/search\?q=playwright(\+|%20)smoke(\+|%20)test/i.test(currentUrl)
+
+    let isGoogleSorryRedirect = false
+
+    try {
+      const parsed = new URL(currentUrl)
+
+      if (/google\./i.test(parsed.hostname) && parsed.pathname.includes('/sorry/')) {
+        const continueUrl = parsed.searchParams.get('continue') ?? ''
+        isGoogleSorryRedirect =
+          /google\..*\/search\?q=playwright(\+|%20)smoke(\+|%20)test/i.test(continueUrl)
+      }
+    } catch {
+      // ignore malformed url parsing
+    }
+
+    expect(
+      isDirectSearch || isGoogleSorryRedirect,
+      `Expected direct Google search URL or Google sorry redirect with embedded search URL, got: ${currentUrl}`,
+    ).toBeTruthy()
   } finally {
     await context.close()
   }

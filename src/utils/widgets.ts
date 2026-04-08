@@ -10,8 +10,7 @@ function collides(
   if (first.x + first.w <= second.x) return false
   if (second.x + second.w <= first.x) return false
   if (first.y + first.h <= second.y) return false
-  if (second.y + second.h <= first.y) return false
-  return true
+  return second.y + second.h > first.y;
 }
 
 function findFreePosition(existingLayout: readonly LayoutItem[], width: number, height: number) {
