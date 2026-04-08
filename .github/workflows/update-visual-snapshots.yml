@@ -30,14 +30,23 @@ jobs:
       - name: Regenerate CI visual snapshots
         run: yarn test:extension:update-snapshots:ci
 
+      - name: Collect CI visual snapshots
+        run: |
+          mkdir -p snapshot-artifacts/tests/extension
+          mkdir -p snapshot-artifacts/src/widgets/ChromeLibrary/test
+          mkdir -p snapshot-artifacts/src/widgets/Search/test
+          mkdir -p snapshot-artifacts/src/widgets/Todo/test
+          cp -R tests/extension/chromium-ci snapshot-artifacts/tests/extension/chromium-ci
+          cp -R src/widgets/ChromeLibrary/test/chromium-ci snapshot-artifacts/src/widgets/ChromeLibrary/test/chromium-ci
+          cp -R src/widgets/Search/test/chromium-ci snapshot-artifacts/src/widgets/Search/test/chromium-ci
+          cp -R src/widgets/Todo/test/chromium-ci snapshot-artifacts/src/widgets/Todo/test/chromium-ci
+
       - name: Upload CI visual snapshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-snapshots-ci
-          path: |
-            tests/extension/chromium-ci
-            src/widgets/**/test/chromium-ci
+          path: snapshot-artifacts
           if-no-files-found: ignore
 
       - name: Upload Playwright HTML report

@@ -90,6 +90,7 @@ yarn preview:showcase
 - Спеки интерактивных сценариев виджетов лежат рядом с виджетами: `src/widgets/*/test/*.scenario.spec.ts`.
 - Browser job в GitHub Actions публикует скачиваемые артефакты: `playwright-report/` и `test-results/`.
 - Для пересъёма Linux CI-baselines есть отдельный manual workflow: `Update Visual Snapshots`.
+- Артефакт `playwright-snapshots-ci` уже упакован с путями относительно корня репозитория, поэтому его можно просто распаковать поверх проекта и закоммитить обновлённые папки `chromium-ci`.
 
 Тестовые файлы хранятся так:
 
@@ -425,6 +426,7 @@ Showcase runs with `VITE_RUNTIME_MODE=showcase` and uses demo data instead of li
 - Widget interaction scenario specs live next to widgets under `src/widgets/*/test/*.scenario.spec.ts`.
 - GitHub Actions browser job uploads downloadable artifacts: `playwright-report/` and `test-results/`.
 - There is also a dedicated manual workflow for regenerating Linux CI baselines: `Update Visual Snapshots`.
+- The `playwright-snapshots-ci` artifact is packaged with repository-relative paths, so you can unpack it over the repo and commit the updated `chromium-ci` folders directly.
 
 Test file placement:
 
