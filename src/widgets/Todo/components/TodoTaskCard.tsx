@@ -1,8 +1,17 @@
 import { Button } from '@/components/ui/button.tsx'
+import { ProjectPill } from '@/widgets/Todo/components/ProjectPill.tsx'
+import type { Project, TodoStatus } from '@/widgets/Todo/integrations/index.ts'
+import type { TodoTask } from '@/widgets/Todo/store/store.ts'
+import { STATUS_BORDER_CLASS } from '@/widgets/Todo/statusStyles.ts'
 import { testIds } from '@tests/constants/testIds.ts'
-import { TodoTask } from '@/widgets/Todo/store/store.ts'
 import clsx from 'clsx'
-import { CheckIcon, ExternalLinkIcon, Trash2Icon } from 'lucide-react'
+import {
+  CheckIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ExternalLinkIcon,
+  Trash2Icon,
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 function getHostname(url: string) {
@@ -13,40 +22,76 @@ function getHostname(url: string) {
   }
 }
 
+/**
+ * Linear progression of "active work" states. Forward/backward chevrons walk
+ * a task along this chain — completed and deleted are off-chain (their
+ * transitions live on the checkbox and trash buttons respectively).
+ */
+const STATUS_FLOW: readonly TodoStatus[] = ['input', 'inprogress', 'struggle']
+
+function getNextStatus(current: TodoStatus): TodoStatus | null {
+  const idx = STATUS_FLOW.indexOf(current)
+  if (idx === -1 || idx === STATUS_FLOW.length - 1) return null
+  return STATUS_FLOW[idx + 1]
+}
+
+function getPrevStatus(current: TodoStatus): TodoStatus | null {
+  const idx = STATUS_FLOW.indexOf(current)
+  if (idx <= 0) return null
+  return STATUS_FLOW[idx - 1]
+}
+
 interface Props {
   task: TodoTask
+  project: Project | null
   pendingAction?: 'complete' | 'delete'
   onToggleTask: (taskId: string) => void
   onStartTaskExit: (taskId: string, action: 'complete' | 'delete') => void
   onOpenLinkedTab: (taskId: string) => void
+  onChangeStatus: (taskId: string, status: TodoStatus) => void
 }
 
 export function TodoTaskCard({
   task,
+  project,
   pendingAction,
   onToggleTask,
   onStartTaskExit,
   onOpenLinkedTab,
+  onChangeStatus,
 }: Props) {
   const { t } = useTranslation('todoWidget')
-  const isCompleted = task.completed && !task.deleted
-  const isDeleted = task.deleted
+  const isCompleted = task.status === 'completed'
+  const isDeleted = task.status === 'deleted'
+  const isDirty = task.syncState !== 'clean'
+  const isInFlow = STATUS_FLOW.includes(task.status)
+  const nextStatus = getNextStatus(task.status)
+  const prevStatus = getPrevStatus(task.status)
 
   return (
     <div
       data-testid={testIds.todoTask(task.id)}
       className={clsx(
-        'rounded-[2rem] border border-border bg-black/25 px-5 py-6 transition-all duration-300 ease-out',
+        'relative rounded-2xl border border-l-4 border-border bg-black/25 px-4 py-4 transition-all duration-300 ease-out',
+        STATUS_BORDER_CLASS[task.status],
         {
-          'translate-x-16 border-emerald-500/40 bg-emerald-500/20 opacity-0':
-            pendingAction === 'complete',
-          '-translate-x-16 border-destructive/40 bg-destructive/20 opacity-0':
-            pendingAction === 'delete',
-          'border-emerald-500/20 bg-emerald-500/8': isCompleted,
-          'border-destructive/20 bg-destructive/8': isDeleted,
+          'translate-x-16 opacity-0': pendingAction === 'complete',
+          '-translate-x-16 opacity-0': pendingAction === 'delete',
+          'opacity-70': isDeleted,
         },
       )}
     >
+      {isDirty && (
+        <span
+          className={clsx(
+            'absolute right-3 top-3 size-1.5 rounded-full',
+            task.syncState === 'error' ? 'bg-destructive' : 'bg-amber-400',
+          )}
+          title={task.syncState}
+          aria-hidden
+        />
+      )}
+
       <div className="flex items-start gap-3">
         <Button
           data-testid={testIds.todoComplete(task.id)}
@@ -60,7 +105,6 @@ export function TodoTaskCard({
               onToggleTask(task.id)
               return
             }
-
             onStartTaskExit(task.id, 'complete')
           }}
           aria-label={t('actions.completeTodo')}
@@ -70,9 +114,23 @@ export function TodoTaskCard({
         </Button>
 
         <div className="min-w-0 flex-1">
-          <div className="text-lg font-semibold leading-tight">{task.title}</div>
+          {project && (
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <ProjectPill project={project} />
+            </div>
+          )}
+
+          <div
+            className={clsx(
+              'text-base font-semibold leading-tight',
+              (isCompleted || isDeleted) && 'text-muted-foreground line-through decoration-1',
+            )}
+          >
+            {task.title}
+          </div>
+
           {task.description && (
-            <p className="mt-3 whitespace-pre-wrap text-base text-muted-foreground">
+            <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
               {task.description}
             </p>
           )}
@@ -81,10 +139,10 @@ export function TodoTaskCard({
             <button
               data-testid={testIds.todoOpenLinkedTab(task.id)}
               type="button"
-              className="mt-5 flex max-w-full items-center gap-2 text-left text-sm text-muted-foreground hover:text-foreground"
+              className="mt-3 flex max-w-full items-center gap-1.5 text-left text-xs text-muted-foreground hover:text-foreground"
               onClick={() => onOpenLinkedTab(task.id)}
             >
-              <ExternalLinkIcon className="size-4 shrink-0" />
+              <ExternalLinkIcon className="size-3.5 shrink-0" />
               <span className="truncate">
                 {task.linkedTab.title ?? getHostname(task.linkedTab.url)}
               </span>
@@ -92,21 +150,62 @@ export function TodoTaskCard({
           )}
         </div>
 
-        <Button
-          data-testid={testIds.todoDelete(task.id)}
-          type="button"
-          variant="ghost"
-          size="icon-sm"
-          className="shrink-0"
-          onClick={() => {
-            if (isDeleted) return
-            onStartTaskExit(task.id, 'delete')
-          }}
-          aria-label={t('actions.deleteTodo')}
-          disabled={Boolean(pendingAction) || isDeleted}
-        >
-          <Trash2Icon />
-        </Button>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          {task.linkedTab && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => onOpenLinkedTab(task.id)}
+              aria-label={t('actions.openLinkedTab')}
+              disabled={Boolean(pendingAction)}
+            >
+              <ExternalLinkIcon />
+            </Button>
+          )}
+          <div className="flex items-center gap-0.5">
+            {isInFlow && (
+              <>
+                <Button
+                  data-testid={testIds.todoPrevStatus(task.id)}
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => prevStatus && onChangeStatus(task.id, prevStatus)}
+                  aria-label={t('actions.moveToPreviousStatus')}
+                  disabled={Boolean(pendingAction) || !prevStatus}
+                >
+                  <ChevronLeftIcon />
+                </Button>
+                <Button
+                  data-testid={testIds.todoNextStatus(task.id)}
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => nextStatus && onChangeStatus(task.id, nextStatus)}
+                  aria-label={t('actions.moveToNextStatus')}
+                  disabled={Boolean(pendingAction) || !nextStatus}
+                >
+                  <ChevronRightIcon />
+                </Button>
+              </>
+            )}
+            <Button
+              data-testid={testIds.todoDelete(task.id)}
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              onClick={() => {
+                if (isDeleted) return
+                onStartTaskExit(task.id, 'delete')
+              }}
+              aria-label={t('actions.deleteTodo')}
+              disabled={Boolean(pendingAction) || isDeleted}
+            >
+              <Trash2Icon />
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   )

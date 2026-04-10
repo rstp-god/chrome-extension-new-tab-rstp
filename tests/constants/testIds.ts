@@ -15,10 +15,14 @@ export enum TestId {
   TodoTabSelect = 'todo-tab-select',
   TodoAttachTab = 'todo-attach-tab',
   TodoSubmit = 'todo-submit',
-  TodoToggleCompleted = 'todo-toggle-completed',
-  TodoToggleDeleted = 'todo-toggle-deleted',
+  TodoFilterInput = 'todo-filter-input',
+  TodoFilterInprogress = 'todo-filter-inprogress',
+  TodoFilterStruggle = 'todo-filter-struggle',
+  TodoFilterCompleted = 'todo-filter-completed',
+  TodoFilterDeleted = 'todo-filter-deleted',
   TodoOpenAdd = 'todo-open-add',
   TodoOpenSettings = 'todo-open-settings',
+  TodoSyncNow = 'todo-sync-now',
   ChromeLibrarySearch = 'chrome-library-search',
   ChromeLibraryOpenSettings = 'chrome-library-open-settings',
   ChromeLibraryModeGroups = 'chrome-library-mode-groups',
@@ -39,6 +43,8 @@ export enum TestIdPrefix {
   TodoComplete = 'todo-complete',
   TodoDelete = 'todo-delete',
   TodoOpenLinkedTab = 'todo-open-linked-tab',
+  TodoNextStatus = 'todo-next-status',
+  TodoPrevStatus = 'todo-prev-status',
 }
 
 function prefixed(prefix: TestIdPrefix, value: string) {
@@ -56,4 +62,6 @@ export const testIds = {
   todoComplete: (taskId: string) => prefixed(TestIdPrefix.TodoComplete, taskId),
   todoDelete: (taskId: string) => prefixed(TestIdPrefix.TodoDelete, taskId),
   todoOpenLinkedTab: (taskId: string) => prefixed(TestIdPrefix.TodoOpenLinkedTab, taskId),
+  todoNextStatus: (taskId: string) => prefixed(TestIdPrefix.TodoNextStatus, taskId),
+  todoPrevStatus: (taskId: string) => prefixed(TestIdPrefix.TodoPrevStatus, taskId),
 }

@@ -2,18 +2,41 @@
   "title": "Задачи",
   "description": "Ваш список задач",
   "empty": "Пока нет активных задач.",
+  "status": {
+    "input": "Входящее",
+    "inprogress": "В работе",
+    "struggle": "Затыки",
+    "completed": "Готово",
+    "deleted": "Удалено",
+    "headerInput": "ВХОДЯЩЕЕ",
+    "headerInprogress": "В РАБОТЕ",
+    "headerStruggle": "ЗАТЫКИ",
+    "headerCompleted": "ГОТОВО",
+    "headerDeleted": "УДАЛЕНО"
+  },
   "actions": {
     "addTodo": "Добавить todo",
     "completeTodo": "Завершить задачу",
     "deleteTodo": "Удалить задачу",
     "openSettings": "Открыть настройки",
-    "toggleCompleted": "Показать выполненные задачи",
-    "toggleDeleted": "Показать удалённые задачи"
+    "openLinkedTab": "Открыть связанную вкладку",
+    "moveToNextStatus": "Перевести в следующий статус",
+    "moveToPreviousStatus": "Вернуть в предыдущий статус",
+    "syncNow": "Синхронизировать",
+    "filterInput": "Показать входящее",
+    "filterInprogress": "Показать в работе",
+    "filterStruggle": "Показать затыки",
+    "filterCompleted": "Показать готовые",
+    "filterDeleted": "Показать удалённые"
+  },
+  "footer": {
+    "lastSynced": "Синхронизировано {{when}}",
+    "neverSynced": "Ещё не синхронизировано",
+    "syncing": "Синхронизация…"
   },
   "settings": {
     "title": "Настройки задач",
-    "description": "Пока здесь переключатели видимости, позже будут интеграции.",
-    "integrationsPlaceholder": "Здесь появятся настройки интеграций."
+    "description": "Подключите интеграцию или храните задачи только локально."
   },
   "dialog": {
     "title": "Добавить задачу",
@@ -26,11 +49,82 @@
     "descriptionPlaceholder": "Добавьте детали для задачи",
     "selectTab": "Выберите открытую вкладку",
     "attachTab": "Привязать вкладку",
-    "submit": "Создать задачу"
+    "submit": "Создать задачу",
+    "projectLabel": "Проект",
+    "projectNone": "Без проекта"
   },
   "messages": {
     "noTabs": "Не найдено вкладок, которые можно привязать.",
     "tabUnavailable": "Текущую вкладку нельзя прикрепить в этом контексте.",
     "untitledTab": "Вкладка без названия"
+  },
+  "integrations": {
+    "picker": {
+      "title": "Подключить интеграцию",
+      "description": "Выберите сервис для синхронизации задач.",
+      "empty": "В этой сборке нет ни одной интеграции."
+    },
+    "trello": {
+      "title": "Trello",
+      "description": "Двусторонняя синхронизация с доской Trello.",
+      "showcase": {
+        "disabled": "Интеграции отключены в showcase-режиме."
+      },
+      "connect": {
+        "title": "Подключить Trello",
+        "description": "Вставьте API key и personal token из Trello, чтобы включить двустороннюю синхронизацию.",
+        "apiKeyLabel": "API key",
+        "tokenLabel": "Token",
+        "helpLinkLabel": "Где их взять?",
+        "submit": "Подключить"
+      },
+      "board": {
+        "title": "Выберите доску Trello",
+        "description": "С какой доской будет синхронизироваться этот виджет.",
+        "pickLabel": "Доска",
+        "continue": "Продолжить",
+        "back": "Назад",
+        "loading": "Загружаем доски…",
+        "empty": "На этом аккаунте нет досок."
+      },
+      "mapping": {
+        "title": "Сопоставьте колонки Trello со статусами",
+        "description": "У каждого статуса может быть несколько колонок. Первая колонка в строке — куда мы кладём новые карточки.",
+        "save": "Сохранить и синхронизировать",
+        "primaryHint": "Основная",
+        "emptyHint": "Выберите минимум одну колонку",
+        "usedByOther": "Уже в {{status}}",
+        "rebindWarning": "Смена маппинга сдвинет существующие карточки на следующей синхронизации.",
+        "loading": "Загружаем колонки…",
+        "addList": "Добавить колонку",
+        "row": {
+          "input": "Входящее",
+          "inprogress": "В работе",
+          "struggle": "Затыки",
+          "completed": "Готово",
+          "deleted": "Удалено"
+        }
+      },
+      "summary": {
+        "title": "Trello",
+        "boardLabel": "Доска",
+        "mappingLabel": "Маппинг",
+        "lastSync": "Последняя синхронизация",
+        "neverSynced": "никогда",
+        "disconnect": "Отключить",
+        "disconnectConfirm": "Отключить Trello? Локальные задачи останутся, но синхронизация прекратится.",
+        "rePickBoard": "Сменить доску"
+      },
+      "errors": {
+        "authInvalid": "Неверный API key или token. Проверьте оба поля.",
+        "network": "Ошибка сети. Проверьте подключение и попробуйте снова.",
+        "rateLimited": "Превышен лимит запросов Trello. Подождите немного и повторите.",
+        "notFound": "Запрошенный ресурс Trello не найден.",
+        "mappingIncomplete": "Завершите маппинг колонок перед синхронизацией.",
+        "pushFailed": "Не удалось отправить изменение в Trello.",
+        "pullFailed": "Не удалось получить обновления из Trello.",
+        "unknown": "Что-то пошло не так. Попробуйте ещё раз."
+      }
+    }
   }
 }
