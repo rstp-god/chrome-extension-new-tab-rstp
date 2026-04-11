@@ -49,8 +49,7 @@ export function toggleVisibleStatus(
   current: ReadonlySet<TodoStatus>,
   status: TodoStatus,
 ): ReadonlySet<TodoStatus> {
-  const base =
-    current.size === 0 ? new Set<TodoStatus>(DEFAULT_VISIBLE_STATUSES) : new Set(current)
+  const base = current.size === 0 ? new Set<TodoStatus>(DEFAULT_VISIBLE_STATUSES) : new Set(current)
   if (base.has(status)) base.delete(status)
   else base.add(status)
   return base

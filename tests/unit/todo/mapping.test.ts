@@ -49,7 +49,8 @@ describe('parseHiddenMetadata', () => {
   })
 
   it('only matches metadata blocks anchored to the end of the description', () => {
-    const desc = 'User text\n\n<!-- newtab-todo:v1\n{"version":1,"localId":"x","createdAt":1,"statusChangedAt":1}\n-->\ntrailing user content'
+    const desc =
+      'User text\n\n<!-- newtab-todo:v1\n{"version":1,"localId":"x","createdAt":1,"statusChangedAt":1}\n-->\ntrailing user content'
     const result = parseHiddenMetadata(desc)
     expect(result.meta).toBeNull()
     // Regex didn't match, so the whole desc (trimEnd) is returned as userText.
@@ -146,9 +147,9 @@ describe('cardToTask', () => {
   })
 
   it('falls back to crypto.randomUUID when neither metadata nor existingId is present', () => {
-    const spy = vi.spyOn(globalThis.crypto, 'randomUUID').mockReturnValue(
-      '11111111-2222-3333-4444-555555555555',
-    )
+    const spy = vi
+      .spyOn(globalThis.crypto, 'randomUUID')
+      .mockReturnValue('11111111-2222-3333-4444-555555555555')
     const task = cardToTask(trelloCardWithoutMetadataFixture, listMappingFixture)
     expect(spy).toHaveBeenCalledOnce()
     expect(task.id).toBe('11111111-2222-3333-4444-555555555555')

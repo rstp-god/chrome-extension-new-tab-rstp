@@ -83,9 +83,7 @@ const listsFixture: RemoteList[] = [
   { id: 'list-inprogress', name: 'Doing' },
 ]
 
-function makeIntegrationState(
-  overrides: Partial<IntegrationState> = {},
-): IntegrationState {
+function makeIntegrationState(overrides: Partial<IntegrationState> = {}): IntegrationState {
   return {
     name: 'trello',
     config: { apiKey: 'k', token: 't', boardId: 'board-1' },
@@ -322,9 +320,7 @@ describe('todo store — integration: pickBoard', () => {
     useTodoStore.setState({
       integration: makeIntegrationState({ mapping: mappingFixture }),
     })
-    useTodoStore
-      .getState()
-      .pickBoard('new-board', 'New Board', listsFixture, projectsFixture)
+    useTodoStore.getState().pickBoard('new-board', 'New Board', listsFixture, projectsFixture)
     const integration = useTodoStore.getState().integration
     expect(integration?.config.boardId).toBe('new-board')
     expect(integration?.boardName).toBe('New Board')
@@ -413,7 +409,11 @@ describe('todo store — integration: syncNow Phase 1 (push)', () => {
       integration: makeIntegrationState(),
       tasks: [
         makeTask({ id: 'clean-synced', syncState: 'clean', remoteRef: makeRemoteRef() }),
-        makeTask({ id: 'dirty', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'card-d' }) }),
+        makeTask({
+          id: 'dirty',
+          syncState: 'dirty',
+          remoteRef: makeRemoteRef({ cardId: 'card-d' }),
+        }),
         makeTask({ id: 'no-ref', syncState: 'clean', remoteRef: null }),
       ],
     })
@@ -465,9 +465,7 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
     const localLinkedTab = { url: 'https://local-tab.example', title: 'Local' }
     useTodoStore.setState({
       integration: makeIntegrationState(),
-      tasks: [
-        makeTask({ id: 'matched', remoteRef: makeRemoteRef(), linkedTab: localLinkedTab }),
-      ],
+      tasks: [makeTask({ id: 'matched', remoteRef: makeRemoteRef(), linkedTab: localLinkedTab })],
     })
     fakePullTasks.mockResolvedValueOnce(
       ok({
@@ -491,17 +489,13 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
   it('keeps a locally-dirty task dirty even when matched by remote pull', async () => {
     useTodoStore.setState({
       integration: makeIntegrationState(),
-      tasks: [
-        makeTask({ id: 'dirty-local', remoteRef: makeRemoteRef(), syncState: 'dirty' }),
-      ],
+      tasks: [makeTask({ id: 'dirty-local', remoteRef: makeRemoteRef(), syncState: 'dirty' })],
     })
     // Phase 1 pushes the dirty task; mock both push success AND pull.
     fakePushTask.mockResolvedValueOnce(ok(makeRemoteRef({ cardId: 'card-1' })))
     fakePullTasks.mockResolvedValueOnce(
       ok({
-        tasks: [
-          makeTask({ id: 'dirty-local', remoteRef: makeRemoteRef(), syncState: 'clean' }),
-        ],
+        tasks: [makeTask({ id: 'dirty-local', remoteRef: makeRemoteRef(), syncState: 'clean' })],
         refs: {},
       }),
     )
@@ -510,9 +504,7 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
     // task as already-clean+synced and only test reconcile.
     useTodoStore.setState({
       integration: makeIntegrationState(),
-      tasks: [
-        makeTask({ id: 'dirty-local', remoteRef: makeRemoteRef(), syncState: 'dirty' }),
-      ],
+      tasks: [makeTask({ id: 'dirty-local', remoteRef: makeRemoteRef(), syncState: 'dirty' })],
     })
     fakePushTask.mockReset()
     fakePushTask.mockResolvedValueOnce(ok(makeRemoteRef()))
@@ -533,9 +525,7 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
         ),
       }))
       return ok({
-        tasks: [
-          makeTask({ id: 'dirty-local', remoteRef: makeRemoteRef(), syncState: 'clean' }),
-        ],
+        tasks: [makeTask({ id: 'dirty-local', remoteRef: makeRemoteRef(), syncState: 'clean' })],
         refs: {},
       })
     })
@@ -556,9 +546,7 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
     fakePushTask.mockResolvedValueOnce(ok(makeRemoteRef({ cardId: 'now-remote' })))
     fakePullTasks.mockResolvedValueOnce(
       ok({
-        tasks: [
-          makeTask({ id: 'remote', remoteRef: makeRemoteRef(), syncState: 'clean' }),
-        ],
+        tasks: [makeTask({ id: 'remote', remoteRef: makeRemoteRef(), syncState: 'clean' })],
         refs: {},
       }),
     )
@@ -595,14 +583,15 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
         ],
       }))
       return ok({
-        tasks: [
-          makeTask({ id: 'remote', remoteRef: makeRemoteRef(), syncState: 'clean' }),
-        ],
+        tasks: [makeTask({ id: 'remote', remoteRef: makeRemoteRef(), syncState: 'clean' })],
         refs: {},
       })
     })
     await useTodoStore.getState().syncNow()
-    const ids = useTodoStore.getState().tasks.map((t) => t.id).sort()
+    const ids = useTodoStore
+      .getState()
+      .tasks.map((t) => t.id)
+      .sort()
     expect(ids).toContain('in-flight-local')
     expect(ids).toContain('remote')
   })

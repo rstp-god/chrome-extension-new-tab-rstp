@@ -138,11 +138,10 @@ describe('groupTasksBySection', () => {
       makeTask({ id: 'b', status: 'inprogress' }),
       makeTask({ id: 'c', status: 'struggle' }),
     ]
-    const sections = groupTasksBySection(
-      tasks,
-      s('input', 'inprogress', 'struggle'),
+    const sections = groupTasksBySection(tasks, s('input', 'inprogress', 'struggle'))
+    const byStatus = Object.fromEntries(
+      sections.map((sec) => [sec.status, sec.tasks.map((t) => t.id)]),
     )
-    const byStatus = Object.fromEntries(sections.map((sec) => [sec.status, sec.tasks.map((t) => t.id)]))
     expect(byStatus.input).toEqual(['a'])
     expect(byStatus.inprogress).toEqual(['b'])
     expect(byStatus.struggle).toEqual(['c'])

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { TestId, testIds } from '@tests/constants/testIds.ts';
+import { TestId, testIds } from '@tests/constants/testIds.ts'
 import {
   addWidget,
   launchExtensionContext,
@@ -19,9 +19,7 @@ async function addTodo(page: Page, title: string, description: string) {
   await expect(page.getByTestId(TestId.TodoAddDialog)).toBeHidden()
   // Wait until the new card actually appears in the widget so subsequent
   // selectors don't race the React render.
-  await expect(
-    page.getByTestId(testIds.widgetFrame('todo')).getByText(title),
-  ).toBeVisible()
+  await expect(page.getByTestId(testIds.widgetFrame('todo')).getByText(title)).toBeVisible()
 }
 
 function todoFrame(page: Page) {
@@ -31,9 +29,7 @@ function todoFrame(page: Page) {
 function todoCard(page: Page, title: string) {
   // Cards live under `[data-testid^="todo-task-"]`. Filter by visible text
   // so we don't depend on the random UUID in the test id.
-  return todoFrame(page)
-    .locator('[data-testid^="todo-task-"]')
-    .filter({ hasText: title })
+  return todoFrame(page).locator('[data-testid^="todo-task-"]').filter({ hasText: title })
 }
 
 async function clickNext(page: Page, title: string) {

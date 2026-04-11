@@ -264,11 +264,7 @@ describe('TrelloIntegration.pushTask', () => {
 
   it('"create" returns a remoteRef built from the response', async () => {
     fakeCreateCard.mockResolvedValueOnce(ok(captureCardResponse()))
-    const out = await makeIntegration().pushTask(
-      makeTask(),
-      { kind: 'create' },
-      pushCtx,
-    )
+    const out = await makeIntegration().pushTask(makeTask(), { kind: 'create' }, pushCtx)
     if (!out.ok) throw new Error('expected ok')
     expect(out.value).toEqual({
       cardId: 'card-remote-1',
