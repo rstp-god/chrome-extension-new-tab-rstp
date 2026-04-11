@@ -4,8 +4,13 @@ import { TodoFooter } from '@/widgets/Todo/components/widget/TodoFooter.tsx'
 import { TodoSection } from '@/widgets/Todo/components/widget/TodoSection.tsx'
 import { TodoTaskCard } from '@/widgets/Todo/components/widget/TodoTaskCard.tsx'
 import { TodoSettingsDialog } from '@/widgets/Todo/components/settings/TodoSettingsDialog.tsx'
-import { TODO_STATUSES, type Project, type TodoStatus } from '@/widgets/Todo/integrations/index.ts'
-import { useTodoStore, type TodoTask } from '@/widgets/Todo/store/store.ts'
+import { type Project, type TodoStatus } from '@/widgets/Todo/integrations/index.ts'
+import { useTodoStore } from '@/widgets/Todo/store/store.ts'
+import {
+  groupTasksBySection,
+  resolveVisibleStatuses,
+  toggleVisibleStatus,
+} from '@/widgets/Todo/utils/filter.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -13,19 +18,6 @@ const TODO_EXIT_ANIMATION_MS = 260
 
 interface PendingActionsState {
   [taskId: string]: 'complete' | 'delete'
-}
-
-const DEFAULT_VISIBLE_STATUSES: ReadonlySet<TodoStatus> = new Set<TodoStatus>([
-  'input',
-  'inprogress',
-  'struggle',
-])
-
-function getTaskSortTimestamp(task: TodoTask) {
-  if (task.statusChangedAt) return task.statusChangedAt
-  if (task.deletedAt) return task.deletedAt
-  if (task.completedAt) return task.completedAt
-  return task.createdAt
 }
 
 export function TodoWidget() {
@@ -80,31 +72,15 @@ export function TodoWidget() {
     void syncNow()
   }, [integration?.config.boardId, integration?.mapping, syncNow])
 
-  // "Empty filter set" is treated as the default view rather than "show
-  // nothing" — both the section list and the footer button highlights read
-  // from this derived value.
-  const effectiveVisibleStatuses = useMemo<ReadonlySet<TodoStatus>>(
-    () =>
-      visibleStatuses.size === 0 ? new Set<TodoStatus>(DEFAULT_VISIBLE_STATUSES) : visibleStatuses,
+  const effectiveVisibleStatuses = useMemo(
+    () => resolveVisibleStatuses(visibleStatuses),
     [visibleStatuses],
   )
 
-  const sections = useMemo(() => {
-    const grouped = new Map<TodoStatus, TodoTask[]>()
-    for (const status of TODO_STATUSES) grouped.set(status, [])
-    for (const task of tasks) {
-      grouped.get(task.status)?.push(task)
-    }
-    for (const status of TODO_STATUSES) {
-      grouped
-        .get(status)
-        ?.sort((left, right) => getTaskSortTimestamp(right) - getTaskSortTimestamp(left))
-    }
-    return TODO_STATUSES.filter((status) => effectiveVisibleStatuses.has(status)).map((status) => ({
-      status,
-      tasks: grouped.get(status) ?? [],
-    }))
-  }, [tasks, effectiveVisibleStatuses])
+  const sections = useMemo(
+    () => groupTasksBySection(tasks, effectiveVisibleStatuses),
+    [tasks, effectiveVisibleStatuses],
+  )
 
   const totalVisible = sections.reduce((acc, section) => acc + section.tasks.length, 0)
 
@@ -134,17 +110,7 @@ export function TodoWidget() {
   }
 
   const handleToggleStatus = (status: TodoStatus) => {
-    setVisibleStatuses((current) => {
-      // Promote the implicit default to an explicit set on the first toggle so
-      // the click does what the user sees: e.g. if all default filters look
-      // active and they click `input`, the result is `{inprogress, struggle}`
-      // — not `{input}`.
-      const base =
-        current.size === 0 ? new Set<TodoStatus>(DEFAULT_VISIBLE_STATUSES) : new Set(current)
-      if (base.has(status)) base.delete(status)
-      else base.add(status)
-      return base
-    })
+    setVisibleStatuses((current) => toggleVisibleStatus(current, status))
   }
 
   return (

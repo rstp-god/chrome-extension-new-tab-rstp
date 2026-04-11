@@ -38,6 +38,18 @@
     "title": "Todo settings",
     "description": "Connect an integration or keep todos local."
   },
+  "preview": {
+    "tasks": {
+      "inbox": {
+        "title": "Capture incoming work",
+        "description": "Drop new items into the inbox so nothing gets lost."
+      },
+      "doing": {
+        "title": "Wrap up the live task",
+        "description": "Move it through the status flow as you progress."
+      }
+    }
+  },
   "dialog": {
     "title": "Add todo",
     "description": "Save a task with optional context from the current tab."
