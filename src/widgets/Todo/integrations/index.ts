@@ -1,13 +1,5 @@
 import type { IntegrationDescriptor } from './types.ts'
 
-/**
- * Auto-built registry of Todo integrations. Mirrors the way `widgetRegistry`
- * is constructed in `src/types/widgets.ts` — each subfolder under
- * `src/widgets/Todo/integrations/<name>/` exports `{ descriptor }` from its
- * `index.ts` and is picked up here at build time by `import.meta.glob`.
- *
- * Adding a new integration: drop a folder, export a `descriptor`, done.
- */
 const modules = import.meta.glob<{ descriptor: IntegrationDescriptor }>('./*/index.ts', {
   eager: true,
 })

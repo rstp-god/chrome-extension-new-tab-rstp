@@ -1,8 +1,10 @@
 import { Button } from '@/components/ui/button.tsx'
-import { ProjectPill } from '@/widgets/Todo/components/ProjectPill.tsx'
+import { ProjectPill } from '@/widgets/Todo/components/widget/ProjectPill.tsx'
 import type { Project, TodoStatus } from '@/widgets/Todo/integrations/index.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 import { STATUS_BORDER_CLASS } from '@/widgets/Todo/statusStyles.ts'
+import { getNextStatus, getPrevStatus, isFlowStatus } from '@/widgets/Todo/utils/statusFlow.ts'
+import { getHostname } from '@/widgets/Todo/utils/url.ts'
 import { testIds } from '@tests/constants/testIds.ts'
 import clsx from 'clsx'
 import {
@@ -13,33 +15,6 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-
-function getHostname(url: string) {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return url
-  }
-}
-
-/**
- * Linear progression of "active work" states. Forward/backward chevrons walk
- * a task along this chain — completed and deleted are off-chain (their
- * transitions live on the checkbox and trash buttons respectively).
- */
-const STATUS_FLOW: readonly TodoStatus[] = ['input', 'inprogress', 'struggle']
-
-function getNextStatus(current: TodoStatus): TodoStatus | null {
-  const idx = STATUS_FLOW.indexOf(current)
-  if (idx === -1 || idx === STATUS_FLOW.length - 1) return null
-  return STATUS_FLOW[idx + 1]
-}
-
-function getPrevStatus(current: TodoStatus): TodoStatus | null {
-  const idx = STATUS_FLOW.indexOf(current)
-  if (idx <= 0) return null
-  return STATUS_FLOW[idx - 1]
-}
 
 interface Props {
   task: TodoTask
@@ -64,10 +39,15 @@ export function TodoTaskCard({
   const isCompleted = task.status === 'completed'
   const isDeleted = task.status === 'deleted'
   const isDirty = task.syncState !== 'clean'
-  const isInFlow = STATUS_FLOW.includes(task.status)
+  const isInFlow = isFlowStatus(task.status)
   const nextStatus = getNextStatus(task.status)
   const prevStatus = getPrevStatus(task.status)
 
+  // Note on shadcn `<Card>` (asked in review): not used here because the
+  // status-color border, dirty dot positioning and the side-swipe exit
+  // animation all want a single bare `<div>` we control end-to-end.
+  // Wrapping it in `<Card>/<CardContent>` would add layers without removing
+  // any of the bespoke styling.
   return (
     <div
       data-testid={testIds.todoTask(task.id)}
@@ -164,6 +144,11 @@ export function TodoTaskCard({
             </Button>
           )}
           <div className="flex items-center gap-0.5">
+            {/* Note on the array-of-configs idea (asked in review): each of
+                these buttons has a unique testid, condition, and onClick
+                semantics — collapsing them into a config-driven map ends up
+                with the same number of lines and an extra layer of
+                indirection, so they stay inline. */}
             {isInFlow && (
               <>
                 <Button

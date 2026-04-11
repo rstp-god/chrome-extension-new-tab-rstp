@@ -16,6 +16,7 @@
 - [🧩 Архитектура](#-архитектура-для-стороннего-разработчика)
 - [🔄 Как работает синхронизация с Chrome](#-как-работает-синхронизация-с-chrome)
 - [🧪 Полный гайд: как сделать свой виджет](#-полный-гайд-как-сделать-свой-виджет)
+- [🔌 Свой интегратор для Todo-виджета](#-свой-интегратор-для-todo-виджета)
 - [🔐 Разрешения Chrome](#-разрешения-chrome-что-обязательно-учитывать)
 - [💡 Практические рекомендации](#-практические-рекомендации-для-сторонних-разработчиков)
 - [✅ Чеклист](#-чеклист-при-добавлении-нового-виджета)
@@ -291,6 +292,176 @@ export const PreviewComponent = WeatherWidgetPreview
 
 Это даст восстановление данных после перезапуска браузера/расширения.
 
+## 🔌 Свой интегратор для Todo-виджета
+
+Todo-виджет умеет синхронизироваться с внешними сервисами через модульную систему интеграций. В коробке поставляется один интегратор — Trello (`src/widgets/Todo/integrations/trello/`), а добавление нового сводится к написанию одной папки.
+
+### Принципы
+
+- Каждая интеграция живёт в `src/widgets/Todo/integrations/<name>/` и **знает про сущности Todo** (`TodoTask`, `TodoStatus`, `Project`). Это не generic-абстракция — вы пишете адаптер именно под Todo-виджет.
+- Реестр строится автоматически через `import.meta.glob('./*/index.ts', { eager: true })` в `src/widgets/Todo/integrations/index.ts`. Достаточно положить новую папку и экспортнуть `descriptor` — она появится в picker'е настроек.
+- Активная интеграция в каждый момент времени **одна**. Конфиг хранится в Zustand-сторе под ключом `todo-widget:v1` через тот же `withChromeSync` envelope, что и сами тудушки.
+- Вызовы к бэкенду делаются **только** при монтировании виджета и при действиях пользователя — никаких background/alarms. Кнопка «Sync now» есть в футере виджета.
+
+### Шаг 1. Создайте папку
+
+```text
+src/widgets/Todo/integrations/myservice/
+  index.ts          # descriptor + класс адаптера
+  client.ts         # HTTP-клиент
+  schema.ts         # zod-схемы ответов API
+  mapping.ts        # перевод remote ↔ TodoTask
+  types.ts          # MyServiceConfig + остальные публичные типы
+  constants.ts      # API base, ссылки и т.п.
+  MyServiceConnectForm.tsx  # форма авторизации
+```
+
+Сама папка ничего больше от вас не требует — registry подцепит её на следующем билде.
+
+### Шаг 2. Реализуйте контракт `TodoIntegration`
+
+`src/widgets/Todo/integrations/types.ts`:
+
+```ts
+export interface TodoIntegration {
+  connect(): Promise<IntegrationOutcome<{ userHandle: string }>>
+  disconnect(): void
+
+  listBoards(): Promise<IntegrationOutcome<RemoteBoard[]>>
+  listLists(boardId: string): Promise<IntegrationOutcome<RemoteList[]>>
+  listProjects(boardId: string): Promise<IntegrationOutcome<Project[]>>
+
+  pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>>
+  pushTask(
+    task: TodoTask,
+    op: IntegrationPushOp,
+    ctx: PushContext,
+  ): Promise<IntegrationOutcome<RemoteTaskRef>>
+}
+```
+
+Все методы возвращают `IntegrationOutcome<T>` — дискриминированный union `{ ok: true, value }` либо `{ ok: false, errorKey }`. Бросать исключения не нужно — клиент должен ловить сетевые ошибки и переводить их в `IntegrationErrorKey` (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `unknown`).
+
+Класс-имплементация (Trello как образец):
+
+```ts
+export class MyIntegration implements TodoIntegration {
+  private readonly client: MyClient
+  constructor(config: MyServiceConfig) {
+    this.client = new MyClient(config.apiKey, config.token)
+  }
+
+  async connect() {
+    /* GET /me + zod-парс → ok / authInvalid */
+  }
+  disconnect() {
+    /* in-memory cleanup, без I/O */
+  }
+  listBoards() {
+    /* список board'ов пользователя */
+  }
+  listLists(boardId) {
+    /* колонок для выбранной доски */
+  }
+  listProjects(boardId) {
+    /* проектов = labels */
+  }
+  pullTasks(ctx) {
+    /* getAllCards + cardToTask + reconcile */
+  }
+  pushTask(task, op, ctx) {
+    /* create/update/move в зависимости от op.kind */
+  }
+}
+```
+
+### Шаг 3. Маппинг статусов и проектов
+
+- **Статус задачи**: пользователь в настройках сопоставляет каждый из 5 статусов (`input`, `inprogress`, `struggle`, `completed`, `deleted`) с массивом колонок вашего сервиса. Первая колонка в массиве — **primary**, туда уходит push при смене статуса. На pull-стороне колонка, не попавшая ни в один массив, по умолчанию читается как `input` (helper-функция `statusForListId`, см. `trello/mapping.ts`).
+- **Проект задачи**: один проект на задачу (`Project.id`). Адаптер сам решает, что считать «проектом» — у Trello это label, у Notion может быть multi-select option. **Цвет проекта** вы рассчитываете один раз при создании `Project` и кладёте в поле `pillClassName` (готовая Tailwind-строка). Так `<ProjectPill>` остаётся провайдер-агностичным. Образец — `trello/projectStyles.ts`.
+
+### Шаг 4. Скрытые метаданные на стороне сервиса
+
+Часто нужно сохранить локальный `taskId` где-то в карточке, чтобы при следующем pull смержить её с локальной задачей. В Trello-адаптере это сделано через HTML-комментарий в конце `card.desc`:
+
+```text
+<пользовательский текст>
+
+<!-- newtab-todo:v1
+{"version":1,"localId":"…","createdAt":…,"statusChangedAt":…}
+-->
+```
+
+Helpers `parseHiddenMetadata` / `writeHiddenMetadata` в `trello/mapping.ts` — готовый рецепт. Если ваш сервис умеет в нативные custom fields — используйте их вместо комментария.
+
+### Шаг 5. Соберите `descriptor`
+
+`src/widgets/Todo/integrations/myservice/index.ts`:
+
+```ts
+export const descriptor: IntegrationDescriptor = {
+  name: 'myservice', // discriminator в persisted state
+  titleI18nKey: 'todoWidget:integrations.myservice.title',
+  descriptionI18nKey: 'todoWidget:integrations.myservice.description',
+  ConnectForm: MyServiceConnectForm,
+  create: (config) => new MyIntegration(config as MyServiceConfig),
+}
+```
+
+Поле `name` должно быть уникальным — registry индексируется по нему.
+
+### Шаг 6. Реализуйте `ConnectForm`
+
+Это React-компонент с props `{ busy, errorKey, onConnect }`. Вызовите `onConnect(config)` после валидации полей. Само сохранение конфига и инициализация адаптера сделаны в Zustand-сторе:
+
+```tsx
+export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormProps) {
+  // ...inputs...
+  const handleSubmit = () => {
+    void onConnect({ apiKey, token, boardId: null } satisfies MyServiceConfig)
+  }
+  // ...
+}
+```
+
+### Шаг 7. Добавьте i18n-ключи
+
+В оба файла `src/i18n/resources/{en,ru}/widgets/todoWidget.json` добавьте namespace `integrations.<name>.*` с теми же ключами, что есть у Trello (`title`, `description`, `connect.*`, `board.*`, `mapping.*`, `summary.*`, `errors.*`, `showcase.*`). Контракт-тест `tests/contracts/i18nKeys.test.ts` падает, если EN и RU расходятся.
+
+### Шаг 8. Подключите диспетчер в `TodoSettingsConnect`
+
+Сейчас `TodoSettingsConnect.tsx` содержит `switch (integrationName)` и явный case для Trello:
+
+```ts
+switch (integrationName) {
+  case 'trello':
+    await connectIntegration('trello', config as TrelloConfig)
+    return
+  case 'myservice':
+    await connectIntegration('myservice', config as MyServiceConfig)
+    return
+  default:
+    console.warn(`...`)
+}
+```
+
+Это известная временная связка между диалогом и сторами — будет отрефакторено в типизированный реестр, как только появится вторая интеграция (пока в коде один путь — Trello).
+
+### Чеклист новой интеграции
+
+- [ ] Папка `src/widgets/Todo/integrations/<name>/` создана
+- [ ] Класс `MyIntegration implements TodoIntegration` реализует все 7 методов
+- [ ] HTTP-клиент возвращает `IntegrationOutcome<T>`, не бросает исключений
+- [ ] Все ответы API валидируются через Zod (`schema.ts`)
+- [ ] Секреты не утекают в текст ошибок (см. `redact` в `trello/client.ts`)
+- [ ] `Project.pillClassName` рассчитан один раз в адаптере
+- [ ] Скрытые метаданные сохраняют `localId` (или эквивалент) для reconciliation
+- [ ] `descriptor.name` уникален
+- [ ] i18n-ключи добавлены в EN и RU, контракт-тест зелёный
+- [ ] Switch в `TodoSettingsConnect.tsx` дополнен новым case
+- [ ] Интеграция показывается в picker'е настроек после `yarn dev`
+- [ ] Ручной smoke-тест: connect → board → mapping → создать таску → переместить в сервисе → sync now
+
 ## 🔐 Разрешения Chrome: что обязательно учитывать
 
 В `manifest.config.ts` уже заявлены разрешения:
@@ -353,6 +524,7 @@ This extension replaces Chrome's default new tab with a customizable page that s
 - [🧩 Architecture](#-architecture-for-third-party-developers)
 - [🔄 Chrome sync model](#-chrome-sync-model)
 - [🧪 Full guide: create your own widget](#-full-guide-create-your-own-widget)
+- [🔌 Writing your own Todo integration](#-writing-your-own-todo-integration)
 - [🔐 Chrome permissions](#-chrome-permissions-must-consider)
 - [💡 Practical recommendations](#-practical-recommendations)
 - [✅ New widget checklist](#-new-widget-checklist)
@@ -619,6 +791,176 @@ If your widget stores settings/data (e.g., selected city), create a dedicated Zu
 Preferred placement for that store is inside the widget folder itself, for example `src/widgets/Weather/store.ts`. This keeps widget-specific logic local and avoids overloading the global `src/store/` directory.
 
 This ensures restore after browser/extension reload.
+
+## 🔌 Writing your own Todo integration
+
+The Todo widget can sync with external services through a modular integration system. Trello (`src/widgets/Todo/integrations/trello/`) ships in the box; adding a new backend is a one-folder drop-in.
+
+### Principles
+
+- Each integration lives under `src/widgets/Todo/integrations/<name>/` and **knows about Todo entities** (`TodoTask`, `TodoStatus`, `Project`). It is not a generic abstraction — you write an adapter specifically for the Todo widget.
+- The registry is built automatically via `import.meta.glob('./*/index.ts', { eager: true })` in `src/widgets/Todo/integrations/index.ts`. Drop a folder, export `descriptor`, and it appears in the settings picker.
+- At any moment **one** integration is active. Its config is persisted in the Zustand store under `todo-widget:v1` using the same `withChromeSync` envelope as the todos themselves.
+- Backend calls happen **only** on widget mount and on user actions — there is no background or alarms loop. A "Sync now" button lives in the widget footer.
+
+### Step 1. Create the folder
+
+```text
+src/widgets/Todo/integrations/myservice/
+  index.ts          # descriptor + adapter class
+  client.ts         # HTTP wrapper
+  schema.ts         # Zod schemas for API responses
+  mapping.ts        # remote ↔ TodoTask conversions
+  types.ts          # MyServiceConfig + other public types
+  constants.ts      # API base URL, links, etc.
+  MyServiceConnectForm.tsx  # auth UI
+```
+
+That's the only required structure — the registry will pick it up on the next build.
+
+### Step 2. Implement the `TodoIntegration` contract
+
+`src/widgets/Todo/integrations/types.ts`:
+
+```ts
+export interface TodoIntegration {
+  connect(): Promise<IntegrationOutcome<{ userHandle: string }>>
+  disconnect(): void
+
+  listBoards(): Promise<IntegrationOutcome<RemoteBoard[]>>
+  listLists(boardId: string): Promise<IntegrationOutcome<RemoteList[]>>
+  listProjects(boardId: string): Promise<IntegrationOutcome<Project[]>>
+
+  pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>>
+  pushTask(
+    task: TodoTask,
+    op: IntegrationPushOp,
+    ctx: PushContext,
+  ): Promise<IntegrationOutcome<RemoteTaskRef>>
+}
+```
+
+Every method returns `IntegrationOutcome<T>` — a discriminated union of `{ ok: true, value }` or `{ ok: false, errorKey }`. Don't throw — your client should catch network failures and translate them to one of the `IntegrationErrorKey` literals (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `unknown`).
+
+Class implementation (Trello as the reference):
+
+```ts
+export class MyIntegration implements TodoIntegration {
+  private readonly client: MyClient
+  constructor(config: MyServiceConfig) {
+    this.client = new MyClient(config.apiKey, config.token)
+  }
+
+  async connect() {
+    /* GET /me + zod parse → ok / authInvalid */
+  }
+  disconnect() {
+    /* in-memory cleanup, no I/O */
+  }
+  listBoards() {
+    /* user's boards */
+  }
+  listLists(boardId) {
+    /* lists for the chosen board */
+  }
+  listProjects(boardId) {
+    /* projects = labels in Trello's case */
+  }
+  pullTasks(ctx) {
+    /* getAllCards + cardToTask + reconcile */
+  }
+  pushTask(task, op, ctx) {
+    /* create/update/move based on op.kind */
+  }
+}
+```
+
+### Step 3. Status and project mapping
+
+- **Task status**: in the settings dialog the user maps each of the 5 statuses (`input`, `inprogress`, `struggle`, `completed`, `deleted`) to an array of remote columns. The first column in the array is the **primary** — that's where push lands when the status changes. On the pull side, any column not present in any array falls back to `input` (helper `statusForListId`, see `trello/mapping.ts`).
+- **Task project**: one project per task (`Project.id`). The adapter decides what counts as a "project" — Trello uses labels, Notion might use a multi-select option. **Project color** is computed once when you build the `Project` record and stored in `pillClassName` (a ready-to-use Tailwind class string), so `<ProjectPill>` stays provider-agnostic. See `trello/projectStyles.ts` for the reference table.
+
+### Step 4. Hidden metadata on the remote side
+
+You usually need to stash a local `taskId` somewhere on the remote record so the next pull can merge it back into the local task. The Trello adapter does this with an HTML comment at the end of `card.desc`:
+
+```text
+<user free-form description>
+
+<!-- newtab-todo:v1
+{"version":1,"localId":"…","createdAt":…,"statusChangedAt":…}
+-->
+```
+
+Helpers `parseHiddenMetadata` / `writeHiddenMetadata` in `trello/mapping.ts` are a ready-to-use recipe. If your service supports native custom fields, prefer those over a description blob.
+
+### Step 5. Build the `descriptor`
+
+`src/widgets/Todo/integrations/myservice/index.ts`:
+
+```ts
+export const descriptor: IntegrationDescriptor = {
+  name: 'myservice', // discriminator in persisted state
+  titleI18nKey: 'todoWidget:integrations.myservice.title',
+  descriptionI18nKey: 'todoWidget:integrations.myservice.description',
+  ConnectForm: MyServiceConnectForm,
+  create: (config) => new MyIntegration(config as MyServiceConfig),
+}
+```
+
+`name` must be unique — the registry is keyed on it.
+
+### Step 6. Implement the `ConnectForm`
+
+A small React component with props `{ busy, errorKey, onConnect }`. Call `onConnect(config)` once the inputs validate. The store handles persisting the config and instantiating the adapter:
+
+```tsx
+export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormProps) {
+  // ...inputs...
+  const handleSubmit = () => {
+    void onConnect({ apiKey, token, boardId: null } satisfies MyServiceConfig)
+  }
+  // ...
+}
+```
+
+### Step 7. Add i18n keys
+
+Add an `integrations.<name>.*` namespace to both `src/i18n/resources/en/widgets/todoWidget.json` and `.../ru/widgets/todoWidget.json`, mirroring the Trello shape (`title`, `description`, `connect.*`, `board.*`, `mapping.*`, `summary.*`, `errors.*`, `showcase.*`). The contract test `tests/contracts/i18nKeys.test.ts` fails on EN/RU drift.
+
+### Step 8. Wire the dispatcher in `TodoSettingsConnect`
+
+`TodoSettingsConnect.tsx` currently has a `switch (integrationName)` with one explicit case:
+
+```ts
+switch (integrationName) {
+  case 'trello':
+    await connectIntegration('trello', config as TrelloConfig)
+    return
+  case 'myservice':
+    await connectIntegration('myservice', config as MyServiceConfig)
+    return
+  default:
+    console.warn(`...`)
+}
+```
+
+This is a known temporary coupling between the dialog and the store — it will be refactored into a typed registry once a second integration shows up (right now there's only one path: Trello).
+
+### New integration checklist
+
+- [ ] Folder `src/widgets/Todo/integrations/<name>/` created
+- [ ] `MyIntegration implements TodoIntegration` covers all seven methods
+- [ ] HTTP client returns `IntegrationOutcome<T>`, never throws on expected failures
+- [ ] All API responses validated through Zod (`schema.ts`)
+- [ ] Secrets are redacted from error messages (see `redact` in `trello/client.ts`)
+- [ ] `Project.pillClassName` is computed once inside the adapter
+- [ ] Hidden metadata preserves `localId` (or equivalent) for reconciliation
+- [ ] `descriptor.name` is unique
+- [ ] i18n keys exist in EN and RU, contract test green
+- [ ] `TodoSettingsConnect.tsx` switch has a case for the new integration
+- [ ] Integration shows up in the settings picker after `yarn dev`
+- [ ] Manual smoke test: connect → board → mapping → create a task → move it on the remote → sync now
 
 ## 🔐 Chrome permissions (must consider)
 

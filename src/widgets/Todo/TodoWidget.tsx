@@ -1,9 +1,9 @@
 import { ScrollArea } from '@/components/ui/scroll-area.tsx'
-import { AddTodoDialog } from '@/widgets/Todo/components/AddTodoDialog.tsx'
-import { TodoFooter } from '@/widgets/Todo/components/TodoFooter.tsx'
-import { TodoSection } from '@/widgets/Todo/components/TodoSection.tsx'
-import { TodoSettingsDialog } from '@/widgets/Todo/components/TodoSettingsDialog.tsx'
-import { TodoTaskCard } from '@/widgets/Todo/components/TodoTaskCard.tsx'
+import { AddTodoDialog } from '@/widgets/Todo/components/widget/AddTodoDialog.tsx'
+import { TodoFooter } from '@/widgets/Todo/components/widget/TodoFooter.tsx'
+import { TodoSection } from '@/widgets/Todo/components/widget/TodoSection.tsx'
+import { TodoTaskCard } from '@/widgets/Todo/components/widget/TodoTaskCard.tsx'
+import { TodoSettingsDialog } from '@/widgets/Todo/components/settings/TodoSettingsDialog.tsx'
 import { TODO_STATUSES, type Project, type TodoStatus } from '@/widgets/Todo/integrations/index.ts'
 import { useTodoStore, type TodoTask } from '@/widgets/Todo/store/store.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -32,8 +32,12 @@ export function TodoWidget() {
   const { t } = useTranslation('todoWidget')
   const [open, setOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // Filter state is the *explicit* user choice; an empty set means "I haven't
+  // touched the filters" and falls back to `DEFAULT_VISIBLE_STATUSES` via
+  // `effectiveVisibleStatuses` below. That keeps the widget from rendering an
+  // empty list when the user toggles all filters off.
   const [visibleStatuses, setVisibleStatuses] = useState<ReadonlySet<TodoStatus>>(
-    () => new Set(DEFAULT_VISIBLE_STATUSES),
+    () => new Set<TodoStatus>(),
   )
   const [pendingActions, setPendingActions] = useState<PendingActionsState>({})
 
@@ -76,6 +80,15 @@ export function TodoWidget() {
     void syncNow()
   }, [integration?.config.boardId, integration?.mapping, syncNow])
 
+  // "Empty filter set" is treated as the default view rather than "show
+  // nothing" — both the section list and the footer button highlights read
+  // from this derived value.
+  const effectiveVisibleStatuses = useMemo<ReadonlySet<TodoStatus>>(
+    () =>
+      visibleStatuses.size === 0 ? new Set<TodoStatus>(DEFAULT_VISIBLE_STATUSES) : visibleStatuses,
+    [visibleStatuses],
+  )
+
   const sections = useMemo(() => {
     const grouped = new Map<TodoStatus, TodoTask[]>()
     for (const status of TODO_STATUSES) grouped.set(status, [])
@@ -87,11 +100,11 @@ export function TodoWidget() {
         .get(status)
         ?.sort((left, right) => getTaskSortTimestamp(right) - getTaskSortTimestamp(left))
     }
-    return TODO_STATUSES.filter((status) => visibleStatuses.has(status)).map((status) => ({
+    return TODO_STATUSES.filter((status) => effectiveVisibleStatuses.has(status)).map((status) => ({
       status,
       tasks: grouped.get(status) ?? [],
     }))
-  }, [tasks, visibleStatuses])
+  }, [tasks, effectiveVisibleStatuses])
 
   const totalVisible = sections.reduce((acc, section) => acc + section.tasks.length, 0)
 
@@ -122,10 +135,15 @@ export function TodoWidget() {
 
   const handleToggleStatus = (status: TodoStatus) => {
     setVisibleStatuses((current) => {
-      const next = new Set(current)
-      if (next.has(status)) next.delete(status)
-      else next.add(status)
-      return next
+      // Promote the implicit default to an explicit set on the first toggle so
+      // the click does what the user sees: e.g. if all default filters look
+      // active and they click `input`, the result is `{inprogress, struggle}`
+      // — not `{input}`.
+      const base =
+        current.size === 0 ? new Set<TodoStatus>(DEFAULT_VISIBLE_STATUSES) : new Set(current)
+      if (base.has(status)) base.delete(status)
+      else base.add(status)
+      return base
     })
   }
 
@@ -167,7 +185,7 @@ export function TodoWidget() {
       )}
 
       <TodoFooter
-        visibleStatuses={visibleStatuses}
+        visibleStatuses={effectiveVisibleStatuses}
         onToggleStatus={handleToggleStatus}
         onOpenAdd={() => setOpen(true)}
         onOpenSettings={() => setSettingsOpen(true)}

@@ -1,35 +1,28 @@
 import { Button } from '@/components/ui/button.tsx'
 import { TODO_STATUSES } from '@/widgets/Todo/integrations/index.ts'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { formatRelative } from '@/widgets/Todo/utils/formatRelative.ts'
 import { RefreshCwIcon } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
   onEditMapping: () => void
   onPickBoard: () => void
 }
 
-function formatRelative(timestamp: number | null, neverLabel: string): string {
-  if (timestamp === null) return neverLabel
-  const diff = Date.now() - timestamp
-  const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
-
 export function TodoSettingsSummary({ onEditMapping, onPickBoard }: Props) {
-  const { t } = useTranslation('todoWidget')
-  const integration = useTodoStore((state) => state.integration)
-  const loading = useTodoStore((state) => state.loading)
-  const errorKey = useTodoStore((state) => state.errorKey)
-  const syncNow = useTodoStore((state) => state.syncNow)
-  const clearIntegration = useTodoStore((state) => state.clearIntegration)
+  const { t, i18n } = useTranslation('todoWidget')
+  const { integration, loading, errorKey, syncNow, clearIntegration } = useTodoStore(
+    useShallow((state) => ({
+      integration: state.integration,
+      loading: state.loading,
+      errorKey: state.errorKey,
+      syncNow: state.syncNow,
+      clearIntegration: state.clearIntegration,
+    })),
+  )
   const [busy, setBusy] = useState(false)
 
   const listNameById = useMemo(() => {
@@ -54,6 +47,10 @@ export function TodoSettingsSummary({ onEditMapping, onPickBoard }: Props) {
     clearIntegration()
   }
 
+  const lastSyncLabel = integration.lastSyncAt
+    ? formatRelative(integration.lastSyncAt, i18n.language)
+    : t('integrations.trello.summary.neverSynced')
+
   return (
     <div className="grid gap-4">
       <div className="grid gap-2 text-sm">
@@ -65,9 +62,7 @@ export function TodoSettingsSummary({ onEditMapping, onPickBoard }: Props) {
         </div>
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">{t('integrations.trello.summary.lastSync')}</span>
-          <span className="font-medium">
-            {formatRelative(integration.lastSyncAt, t('integrations.trello.summary.neverSynced'))}
-          </span>
+          <span className="font-medium">{lastSyncLabel}</span>
         </div>
       </div>
 

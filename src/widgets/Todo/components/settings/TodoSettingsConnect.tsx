@@ -12,11 +12,6 @@ interface Props {
   onBack: () => void
 }
 
-/**
- * Connect step. Looks up the chosen integration's descriptor and renders its
- * `ConnectForm`. The store action takes care of validating credentials and
- * setting `errorKey` on failure — we just plumb the form's events through.
- */
 export function TodoSettingsConnect({ integrationName, onBack }: Props) {
   const { t } = useTranslation('todoWidget')
   const connectIntegration = useTodoStore((state) => state.connectIntegration)
@@ -38,10 +33,17 @@ export function TodoSettingsConnect({ integrationName, onBack }: Props) {
 
   const ConnectForm = descriptor.ConnectForm
   const handleConnect: ConnectFormProps['onConnect'] = async (config) => {
-    // The integration name is hard-coupled to its config shape — we cast at
-    // the boundary because the descriptor surface is intentionally `unknown`.
-    if (integrationName === 'trello') {
-      await connectIntegration('trello', config as TrelloConfig)
+    // Per-integration dispatch. Each adapter knows its own config shape, so
+    // the cast happens in exactly one place per integration. Once a second
+    // backend lands here we can lift this into a typed registry; for now
+    // a switch keeps the boundary obvious and exhaustively flagged by ESLint
+    // when a new case appears.
+    switch (integrationName) {
+      case 'trello':
+        await connectIntegration('trello', config as TrelloConfig)
+        return
+      default:
+        console.warn(`TodoSettingsConnect: no handler for integration "${integrationName}"`)
     }
   }
 

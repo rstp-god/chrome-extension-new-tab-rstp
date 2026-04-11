@@ -1,7 +1,9 @@
 /**
  * Trello-specific runtime types. Wire types come from `./schema.ts`; this
- * file holds anything the rest of the adapter (and the store, indirectly)
- * needs to know.
+ * file holds the public-facing config + metadata shapes the rest of the
+ * adapter (and indirectly the store) needs to know about.
+ *
+ * Constants like `TRELLO_API_BASE` live in `./constants.ts`.
  */
 
 export interface TrelloConfig {
@@ -18,6 +20,3 @@ export interface TrelloHiddenMetadata {
   createdAt: number
   statusChangedAt: number
 }
-
-export const TRELLO_API_BASE = 'https://api.trello.com/1'
-export const TRELLO_HIDDEN_METADATA_VERSION = 1 as const

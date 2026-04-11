@@ -1,8 +1,10 @@
 import type { Project, StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 
+import { TRELLO_HIDDEN_METADATA_VERSION } from './constants.ts'
+import { getTrelloProjectPillClass } from './projectStyles.ts'
 import { trelloHiddenMetadataSchema, type TrelloCard, type TrelloLabel } from './schema.ts'
-import { TRELLO_HIDDEN_METADATA_VERSION, type TrelloHiddenMetadata } from './types.ts'
+import type { TrelloHiddenMetadata } from './types.ts'
 
 /**
  * Anchored to end-of-string so a stray `<!--` written by the user earlier in
@@ -46,11 +48,6 @@ export function writeHiddenMetadata(userText: string, meta: TrelloHiddenMetadata
   return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block
 }
 
-/**
- * Reverse-lookup a Trello listId in the user's mapping. Lists that aren't
- * in any status array fall through to `'input'` — this is the agreed
- * fallback (no synthetic "unmapped" state).
- */
 export function statusForListId(listId: string, mapping: StatusListMapping): TodoStatus {
   for (const status of Object.keys(mapping) as TodoStatus[]) {
     if (mapping[status].includes(listId)) return status
@@ -58,10 +55,6 @@ export function statusForListId(listId: string, mapping: StatusListMapping): Tod
   return 'input'
 }
 
-/**
- * The first list in a status array is the **primary** push destination.
- * When a task moves into a status, this is the list it lands in.
- */
 export function primaryListIdForStatus(status: TodoStatus, mapping: StatusListMapping): string {
   return mapping[status][0]
 }
@@ -70,15 +63,10 @@ export function labelToProject(label: TrelloLabel): Project {
   return {
     id: label.id,
     name: label.name,
-    colorToken: label.color,
+    pillClassName: getTrelloProjectPillClass(label.color),
   }
 }
 
-/**
- * Trello → local. Used by `pullTasks`. The `existingId` parameter lets the
- * adapter preserve the local UUID across pulls when the hidden metadata
- * block hasn't been written yet (we'll write it on the next push).
- */
 export function cardToTask(
   card: TrelloCard,
   mapping: StatusListMapping,
@@ -101,7 +89,6 @@ export function cardToTask(
     statusChangedAt,
     completedAt: status === 'completed' ? statusChangedAt : null,
     deletedAt: status === 'deleted' ? statusChangedAt : null,
-    // linkedTab is local-only; the store reconciles it across pulls.
     linkedTab: null,
     remoteRef: {
       cardId: card.id,
@@ -113,11 +100,6 @@ export function cardToTask(
   }
 }
 
-/**
- * Build the description string we send to Trello: the user's text plus
- * the hidden metadata block. The block is rebuilt every push so timestamps
- * stay current.
- */
 export function buildCardDescription(task: TodoTask, userText: string): string {
   const meta: TrelloHiddenMetadata = {
     version: TRELLO_HIDDEN_METADATA_VERSION,

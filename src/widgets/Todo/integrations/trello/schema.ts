@@ -1,11 +1,5 @@
 import { z } from 'zod'
 
-/**
- * Trusted-slice Zod schemas for Trello REST responses. We never `as` raw JSON
- * straight into our types — every API call funnels through `safeParse` here
- * and treats failures as `unknown` errors.
- */
-
 export const trelloMemberSchema = z.object({
   id: z.string(),
   username: z.string(),

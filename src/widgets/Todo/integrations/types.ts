@@ -6,6 +6,9 @@ import type { TodoTask } from '../store/store.ts'
  * The five possible states a todo can occupy. Maps onto Trello columns
  * (and, in the future, Notion statuses or other backends) via the user-
  * configurable `StatusListMapping`.
+ *
+ * See `README.md` ("Writing your own Todo integration" / "Своя интеграция
+ * для Todo") for the full guide on plugging a new backend in here.
  */
 export const TODO_STATUSES = ['input', 'inprogress', 'struggle', 'completed', 'deleted'] as const
 
@@ -23,8 +26,7 @@ export type StatusListMapping = Record<TodoStatus, string[]>
 export interface Project {
   id: string
   name: string
-  /** Raw provider color token (e.g. Trello `green`, `yellow_dark`). */
-  colorToken: string | null
+  pillClassName: string | null
 }
 
 export interface RemoteBoard {

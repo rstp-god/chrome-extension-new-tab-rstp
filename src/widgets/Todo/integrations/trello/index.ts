@@ -24,14 +24,6 @@ import {
 import { TrelloConnectForm } from './TrelloConnectForm.tsx'
 import type { TrelloConfig } from './types.ts'
 
-/**
- * Trello adapter. Class form (per the user's preference) — `TrelloClient`
- * holds the credentials and does the wire work; this class layers in the
- * domain logic (mapping, op-aware payload assembly, reconciliation hints).
- *
- * Lifetime: re-instantiated on every store action that touches the network.
- * Construction is cheap (two strings), no caching needed.
- */
 export class TrelloIntegration implements TodoIntegration {
   private readonly client: TrelloClient
 
@@ -45,10 +37,7 @@ export class TrelloIntegration implements TodoIntegration {
     return { ok: true, value: { userHandle: out.value.username } }
   }
 
-  disconnect(): void {
-    // Nothing to clean up — there is no in-memory subscription, no token
-    // refresh timer, no socket. Auth lives only in the persisted store.
-  }
+  disconnect(): void {}
 
   async listBoards(): Promise<IntegrationOutcome<RemoteBoard[]>> {
     const out = await this.client.getMyBoards()
@@ -78,13 +67,6 @@ export class TrelloIntegration implements TodoIntegration {
     const out = await this.client.getBoardCards(ctx.boardId)
     if (!out.ok) return out
 
-    // Existing-localId reuse: when we've already synced a card before, the
-    // hidden metadata block contains its localId. If the block is missing
-    // (e.g. card was created in Trello directly), we mint a fresh UUID,
-    // and the next push will write it back via `buildCardDescription`.
-    //
-    // We also try to match by `cardId → existing local task` so that any
-    // earlier in-memory id stays stable across pulls.
     const existingByCardId = new Map<string, string>()
     for (const [localId, ref] of Object.entries(ctx.knownRefs)) {
       existingByCardId.set(ref.cardId, localId)
@@ -166,8 +148,6 @@ export class TrelloIntegration implements TodoIntegration {
     }
 
     if (op.kind === 'project') {
-      // Only touch labels when we explicitly changed the project. Other
-      // ops leave the user's extra labels alone.
       patch.idLabels = task.projectId ? [task.projectId] : []
     }
 
@@ -193,6 +173,4 @@ export const descriptor: IntegrationDescriptor = {
   create: (config) => new TrelloIntegration(config as TrelloConfig),
 }
 
-// Keep `parseHiddenMetadata` accessible from tests / future tooling without
-// re-exporting the entire mapping module.
 export { parseHiddenMetadata }

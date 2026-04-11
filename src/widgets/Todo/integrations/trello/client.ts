@@ -12,7 +12,7 @@ import {
   type TrelloList,
   type TrelloMember,
 } from './schema.ts'
-import { TRELLO_API_BASE } from './types.ts'
+import { TRELLO_API_BASE } from './constants.ts'
 import { z } from 'zod'
 
 type Query = Record<string, string | undefined>
@@ -35,18 +35,6 @@ interface UpdateCardBody {
   idLabels?: string[]
 }
 
-/**
- * Low-level Trello REST wrapper. Plain `fetch`, no third-party HTTP libs.
- *
- * Three responsibilities:
- *   1. Build the URL with `key` + `token` query params.
- *   2. Translate HTTP status codes into our `IntegrationErrorKey` union.
- *   3. **Never** leak `key=` / `token=` in error messages — `redact` strips
- *      both before any string crosses the class boundary.
- *
- * Every method returns `IntegrationOutcome<T>` and never throws on expected
- * failures (network, 4xx, 5xx, malformed JSON). Unexpected throws bubble up.
- */
 export class TrelloClient {
   constructor(
     private readonly apiKey: string,
@@ -122,7 +110,6 @@ export class TrelloClient {
     return url.toString()
   }
 
-  /** Strip `key=` / `token=` from any string we might log or surface. */
   private redact(message: string): string {
     return message.replace(/([?&](?:key|token))=[^&\s]+/gi, '$1=…')
   }

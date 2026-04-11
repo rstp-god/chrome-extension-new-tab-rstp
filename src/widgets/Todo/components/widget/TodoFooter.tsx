@@ -1,21 +1,12 @@
 import { Button } from '@/components/ui/button.tsx'
-import { TodoSyncBadge } from '@/widgets/Todo/components/TodoSyncBadge.tsx'
+import { TodoSyncBadge } from '@/widgets/Todo/components/widget/TodoSyncBadge.tsx'
+import { STATUS_ICON } from '@/widgets/Todo/constants.ts'
 import { TODO_STATUSES, type TodoStatus } from '@/widgets/Todo/integrations/index.ts'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { STATUS_PILL_CLASS } from '@/widgets/Todo/statusStyles.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import clsx from 'clsx'
-import {
-  AlertTriangleIcon,
-  CheckIcon,
-  type LucideIcon,
-  InboxIcon,
-  LoaderIcon,
-  PlusIcon,
-  RefreshCwIcon,
-  Settings2Icon,
-  Trash2Icon,
-} from 'lucide-react'
+import { PlusIcon, RefreshCwIcon, Settings2Icon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 interface Props {
@@ -23,14 +14,6 @@ interface Props {
   onToggleStatus: (status: TodoStatus) => void
   onOpenAdd: () => void
   onOpenSettings: () => void
-}
-
-const STATUS_ICON: Record<TodoStatus, LucideIcon> = {
-  input: InboxIcon,
-  inprogress: LoaderIcon,
-  struggle: AlertTriangleIcon,
-  completed: CheckIcon,
-  deleted: Trash2Icon,
 }
 
 const STATUS_TEST_ID: Record<TodoStatus, TestId> = {

@@ -6,9 +6,8 @@ import { ExternalLinkIcon } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { TRELLO_APP_KEY_URL } from './constants.ts'
 import type { TrelloConfig } from './types.ts'
-
-const TRELLO_APP_KEY_URL = 'https://trello.com/app-key'
 
 export function TrelloConnectForm({ busy, errorKey, onConnect }: ConnectFormProps) {
   const { t } = useTranslation('todoWidget')
@@ -25,7 +24,7 @@ export function TrelloConnectForm({ busy, errorKey, onConnect }: ConnectFormProp
       token: token.trim(),
       boardId: null,
     }
-    void onConnect(config)
+    onConnect(config)
   }
 
   return (

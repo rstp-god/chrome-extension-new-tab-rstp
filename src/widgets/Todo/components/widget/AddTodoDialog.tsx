@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { LinkableTab, listLinkableTabs } from '@/services/chrome/tabs.ts'
+import { NO_PROJECT_VALUE } from '@/widgets/Todo/constants.ts'
 import type { Project } from '@/widgets/Todo/integrations/index.ts'
 import { LinkedTab } from '@/widgets/Todo/store/store.ts'
 import { TestId } from '@tests/constants/testIds.ts'
@@ -36,8 +37,6 @@ interface Props {
     projectId: string | null
   }) => void
 }
-
-const NO_PROJECT_VALUE = '__none__'
 
 export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props) {
   const { t } = useTranslation('todoWidget')

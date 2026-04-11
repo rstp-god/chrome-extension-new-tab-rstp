@@ -52,7 +52,7 @@ const todoTaskSchema = z.object({
 const projectSchema = z.object({
   id: z.string(),
   name: z.string(),
-  colorToken: z.string().nullable(),
+  pillClassName: z.string().nullable(),
 })
 
 /**
@@ -173,9 +173,6 @@ function getActiveAdapter(state: TodoWidgetState): TodoIntegration | null {
 
 function inferOpForTask(task: TodoTask): IntegrationPushOp {
   if (!task.remoteRef) return { kind: 'create' }
-  // Generic dirty retry — let the adapter compute the diff against its remote
-  // snapshot. The store can't always remember the exact `previous` value, so
-  // we use `update` as the safe default.
   return { kind: 'update' }
 }
 
@@ -196,11 +193,6 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       integration: incoming.integration,
     }),
   })((set, get) => {
-    /**
-     * Fire-and-forget push for a single task. Called from every mutating
-     * action. Failures mark the task `error` and surface `errorKey` on the
-     * integration slice; the next `syncNow` retries dirty/error tasks.
-     */
     const pushTaskAsync = async (taskId: string, op: IntegrationPushOp): Promise<void> => {
       const state = get()
       const adapter = getActiveAdapter(state)
