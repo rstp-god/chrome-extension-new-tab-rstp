@@ -11,9 +11,11 @@ node_modules
 .yarn
 .pnp.*
 dist
+dist-showcase
 release
 dist-ssr
 *.local
+*.tsbuildinfo
 coverage
 test-results
 playwright-report
