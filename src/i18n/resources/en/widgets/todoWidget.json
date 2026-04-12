@@ -2,18 +2,53 @@
   "title": "Todo",
   "description": "Your task list",
   "empty": "No active todos yet.",
+  "status": {
+    "input": "Input",
+    "inprogress": "In progress",
+    "struggle": "Struggle",
+    "completed": "Completed",
+    "deleted": "Deleted",
+    "headerInput": "INPUT",
+    "headerInprogress": "IN PROGRESS",
+    "headerStruggle": "STRUGGLE",
+    "headerCompleted": "COMPLETED",
+    "headerDeleted": "DELETED"
+  },
   "actions": {
     "addTodo": "Add todo",
     "completeTodo": "Complete todo",
     "deleteTodo": "Delete todo",
     "openSettings": "Open settings",
-    "toggleCompleted": "Show completed todos",
-    "toggleDeleted": "Show deleted todos"
+    "openLinkedTab": "Open linked tab",
+    "moveToNextStatus": "Move to next status",
+    "moveToPreviousStatus": "Move to previous status",
+    "syncNow": "Sync now",
+    "filterInput": "Show input",
+    "filterInprogress": "Show in progress",
+    "filterStruggle": "Show struggle",
+    "filterCompleted": "Show completed",
+    "filterDeleted": "Show deleted"
+  },
+  "footer": {
+    "lastSynced": "Synced {{when}}",
+    "neverSynced": "Not synced yet",
+    "syncing": "Syncing…"
   },
   "settings": {
     "title": "Todo settings",
-    "description": "Visibility toggles now, integrations later.",
-    "integrationsPlaceholder": "Integration settings will appear here."
+    "description": "Connect an integration or keep todos local."
+  },
+  "preview": {
+    "tasks": {
+      "inbox": {
+        "title": "Capture incoming work",
+        "description": "Drop new items into the inbox so nothing gets lost."
+      },
+      "doing": {
+        "title": "Wrap up the live task",
+        "description": "Move it through the status flow as you progress."
+      }
+    }
   },
   "dialog": {
     "title": "Add todo",
@@ -26,11 +61,82 @@
     "descriptionPlaceholder": "Add details for this task",
     "selectTab": "Choose an open tab",
     "attachTab": "Attach tab",
-    "submit": "Create todo"
+    "submit": "Create todo",
+    "projectLabel": "Project",
+    "projectNone": "No project"
   },
   "messages": {
     "noTabs": "No attachable tabs found.",
     "tabUnavailable": "The current tab cannot be attached here.",
     "untitledTab": "Untitled tab"
+  },
+  "integrations": {
+    "picker": {
+      "title": "Connect an integration",
+      "description": "Pick a service to sync your todos with.",
+      "empty": "No integrations are bundled in this build."
+    },
+    "trello": {
+      "title": "Trello",
+      "description": "Two-way sync with a Trello board.",
+      "showcase": {
+        "disabled": "Integrations are disabled in showcase mode."
+      },
+      "connect": {
+        "title": "Connect Trello",
+        "description": "Paste your Trello API key and personal token to enable two-way sync.",
+        "apiKeyLabel": "API key",
+        "tokenLabel": "Token",
+        "helpLinkLabel": "Where do I get these?",
+        "submit": "Connect"
+      },
+      "board": {
+        "title": "Pick a Trello board",
+        "description": "Choose the board this Todo widget will sync with.",
+        "pickLabel": "Board",
+        "continue": "Continue",
+        "back": "Back",
+        "loading": "Loading boards…",
+        "empty": "No boards found on this account."
+      },
+      "mapping": {
+        "title": "Map Trello lists to statuses",
+        "description": "Each status can pull from multiple lists. The first list in each row is where new cards land.",
+        "save": "Save & sync",
+        "primaryHint": "Primary",
+        "emptyHint": "Pick at least one list",
+        "usedByOther": "Used by {{status}}",
+        "rebindWarning": "Changing the mapping will move existing cards on the next sync.",
+        "loading": "Loading lists…",
+        "addList": "Add list",
+        "row": {
+          "input": "Input",
+          "inprogress": "In progress",
+          "struggle": "Struggle",
+          "completed": "Completed",
+          "deleted": "Deleted"
+        }
+      },
+      "summary": {
+        "title": "Trello",
+        "boardLabel": "Board",
+        "mappingLabel": "Mapping",
+        "lastSync": "Last sync",
+        "neverSynced": "never",
+        "disconnect": "Disconnect",
+        "disconnectConfirm": "Disconnect Trello? Local todos stay, but stop syncing.",
+        "rePickBoard": "Change board"
+      },
+      "errors": {
+        "authInvalid": "Invalid API key or token. Re-check both fields.",
+        "network": "Network error. Check your connection and try again.",
+        "rateLimited": "Trello rate limit reached. Wait a moment and retry.",
+        "notFound": "The Trello resource wasn't found.",
+        "mappingIncomplete": "Finish the list mapping before syncing.",
+        "pushFailed": "Failed to push the change to Trello.",
+        "pullFailed": "Failed to pull updates from Trello.",
+        "unknown": "Something went wrong. Try again."
+      }
+    }
   }
 }

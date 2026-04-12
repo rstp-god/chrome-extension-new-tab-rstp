@@ -18,6 +18,7 @@ export default defineManifest({
     newtab: 'src/newtab/index.html',
   },
   permissions: ['sidePanel', 'contentSettings', 'storage', 'tabs', 'bookmarks', 'tabGroups'],
+  host_permissions: ['https://api.trello.com/*'],
   content_scripts: [
     {
       js: ['src/content/main.tsx'],

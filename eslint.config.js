@@ -12,6 +12,7 @@ export default [
   {
     ignores: [
       'dist',
+      'dist-showcase',
       'release',
       'coverage',
       'node_modules',

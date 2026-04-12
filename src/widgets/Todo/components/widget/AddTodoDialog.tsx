@@ -18,8 +18,10 @@ import {
 } from '@/components/ui/select.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { LinkableTab, listLinkableTabs } from '@/services/chrome/tabs.ts'
-import { TestId } from '@tests/constants/testIds.ts'
+import { NO_PROJECT_VALUE } from '@/widgets/Todo/constants.ts'
+import type { Project } from '@/widgets/Todo/integrations/index.ts'
 import { LinkedTab } from '@/widgets/Todo/store/store.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 import { GlobeIcon, LinkIcon } from 'lucide-react'
 import { SubmitEvent, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -27,10 +29,16 @@ import { useTranslation } from 'react-i18next'
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
-  onSubmit: (input: { title: string; description: string; linkedTab?: LinkedTab }) => void
+  projects: Project[]
+  onSubmit: (input: {
+    title: string
+    description: string
+    linkedTab?: LinkedTab
+    projectId: string | null
+  }) => void
 }
 
-export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
+export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props) {
   const { t } = useTranslation('todoWidget')
   const { t: common } = useTranslation('common')
   const [title, setTitle] = useState('')
@@ -39,6 +47,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
   const [availableTabs, setAvailableTabs] = useState<LinkableTab[]>([])
   const [selectedTabUrl, setSelectedTabUrl] = useState<string>()
   const [tabError, setTabError] = useState<string | null>(null)
+  const [projectValue, setProjectValue] = useState<string>(NO_PROJECT_VALUE)
 
   const selectedTab = useMemo(
     () => availableTabs.find((tab) => tab.url === selectedTabUrl),
@@ -52,6 +61,7 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
     setAvailableTabs([])
     setSelectedTabUrl(undefined)
     setTabError(null)
+    setProjectValue(NO_PROJECT_VALUE)
   }
 
   useEffect(() => {
@@ -72,7 +82,12 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
     event.preventDefault()
     if (!title.trim()) return
 
-    onSubmit({ title, description, linkedTab })
+    onSubmit({
+      title,
+      description,
+      linkedTab,
+      projectId: projectValue === NO_PROJECT_VALUE ? null : projectValue,
+    })
     handleOpenChange(false)
   }
 
@@ -124,6 +139,25 @@ export function AddTodoDialog({ open, onOpenChange, onSubmit }: Props) {
               placeholder={t('form.descriptionPlaceholder')}
             />
           </Field>
+
+          {projects.length > 0 && (
+            <Field className="min-w-0">
+              <FieldLabel htmlFor="todo-project">{t('form.projectLabel')}</FieldLabel>
+              <Select value={projectValue} onValueChange={setProjectValue}>
+                <SelectTrigger id="todo-project" className="w-full">
+                  <SelectValue placeholder={t('form.projectNone')} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NO_PROJECT_VALUE}>{t('form.projectNone')}</SelectItem>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
 
           <Field className="min-w-0">
             <div className="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
