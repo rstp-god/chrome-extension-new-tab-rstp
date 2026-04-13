@@ -6,6 +6,7 @@ import enErrors from '@/i18n/resources/en/errors.json'
 import enHeader from '@/i18n/resources/en/header.json'
 import enChromeLibraryWidget from '@/i18n/resources/en/widgets/chromeLibraryWidget.json'
 import enSearchWidget from '@/i18n/resources/en/widgets/searchWidget.json'
+import enTabRules from '@/i18n/resources/en/widgets/tabRules.json'
 import enTodoWidget from '@/i18n/resources/en/widgets/todoWidget.json'
 import enSettingsDialog from '@/i18n/resources/en/settingsDialog.json'
 import ruBackgroundDialog from '@/i18n/resources/ru/backgroundDialog.json'
@@ -14,6 +15,7 @@ import ruErrors from '@/i18n/resources/ru/errors.json'
 import ruHeader from '@/i18n/resources/ru/header.json'
 import ruChromeLibraryWidget from '@/i18n/resources/ru/widgets/chromeLibraryWidget.json'
 import ruSearchWidget from '@/i18n/resources/ru/widgets/searchWidget.json'
+import ruTabRules from '@/i18n/resources/ru/widgets/tabRules.json'
 import ruTodoWidget from '@/i18n/resources/ru/widgets/todoWidget.json'
 import ruSettingsDialog from '@/i18n/resources/ru/settingsDialog.json'
 
@@ -25,6 +27,7 @@ const resources = {
     backgroundDialog: ruBackgroundDialog,
     chromeLibraryWidget: ruChromeLibraryWidget,
     searchWidget: ruSearchWidget,
+    tabRules: ruTabRules,
     todoWidget: ruTodoWidget,
     errors: ruErrors,
   },
@@ -35,6 +38,7 @@ const resources = {
     backgroundDialog: enBackgroundDialog,
     chromeLibraryWidget: enChromeLibraryWidget,
     searchWidget: enSearchWidget,
+    tabRules: enTabRules,
     todoWidget: enTodoWidget,
     errors: enErrors,
   },
@@ -52,6 +56,7 @@ i18n.use(initReactI18next).init({
     'backgroundDialog',
     'chromeLibraryWidget',
     'searchWidget',
+    'tabRules',
     'todoWidget',
     'errors',
   ],
