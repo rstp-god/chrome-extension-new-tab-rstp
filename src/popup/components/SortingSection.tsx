@@ -12,11 +12,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Label } from '@/components/ui/label'
 import { SectionCard } from '@/popup/components/SectionCard.tsx'
 import { useTabRulesStore } from '@/popup/store/tabRules.ts'
-import {
-  GROUP_SORT_CRITERIA,
-  SORT_SCOPES,
-  TAB_SORT_CRITERIA,
-} from '@/popup/types/rules.ts'
+import { GROUP_SORT_CRITERIA, SORT_SCOPES, TAB_SORT_CRITERIA } from '@/popup/types/rules.ts'
 import { useTranslation } from 'react-i18next'
 
 export function SortingSection() {

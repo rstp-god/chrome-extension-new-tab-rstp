@@ -18,7 +18,6 @@ export default defineManifest({
     newtab: 'src/newtab/index.html',
   },
   permissions: [
-    'sidePanel',
     'contentSettings',
     'storage',
     'tabs',
@@ -38,7 +37,4 @@ export default defineManifest({
       matches: ['https://*/*'],
     },
   ],
-  side_panel: {
-    default_path: 'src/sidepanel/index.html',
-  },
 })

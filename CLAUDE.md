@@ -37,9 +37,11 @@ Husky `pre-commit` runs `yarn lint` and `yarn format`.
 
 ### Layout
 
-- `manifest.config.ts` — MV3 manifest (permissions: `sidePanel`, `contentSettings`, `storage`, `tabs`, `bookmarks`, `tabGroups`)
+- `manifest.config.ts` — MV3 manifest (permissions: `contentSettings`, `storage`, `tabs`, `bookmarks`, `tabGroups`, `alarms`, `notifications`)
 - `src/newtab/` — new tab page entry (`index.html`, `App.tsx`, `main.tsx`, components for Header / Background / WidgetLayout)
-- `src/popup/`, `src/sidepanel/`, `src/content/` — other extension surfaces
+- `src/popup/` — Tab Rules Engine popup (rule management, sorting, cleanup settings)
+- `src/background/` — background service worker (rule execution, cleanup scheduler)
+- `src/content/` — content script for `https://*/*`
 - `src/showcase/` — showcase-mode entry
 - `src/widgets/<Name>/` — one folder per widget (currently `Search`, `Todo`, `ChromeLibrary`)
 - `src/store/` — global Zustand stores (`header.ts`, `widget.ts`)

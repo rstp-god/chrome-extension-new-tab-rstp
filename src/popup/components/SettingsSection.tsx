@@ -1,6 +1,12 @@
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ColorPicker } from '@/popup/components/ColorPicker.tsx'
 import { SectionCard } from '@/popup/components/SectionCard.tsx'
@@ -66,7 +72,7 @@ export function SettingsSection() {
           onValueChange={(v) => updateUnmatchedTabs({ behavior: v as UnmatchedTabsBehavior })}
         >
           <SelectTrigger className="h-7 text-xs">
-            <SelectValue/>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="leave_ungrouped">{t('settings.unmatchedTabs.leave')}</SelectItem>
