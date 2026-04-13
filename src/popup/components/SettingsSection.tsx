@@ -13,13 +13,8 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ColorPicker } from '@/popup/components/ColorPicker.tsx'
 import { SectionCard } from '@/popup/components/SectionCard.tsx'
 import { useTabRulesStore } from '@/popup/store/tabRules.ts'
+import { AUTOMATION_MODES } from '@/popup/types/rules.ts'
 import { useTranslation } from 'react-i18next'
-
-const MODES: { value: AutomationMode; labelKey: string }[] = [
-  { value: 'realtime', labelKey: 'settings.realtime' },
-  { value: 'debounce', labelKey: 'settings.delayed' },
-  { value: 'manual', labelKey: 'settings.manual' },
-]
 
 export function SettingsSection() {
   const { t } = useTranslation('tabRules')
@@ -38,7 +33,7 @@ export function SettingsSection() {
           onValueChange={(v) => v && updateAutomation({ mode: v as AutomationMode })}
           className="w-full rounded-lg border border-border/50 bg-muted/30 p-0.5"
         >
-          {MODES.map((m) => (
+          {AUTOMATION_MODES.map((m) => (
             <ToggleGroupItem
               key={m.value}
               value={m.value}
@@ -59,9 +54,7 @@ export function SettingsSection() {
             max={30}
             className="h-7 w-[70px] text-xs"
             value={automation.debounceMs / 1000}
-            onChange={(e) =>
-              updateAutomation({ debounceMs: Number(e.target.value) * 1000 })
-            }
+            onChange={(e) => updateAutomation({ debounceMs: Number(e.target.value) * 1000 })}
           />
         </div>
       )}
@@ -70,20 +63,14 @@ export function SettingsSection() {
         <Label className="text-xs">{t('settings.unmatchedTabs')}</Label>
         <Select
           value={unmatchedTabs.behavior}
-          onValueChange={(v) =>
-            updateUnmatchedTabs({ behavior: v as UnmatchedTabsBehavior })
-          }
+          onValueChange={(v) => updateUnmatchedTabs({ behavior: v as UnmatchedTabsBehavior })}
         >
           <SelectTrigger className="h-7 text-xs">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="leave_ungrouped">
-              {t('settings.unmatchedTabs.leave')}
-            </SelectItem>
-            <SelectItem value="group_other">
-              {t('settings.unmatchedTabs.group')}
-            </SelectItem>
+            <SelectItem value="leave_ungrouped">{t('settings.unmatchedTabs.leave')}</SelectItem>
+            <SelectItem value="group_other">{t('settings.unmatchedTabs.group')}</SelectItem>
           </SelectContent>
         </Select>
       </div>

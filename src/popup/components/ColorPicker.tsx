@@ -1,4 +1,6 @@
 import type { ChromeGroupColor } from '@/popup/types/rules.ts'
+
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 const COLORS: { key: ChromeGroupColor; hex: string }[] = [
@@ -21,12 +23,14 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
   return (
     <div className="flex gap-2">
       {COLORS.map(({ key, hex }) => (
-        <button
+        <Button
           key={key}
+          variant="ghost"
+          size="icon"
           type="button"
           aria-label={key}
           className={cn(
-            'h-5 w-5 rounded-full transition-all',
+            'h-5 w-5 rounded-full p-0 hover:bg-transparent',
             value === key && 'ring-2 ring-white ring-offset-2 ring-offset-background',
           )}
           style={{ backgroundColor: hex }}
@@ -39,10 +43,5 @@ export function ColorPicker({ value, onChange }: ColorPickerProps) {
 
 export function ColorDot({ color }: { color: ChromeGroupColor }) {
   const hex = COLORS.find((c) => c.key === color)?.hex ?? '#9AA0A6'
-  return (
-    <span
-      className="inline-block h-3 w-3 rounded-full"
-      style={{ backgroundColor: hex }}
-    />
-  )
+  return <span className="inline-block h-3 w-3 rounded-full" style={{ backgroundColor: hex }} />
 }

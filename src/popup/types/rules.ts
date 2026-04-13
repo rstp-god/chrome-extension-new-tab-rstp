@@ -1,4 +1,3 @@
-// Matcher types (spec §3.2)
 export type MatcherType = 'domain' | 'regex' | 'title_contains' | 'path_contains'
 
 export interface Matcher {
@@ -6,7 +5,6 @@ export interface Matcher {
   value: string
 }
 
-// Chrome Tab Group colors (spec §2.3)
 export type ChromeGroupColor =
   | 'grey'
   | 'blue'
@@ -27,7 +25,6 @@ export interface GroupingRule {
   }
 }
 
-// Sort criteria (spec §4.2, §4.3)
 export type TabSortCriterion =
   | 'domain_asc'
   | 'title_asc'
@@ -40,17 +37,44 @@ export type GroupSortCriterion = 'name_asc' | 'tab_count' | 'manual'
 
 export type SortScope = 'off' | 'window' | 'global'
 
-// Automation (spec §5.1)
 export type AutomationMode = 'realtime' | 'debounce' | 'manual'
 
-// Cleanup (spec §9.2)
 export type CleanupThreshold = '1d' | '2d' | '4d' | '7d' | '14d' | '28d'
 export type CleanupMode = 'ask' | 'auto'
 
-// Unmatched tabs (spec §3.5)
 export type UnmatchedTabsBehavior = 'leave_ungrouped' | 'group_other'
 
-// Full settings state
+export const CLEANUP_THRESHOLD_MS: Record<CleanupThreshold, number> = {
+  '1d': 1 * 24 * 60 * 60 * 1000,
+  '2d': 2 * 24 * 60 * 60 * 1000,
+  '4d': 4 * 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '14d': 14 * 24 * 60 * 60 * 1000,
+  '28d': 28 * 24 * 60 * 60 * 1000,
+}
+
+export const MATCHER_LABELS: Record<MatcherType, string> = {
+  domain: 'DOMAIN',
+  regex: 'REGEX',
+  title_contains: 'TITLE',
+  path_contains: 'PATH',
+}
+
+export const AUTOMATION_MODES: { value: AutomationMode; labelKey: string }[] = [
+  { value: 'realtime', labelKey: 'settings.realtime' },
+  { value: 'debounce', labelKey: 'settings.delayed' },
+  { value: 'manual', labelKey: 'settings.manual' },
+]
+
+export const CLEANUP_THRESHOLDS: { value: CleanupThreshold; labelKey: string }[] = [
+  { value: '1d', labelKey: 'cleanup.threshold.1d' },
+  { value: '2d', labelKey: 'cleanup.threshold.2d' },
+  { value: '4d', labelKey: 'cleanup.threshold.4d' },
+  { value: '7d', labelKey: 'cleanup.threshold.7d' },
+  { value: '14d', labelKey: 'cleanup.threshold.14d' },
+  { value: '28d', labelKey: 'cleanup.threshold.28d' },
+]
+
 export interface TabRulesSettings {
   enabled: boolean
   rules: GroupingRule[]

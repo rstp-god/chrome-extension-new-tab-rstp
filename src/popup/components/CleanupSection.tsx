@@ -11,16 +11,8 @@ import {
 } from '@/components/ui/select'
 import { SectionCard } from '@/popup/components/SectionCard.tsx'
 import { useTabRulesStore } from '@/popup/store/tabRules.ts'
+import { CLEANUP_THRESHOLDS } from '@/popup/types/rules.ts'
 import { useTranslation } from 'react-i18next'
-
-const THRESHOLDS: { value: CleanupThreshold; labelKey: string }[] = [
-  { value: '1d', labelKey: 'cleanup.threshold.1d' },
-  { value: '2d', labelKey: 'cleanup.threshold.2d' },
-  { value: '4d', labelKey: 'cleanup.threshold.4d' },
-  { value: '7d', labelKey: 'cleanup.threshold.7d' },
-  { value: '14d', labelKey: 'cleanup.threshold.14d' },
-  { value: '28d', labelKey: 'cleanup.threshold.28d' },
-]
 
 export function CleanupSection() {
   const { t } = useTranslation('tabRules')
@@ -48,7 +40,7 @@ export function CleanupSection() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {THRESHOLDS.map((th) => (
+              {CLEANUP_THRESHOLDS.map((th) => (
                 <SelectItem key={th.value} value={th.value}>
                   {t(th.labelKey)}
                 </SelectItem>

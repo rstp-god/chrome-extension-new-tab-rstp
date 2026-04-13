@@ -13,10 +13,7 @@ import type {
   TabSortCriterion,
   UnmatchedTabsBehavior,
 } from '@/popup/types/rules.ts'
-import {
-  DEFAULT_TAB_RULES_SETTINGS,
-  TAB_RULES_KEY,
-} from '@/popup/types/rules.ts'
+import { DEFAULT_TAB_RULES_SETTINGS, TAB_RULES_KEY } from '@/popup/types/rules.ts'
 import { create } from 'zustand/react'
 
 interface TabRulesActions {
@@ -65,8 +62,7 @@ export const useTabRulesStore = create<Synced<TabRulesStore>>()(
         rules: getState().rules.map((r) => (r.id === id ? { ...r, ...patch } : r)),
       }),
 
-    deleteRule: (id) =>
-      setState({ rules: getState().rules.filter((r) => r.id !== id) }),
+    deleteRule: (id) => setState({ rules: getState().rules.filter((r) => r.id !== id) }),
 
     reorderRules: (orderedIds) => {
       const rulesMap = new Map(getState().rules.map((r) => [r.id, r]))
@@ -76,19 +72,14 @@ export const useTabRulesStore = create<Synced<TabRulesStore>>()(
 
     toggleRule: (id) =>
       setState({
-        rules: getState().rules.map((r) =>
-          r.id === id ? { ...r, enabled: !r.enabled } : r,
-        ),
+        rules: getState().rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)),
       }),
 
-    updateSorting: (patch) =>
-      setState({ sorting: { ...getState().sorting, ...patch } }),
+    updateSorting: (patch) => setState({ sorting: { ...getState().sorting, ...patch } }),
 
-    updateAutomation: (patch) =>
-      setState({ automation: { ...getState().automation, ...patch } }),
+    updateAutomation: (patch) => setState({ automation: { ...getState().automation, ...patch } }),
 
-    updateCleanup: (patch) =>
-      setState({ cleanup: { ...getState().cleanup, ...patch } }),
+    updateCleanup: (patch) => setState({ cleanup: { ...getState().cleanup, ...patch } }),
 
     updateUnmatchedTabs: (patch) =>
       setState({ unmatchedTabs: { ...getState().unmatchedTabs, ...patch } }),

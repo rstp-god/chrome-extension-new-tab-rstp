@@ -1,3 +1,5 @@
+import type { DragEvent } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { AddRuleForm } from '@/popup/components/AddRuleForm.tsx'
 import { RuleItem } from '@/popup/components/RuleItem.tsx'
@@ -9,10 +11,12 @@ import { useTranslation } from 'react-i18next'
 
 export function RulesList() {
   const { t } = useTranslation('tabRules')
-  const rules = useTabRulesStore((s) => s.rules)
-  const toggleRule = useTabRulesStore((s) => s.toggleRule)
-  const deleteRule = useTabRulesStore((s) => s.deleteRule)
-  const reorderRules = useTabRulesStore((s) => s.reorderRules)
+  const { rules, toggleRule, deleteRule, reorderRules } = useTabRulesStore((s) => ({
+    rules: s.rules,
+    toggleRule: s.toggleRule,
+    deleteRule: s.deleteRule,
+    reorderRules: s.reorderRules,
+  }))
   const [formOpen, setFormOpen] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
 
@@ -20,7 +24,7 @@ export function RulesList() {
     setDragIdx(idx)
   }
 
-  const handleDragOver = (e: React.DragEvent, idx: number) => {
+  const handleDragOver = (e: DragEvent, idx: number) => {
     e.preventDefault()
     if (dragIdx === null || dragIdx === idx) return
 
@@ -38,9 +42,7 @@ export function RulesList() {
   return (
     <SectionCard title={t('rules.title')}>
       {rules.length === 0 && !formOpen && (
-        <p className="text-center text-xs text-muted-foreground opacity-60">
-          {t('rules.empty')}
-        </p>
+        <p className="text-center text-xs text-muted-foreground opacity-60">{t('rules.empty')}</p>
       )}
 
       <div className="space-y-1.5">

@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/select'
 import { ColorDot, ColorPicker } from '@/popup/components/ColorPicker.tsx'
 import { useTabRulesStore } from '@/popup/store/tabRules.ts'
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 const MATCH_TYPES: { value: MatcherType; labelKey: string }[] = [
@@ -31,15 +31,13 @@ export function AddRuleForm({ onClose }: AddRuleFormProps) {
   const addRule = useTabRulesStore((s) => s.addRule)
   const rules = useTabRulesStore((s) => s.rules)
 
-  const existingGroups = useMemo(() => {
-    const seen = new Map<string, ChromeGroupColor>()
-    for (const rule of rules) {
-      if (!seen.has(rule.group.name)) {
-        seen.set(rule.group.name, rule.group.color)
-      }
+  const seen = new Map<string, ChromeGroupColor>()
+  for (const rule of rules) {
+    if (!seen.has(rule.group.name)) {
+      seen.set(rule.group.name, rule.group.color)
     }
-    return [...seen.entries()].map(([name, color]) => ({ name, color }))
-  }, [rules])
+  }
+  const existingGroups = [...seen.entries()].map(([name, color]) => ({ name, color }))
 
   const [matchType, setMatchType] = useState<MatcherType>('domain')
   const [matchValue, setMatchValue] = useState('')
@@ -95,14 +93,16 @@ export function AddRuleForm({ onClose }: AddRuleFormProps) {
         {existingGroups.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
             {existingGroups.map((g) => (
-              <button
+              <Button
                 key={g.name}
+                variant="ghost"
+                size="sm"
                 type="button"
                 onClick={() => {
                   setGroupName(g.name)
                   setGroupColor(g.color)
                 }}
-                className={`flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors ${
+                className={`flex h-auto items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] transition-colors ${
                   groupName === g.name
                     ? 'border-primary bg-primary/15 text-foreground'
                     : 'border-border/50 text-muted-foreground hover:border-border hover:text-foreground'
@@ -110,7 +110,7 @@ export function AddRuleForm({ onClose }: AddRuleFormProps) {
               >
                 <ColorDot color={g.color} />
                 {g.name}
-              </button>
+              </Button>
             ))}
           </div>
         )}

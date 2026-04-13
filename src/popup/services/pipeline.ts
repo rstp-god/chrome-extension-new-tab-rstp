@@ -1,4 +1,5 @@
 import type { ChromeGroupColor, TabRulesSettings } from '@/popup/types/rules.ts'
+
 import { isProcessableTab } from '@/popup/services/filter.ts'
 import { groupTabs } from '@/popup/services/grouping.ts'
 import { applyActiveTabOnTop, sortGroups, sortTabsInGroup } from '@/popup/services/sorting.ts'
@@ -19,10 +20,8 @@ export function executePipeline(
   settings: TabRulesSettings,
   activeTabId?: number,
 ): PipelineResult {
-  // Step 1: Filter
   const processable = allTabs.filter(isProcessableTab)
 
-  // Step 2: Group
   const grouped = groupTabs(
     processable,
     settings.rules,
@@ -30,13 +29,9 @@ export function executePipeline(
     settings.unmatchedTabs.otherGroupColor,
   )
 
-  // Step 3: Sort groups
   const sortedGroups =
-    settings.sorting.scope !== 'off'
-      ? sortGroups(grouped, settings.sorting.groupSort)
-      : grouped
+    settings.sorting.scope !== 'off' ? sortGroups(grouped, settings.sorting.groupSort) : grouped
 
-  // Step 4: Sort tabs within groups + apply active tab on top
   const result: PipelineGroupResult[] = []
   const allGroupedTabIds = new Set<number>()
 
@@ -61,7 +56,6 @@ export function executePipeline(
     })
   }
 
-  // Ungrouped tabs
   const ungroupedTabIds = processable
     .map((t) => t.id)
     .filter((id): id is number => id !== undefined && !allGroupedTabIds.has(id))

@@ -1,8 +1,12 @@
 import type { TabRulesSettings } from '@/popup/types/rules.ts'
+
+import { isProcessableTab } from '@/popup/services/filter.ts'
 import { executePipeline } from '@/popup/services/pipeline.ts'
 import { createOrUpdateGroup, getAllTabs, ungroupTab } from '@/background/chromeAdapter.ts'
 
 let running = false
+
+const everManagedGroupNames = new Set<string>()
 
 export function isApplying(): boolean {
   return running
@@ -21,10 +25,16 @@ export async function executePipelineAndApply(settings: TabRulesSettings): Promi
     const result = executePipeline(allTabs, settings, activeTabId)
     const isGlobal = settings.sorting.scope === 'global'
 
-    // Build set of group names managed by our rules
-    const managedGroupNames = new Set(result.groups.map((g) => g.name))
+    const currentGroupNames = new Set(result.groups.map((g) => g.name))
 
-    // Build lookup: which group does pipeline want each tab in?
+    for (const name of currentGroupNames) {
+      everManagedGroupNames.add(name)
+    }
+
+    for (const rule of settings.rules) {
+      everManagedGroupNames.add(rule.group.name)
+    }
+
     const targetGroupForTab = new Map<number, string>()
     for (const group of result.groups) {
       for (const tabId of group.tabIds) {
@@ -32,7 +42,6 @@ export async function executePipelineAndApply(settings: TabRulesSettings): Promi
       }
     }
 
-    // Resolve current Chrome group names and find which window owns each managed group
     const groupIdToName = new Map<number, string>()
     const groupNameToWindow = new Map<string, number>()
     try {
@@ -40,22 +49,21 @@ export async function executePipelineAndApply(settings: TabRulesSettings): Promi
       for (const g of chromeGroups) {
         if (g.title) {
           groupIdToName.set(g.id, g.title)
-          // First window that has this group wins (consolidation target)
           if (!groupNameToWindow.has(g.title)) {
             groupNameToWindow.set(g.title, g.windowId)
           }
         }
       }
     } catch {
-      // tabGroups API might not be available
+      /* tabGroups API might not be available */
     }
 
-    // Only ungroup tabs that are in groups WE manage but shouldn't be there anymore
     for (const tab of allTabs) {
       if (tab.id === undefined || tab.groupId === -1) continue
+      if (!isProcessableTab(tab)) continue
 
       const currentGroupName = groupIdToName.get(tab.groupId)
-      if (!currentGroupName || !managedGroupNames.has(currentGroupName)) {
+      if (!currentGroupName || !everManagedGroupNames.has(currentGroupName)) {
         continue
       }
 
@@ -65,20 +73,22 @@ export async function executePipelineAndApply(settings: TabRulesSettings): Promi
       }
     }
 
-    // Apply groups
+    for (const name of everManagedGroupNames) {
+      if (!currentGroupNames.has(name) && !settings.rules.some((r) => r.group.name === name)) {
+        everManagedGroupNames.delete(name)
+      }
+    }
+
     for (const group of result.groups) {
       if (group.tabIds.length === 0) continue
 
       if (isGlobal) {
-        // Global: consolidate all tabs into one window
-        // Prefer window that already has this group, otherwise use the first tab's window
         const targetWindowId =
           groupNameToWindow.get(group.name) ??
           allTabs.find((t) => t.id === group.tabIds[0])?.windowId
 
         if (targetWindowId === undefined) continue
 
-        // Move tabs from other windows to target window
         const tabsToMove = group.tabIds.filter((tabId) => {
           const tab = allTabs.find((t) => t.id === tabId)
           return tab && tab.windowId !== targetWindowId
@@ -88,13 +98,12 @@ export async function executePipelineAndApply(settings: TabRulesSettings): Promi
           try {
             await chrome.tabs.move(tabId, { windowId: targetWindowId, index: -1 })
           } catch {
-            // Tab might have been closed
+            /* tab might have been closed */
           }
         }
 
         await createOrUpdateGroup(targetWindowId, group.name, group.color, group.tabIds)
       } else {
-        // Window scope: group tabs within their current windows
         const tabsByWindow = new Map<number, number[]>()
         for (const tabId of group.tabIds) {
           const tab = allTabs.find((t) => t.id === tabId)

@@ -5,15 +5,9 @@ import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ColorDot } from '@/popup/components/ColorPicker.tsx'
-import { GripVertical, Trash2 } from 'lucide-react'
+import { MATCHER_LABELS } from '@/popup/types/rules.ts'
 import { cn } from '@/lib/utils'
-
-const MATCHER_LABELS: Record<string, string> = {
-  domain: 'DOMAIN',
-  regex: 'REGEX',
-  title_contains: 'TITLE',
-  path_contains: 'PATH',
-}
+import { GripVertical, Trash2 } from 'lucide-react'
 
 interface RuleItemProps {
   rule: GroupingRule
@@ -48,9 +42,7 @@ export function RuleItem({ rule, onToggle, onDelete, dragHandleProps }: RuleItem
         {MATCHER_LABELS[rule.matcher.type]}
       </Badge>
 
-      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">
-        {rule.matcher.value}
-      </span>
+      <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{rule.matcher.value}</span>
 
       <span className="shrink-0 text-xs text-muted-foreground">{rule.group.name}</span>
       <ColorDot color={rule.group.color} />

@@ -61,9 +61,7 @@ describe('sortGroups', () => {
     return {
       name,
       color: 'grey',
-      tabs: Array.from({ length: tabCount }, (_, i) =>
-        makeTab(i, `https://example.com/${i}`),
-      ),
+      tabs: Array.from({ length: tabCount }, (_, i) => makeTab(i, `https://example.com/${i}`)),
     }
   }
 
@@ -99,7 +97,11 @@ describe('sortGroups', () => {
 })
 
 describe('applyActiveTabOnTop', () => {
-  const tabs = [makeTab(1, 'https://a.com'), makeTab(2, 'https://b.com'), makeTab(3, 'https://c.com')]
+  const tabs = [
+    makeTab(1, 'https://a.com'),
+    makeTab(2, 'https://b.com'),
+    makeTab(3, 'https://c.com'),
+  ]
 
   it('moves active tab to the top', () => {
     const result = applyActiveTabOnTop(tabs, 3)

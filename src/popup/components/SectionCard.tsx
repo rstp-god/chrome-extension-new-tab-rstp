@@ -20,16 +20,10 @@ export function SectionCard({ title, children, toggle }: SectionCardProps) {
           {title}
         </span>
         {toggle && (
-          <Switch
-            checked={toggle.checked}
-            onCheckedChange={toggle.onCheckedChange}
-            size="sm"
-          />
+          <Switch checked={toggle.checked} onCheckedChange={toggle.onCheckedChange} size="sm" />
         )}
       </CardHeader>
-      <CardContent className="space-y-2 px-3 pb-3 pt-0">
-        {children}
-      </CardContent>
+      <CardContent className="space-y-2 px-3 pb-3 pt-0">{children}</CardContent>
     </Card>
   )
 }

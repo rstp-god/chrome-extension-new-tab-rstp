@@ -37,10 +37,7 @@ function matchPathContains(url: string, pattern: string): boolean {
   }
 }
 
-export function matchRule(
-  tab: { url?: string; title?: string },
-  rule: GroupingRule,
-): boolean {
+export function matchRule(tab: { url?: string; title?: string }, rule: GroupingRule): boolean {
   if (!rule.enabled) return false
 
   const url = tab.url ?? ''

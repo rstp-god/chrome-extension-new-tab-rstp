@@ -2,17 +2,20 @@ import { markActive } from '@/background/cleanup/activityTracker.ts'
 
 const NOTIFICATION_PREFIX = 'cleanup-tab-'
 
-export function showCleanupNotification(tabId: number, tabTitle: string): void {
-  const notificationId = `${NOTIFICATION_PREFIX}${tabId}`
-
-  chrome.notifications.create(notificationId, {
+function createCleanupNotificationOptions(tabTitle: string): chrome.notifications.NotificationCreateOptions {
+  return {
     type: 'basic',
     iconUrl: 'public/logo.png',
     title: 'Close inactive tab?',
     message: tabTitle,
     buttons: [{ title: 'Close' }, { title: 'Keep' }],
     requireInteraction: true,
-  })
+  }
+}
+
+export function showCleanupNotification(tabId: number, tabTitle: string): void {
+  const notificationId = `${NOTIFICATION_PREFIX}${tabId}`
+  chrome.notifications.create(notificationId, createCleanupNotificationOptions(tabTitle))
 }
 
 export function setupNotificationHandlers(): void {
@@ -23,12 +26,8 @@ export function setupNotificationHandlers(): void {
     if (Number.isNaN(tabId)) return
 
     if (buttonIndex === 0) {
-      // Close
-      chrome.tabs.remove(tabId).catch(() => {
-        // Tab might already be closed
-      })
+      chrome.tabs.remove(tabId)
     } else {
-      // Keep — reset activity timer
       markActive(tabId)
     }
 

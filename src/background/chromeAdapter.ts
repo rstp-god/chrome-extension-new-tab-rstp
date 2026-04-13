@@ -32,11 +32,7 @@ export async function createOrUpdateGroup(
 }
 
 export async function ungroupTab(tabId: number): Promise<void> {
-  try {
-    await chrome.tabs.ungroup(tabId)
-  } catch {
-    // Tab might already be ungrouped or removed
-  }
+  await chrome.tabs.ungroup(tabId)
 }
 
 export async function ungroupAll(): Promise<void> {
@@ -46,9 +42,5 @@ export async function ungroupAll(): Promise<void> {
 }
 
 export async function moveTab(tabId: number, index: number): Promise<void> {
-  try {
-    await chrome.tabs.move(tabId, { index })
-  } catch {
-    // Tab might have been removed
-  }
+  await chrome.tabs.move(tabId, { index })
 }

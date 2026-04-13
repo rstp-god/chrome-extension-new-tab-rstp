@@ -33,9 +33,21 @@ function makeTab(id: number, url: string, title = ''): chrome.tabs.Tab {
 
 describe('groupTabs', () => {
   const rules: GroupingRule[] = [
-    makeRule({ id: 'r1', matcher: { type: 'domain', value: 'github.com' }, group: { name: 'Code', color: 'green' } }),
-    makeRule({ id: 'r2', matcher: { type: 'domain', value: '*.google.com' }, group: { name: 'Google', color: 'blue' } }),
-    makeRule({ id: 'r3', matcher: { type: 'title_contains', value: 'YouTube' }, group: { name: 'Media', color: 'red' } }),
+    makeRule({
+      id: 'r1',
+      matcher: { type: 'domain', value: 'github.com' },
+      group: { name: 'Code', color: 'green' },
+    }),
+    makeRule({
+      id: 'r2',
+      matcher: { type: 'domain', value: '*.google.com' },
+      group: { name: 'Google', color: 'blue' },
+    }),
+    makeRule({
+      id: 'r3',
+      matcher: { type: 'title_contains', value: 'YouTube' },
+      group: { name: 'Media', color: 'red' },
+    }),
   ]
 
   const tabs = [
@@ -86,10 +98,7 @@ describe('groupTabs', () => {
 describe('getUngroupedTabs', () => {
   it('returns tabs that match no rules', () => {
     const rules = [makeRule({ matcher: { type: 'domain', value: 'github.com' } })]
-    const tabs = [
-      makeTab(1, 'https://github.com/repo'),
-      makeTab(2, 'https://stackoverflow.com'),
-    ]
+    const tabs = [makeTab(1, 'https://github.com/repo'), makeTab(2, 'https://stackoverflow.com')]
     const ungrouped = getUngroupedTabs(tabs, rules)
     expect(ungrouped).toHaveLength(1)
     expect(ungrouped[0].id).toBe(2)

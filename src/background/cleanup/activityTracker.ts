@@ -32,7 +32,7 @@ function schedulePersist(): void {
   if (persistTimer) return
   persistTimer = setTimeout(() => {
     persistTimer = null
-    void persistToStorage()
+    persistToStorage()
   }, PERSIST_INTERVAL_MS)
 }
 
@@ -61,11 +61,16 @@ export function setupActivityTracking(): void {
     markActive(tabId)
   })
 
+  chrome.tabs.onCreated.addListener((tab) => {
+    if (tab.id !== undefined) {
+      markActive(tab.id)
+    }
+  })
+
   chrome.tabs.onRemoved.addListener((tabId) => {
     removeTab(tabId)
   })
 
-  // Initialize all existing tabs
   chrome.tabs.query({}).then((tabs) => {
     const now = Date.now()
     for (const tab of tabs) {

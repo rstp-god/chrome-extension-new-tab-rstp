@@ -1,11 +1,11 @@
 import type { TabRulesSettings } from '@/popup/types/rules.ts'
+
 import { executePipelineAndApply, isApplying } from '@/background/pipelineExecutor.ts'
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
 export function setupEventListeners(getSettings: () => TabRulesSettings | null) {
   const handleTabEvent = () => {
-    // Skip events triggered by our own pipeline execution
     if (isApplying()) return
 
     const settings = getSettings()
@@ -13,19 +13,18 @@ export function setupEventListeners(getSettings: () => TabRulesSettings | null) 
 
     switch (settings.automation.mode) {
       case 'realtime':
-        void executePipelineAndApply(settings)
+        executePipelineAndApply(settings)
         break
 
       case 'debounce':
         if (debounceTimer) clearTimeout(debounceTimer)
         debounceTimer = setTimeout(() => {
           debounceTimer = null
-          void executePipelineAndApply(settings)
+          executePipelineAndApply(settings)
         }, settings.automation.debounceMs)
         break
 
       case 'manual':
-        // Do nothing, wait for user to click "Apply now"
         break
     }
   }

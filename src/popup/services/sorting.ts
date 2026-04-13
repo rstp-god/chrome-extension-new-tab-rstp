@@ -43,9 +43,7 @@ export function sortTabsInGroup(
       sorted.sort((a, b) => (b.id ?? 0) - (a.id ?? 0))
       break
     case 'url_similarity':
-      sorted.sort((a, b) =>
-        getPathPrefix(a.url).localeCompare(getPathPrefix(b.url)),
-      )
+      sorted.sort((a, b) => getPathPrefix(a.url).localeCompare(getPathPrefix(b.url)))
       break
   }
 

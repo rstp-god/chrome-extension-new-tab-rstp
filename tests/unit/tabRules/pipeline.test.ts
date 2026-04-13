@@ -31,17 +31,13 @@ describe('executePipeline', () => {
     makeTab(5, 'https://youtube.com', 'YouTube - Home'),
     makeTab(6, 'https://stackoverflow.com', 'Stack Overflow'),
     makeTab(7, 'chrome://settings', 'Settings'),
-    makeTab(8, 'https://reddit.com', 'Reddit', true), // pinned
+    makeTab(8, 'https://reddit.com', 'Reddit', true),
   ]
 
   it('filters system and pinned tabs, groups the rest', () => {
     const result = executePipeline(tabs, DEFAULT_TAB_RULES_SETTINGS)
 
-    // System tab (7) and pinned tab (8) should be excluded
-    const allTabIds = [
-      ...result.groups.flatMap((g) => g.tabIds),
-      ...result.ungroupedTabIds,
-    ]
+    const allTabIds = [...result.groups.flatMap((g) => g.tabIds), ...result.ungroupedTabIds]
     expect(allTabIds).not.toContain(7)
     expect(allTabIds).not.toContain(8)
   })
@@ -93,7 +89,6 @@ describe('executePipeline', () => {
       sorting: { ...DEFAULT_TAB_RULES_SETTINGS.sorting, scope: 'off' },
     }
     const result = executePipeline(tabs, settings)
-    // Should still group, just not sort
     expect(result.groups.length).toBeGreaterThan(0)
   })
 })
