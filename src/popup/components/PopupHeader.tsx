@@ -5,9 +5,11 @@ import { useTranslation } from 'react-i18next'
 
 export function PopupHeader() {
   const { t } = useTranslation('tabRules')
-  const enabled = useTabRulesStore((s) => s.enabled)
-  const toggleEnabled = useTabRulesStore((s) => s.toggleEnabled)
-  const automation = useTabRulesStore((s) => s.automation)
+  const { enabled, toggleEnabled, automation } = useTabRulesStore((s) => ({
+    enabled: s.enabled,
+    toggleEnabled: s.toggleEnabled,
+    automation: s.automation,
+  }))
 
   const modeLabel =
     automation.mode === 'realtime'
