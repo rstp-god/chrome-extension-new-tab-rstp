@@ -5,18 +5,29 @@ import { AddRuleForm } from '@/popup/components/AddRuleForm.tsx'
 import { RuleItem } from '@/popup/components/RuleItem.tsx'
 import { SectionCard } from '@/popup/components/SectionCard.tsx'
 import { useTabRulesStore } from '@/popup/store/tabRules.ts'
-import { Plus } from 'lucide-react'
+import { EXAMPLE_RULES } from '@/popup/types/rules.ts'
+import { Lightbulb, Plus } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 
 export function RulesList() {
   const { t } = useTranslation('tabRules')
-  const { rules, toggleRule, deleteRule, reorderRules } = useTabRulesStore((s) => ({
-    rules: s.rules,
-    toggleRule: s.toggleRule,
-    deleteRule: s.deleteRule,
-    reorderRules: s.reorderRules,
-  }))
+  const { rules, toggleRule, deleteRule, reorderRules, addRule } = useTabRulesStore(
+    useShallow((s) => ({
+      rules: s.rules,
+      toggleRule: s.toggleRule,
+      deleteRule: s.deleteRule,
+      reorderRules: s.reorderRules,
+      addRule: s.addRule,
+    })),
+  )
+
+  const loadExamples = () => {
+    for (const rule of EXAMPLE_RULES) {
+      addRule({ enabled: rule.enabled, matcher: rule.matcher, group: rule.group })
+    }
+  }
   const [formOpen, setFormOpen] = useState(false)
   const [dragIdx, setDragIdx] = useState<number | null>(null)
 
@@ -42,7 +53,18 @@ export function RulesList() {
   return (
     <SectionCard title={t('rules.title')}>
       {rules.length === 0 && !formOpen && (
-        <p className="text-center text-xs text-muted-foreground opacity-60">{t('rules.empty')}</p>
+        <div className="space-y-2 text-center">
+          <p className="text-xs text-muted-foreground opacity-60">{t('rules.empty')}</p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs"
+            onClick={loadExamples}
+          >
+            <Lightbulb size={14} className="mr-1" />
+            {t('rules.loadExamples')}
+          </Button>
+        </div>
       )}
 
       <div className="space-y-1.5">

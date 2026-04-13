@@ -2,7 +2,9 @@ import { markActive } from '@/background/cleanup/activityTracker.ts'
 
 const NOTIFICATION_PREFIX = 'cleanup-tab-'
 
-function createCleanupNotificationOptions(tabTitle: string): chrome.notifications.NotificationCreateOptions {
+function createCleanupNotificationOptions(
+  tabTitle: string,
+): chrome.notifications.NotificationCreateOptions {
   return {
     type: 'basic',
     iconUrl: 'public/logo.png',

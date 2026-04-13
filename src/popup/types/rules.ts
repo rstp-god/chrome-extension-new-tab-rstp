@@ -101,21 +101,21 @@ export interface TabRulesSettings {
 
 export const TAB_RULES_KEY = 'tabRules:v1'
 
-export const DEFAULT_RULES: GroupingRule[] = [
+export const EXAMPLE_RULES: GroupingRule[] = [
   {
-    id: 'default-1',
+    id: 'example-1',
     enabled: true,
     matcher: { type: 'domain', value: 'github.com' },
     group: { name: 'Code', color: 'green' },
   },
   {
-    id: 'default-2',
+    id: 'example-2',
     enabled: true,
     matcher: { type: 'domain', value: '*.google.com' },
     group: { name: 'Google', color: 'blue' },
   },
   {
-    id: 'default-3',
+    id: 'example-3',
     enabled: true,
     matcher: { type: 'title_contains', value: 'YouTube' },
     group: { name: 'Media', color: 'red' },
@@ -123,8 +123,8 @@ export const DEFAULT_RULES: GroupingRule[] = [
 ]
 
 export const DEFAULT_TAB_RULES_SETTINGS: TabRulesSettings = {
-  enabled: true,
-  rules: DEFAULT_RULES,
+  enabled: false,
+  rules: [],
   sorting: {
     scope: 'global',
     tabSort: 'domain_asc',

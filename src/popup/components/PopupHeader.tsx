@@ -2,14 +2,17 @@ import { Switch } from '@/components/ui/switch'
 import { useTabRulesStore } from '@/popup/store/tabRules.ts'
 import { Circle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 
 export function PopupHeader() {
   const { t } = useTranslation('tabRules')
-  const { enabled, toggleEnabled, automation } = useTabRulesStore((s) => ({
-    enabled: s.enabled,
-    toggleEnabled: s.toggleEnabled,
-    automation: s.automation,
-  }))
+  const { enabled, toggleEnabled, automation } = useTabRulesStore(
+    useShallow((s) => ({
+      enabled: s.enabled,
+      toggleEnabled: s.toggleEnabled,
+      automation: s.automation,
+    })),
+  )
 
   const modeLabel =
     automation.mode === 'realtime'

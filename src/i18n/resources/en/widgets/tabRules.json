@@ -10,6 +10,7 @@
   "rules.hint": "Rules checked top → bottom. First match wins.",
   "rules.addRule": "+ Add rule",
   "rules.empty": "No rules yet. Add your first rule to start grouping tabs.",
+  "rules.loadExamples": "Load example rules",
   "rules.form.title": "New Rule",
   "rules.form.matchType": "Match type",
   "rules.form.matchType.domain": "Domain",

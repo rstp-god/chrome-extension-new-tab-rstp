@@ -1,5 +1,5 @@
 import type { TabRulesSettings } from '@/popup/types/rules.ts'
-import { DEFAULT_TAB_RULES_SETTINGS } from '@/popup/types/rules.ts'
+import { DEFAULT_TAB_RULES_SETTINGS, EXAMPLE_RULES } from '@/popup/types/rules.ts'
 import { executePipeline } from '@/popup/services/pipeline.ts'
 import { describe, expect, it } from 'vitest'
 
@@ -22,6 +22,12 @@ function makeTab(id: number, url: string, title = '', pinned = false): chrome.ta
   }
 }
 
+const SETTINGS_WITH_EXAMPLES: TabRulesSettings = {
+  ...DEFAULT_TAB_RULES_SETTINGS,
+  enabled: true,
+  rules: EXAMPLE_RULES,
+}
+
 describe('executePipeline', () => {
   const tabs = [
     makeTab(1, 'https://github.com/repo1', 'GitHub - Repo 1'),
@@ -35,15 +41,15 @@ describe('executePipeline', () => {
   ]
 
   it('filters system and pinned tabs, groups the rest', () => {
-    const result = executePipeline(tabs, DEFAULT_TAB_RULES_SETTINGS)
+    const result = executePipeline(tabs, SETTINGS_WITH_EXAMPLES)
 
     const allTabIds = [...result.groups.flatMap((g) => g.tabIds), ...result.ungroupedTabIds]
     expect(allTabIds).not.toContain(7)
     expect(allTabIds).not.toContain(8)
   })
 
-  it('creates groups based on default rules', () => {
-    const result = executePipeline(tabs, DEFAULT_TAB_RULES_SETTINGS)
+  it('creates groups based on example rules', () => {
+    const result = executePipeline(tabs, SETTINGS_WITH_EXAMPLES)
 
     const codeGroup = result.groups.find((g) => g.name === 'Code')
     expect(codeGroup?.tabIds).toEqual(expect.arrayContaining([1, 2]))
@@ -59,7 +65,7 @@ describe('executePipeline', () => {
 
   it('puts unmatched tabs in ungroupedTabIds when leave_ungrouped', () => {
     const settings: TabRulesSettings = {
-      ...DEFAULT_TAB_RULES_SETTINGS,
+      ...SETTINGS_WITH_EXAMPLES,
       unmatchedTabs: { behavior: 'leave_ungrouped', otherGroupColor: 'grey' },
     }
     const result = executePipeline(tabs, settings)
@@ -68,7 +74,7 @@ describe('executePipeline', () => {
 
   it('groups unmatched into "Other" when group_other', () => {
     const settings: TabRulesSettings = {
-      ...DEFAULT_TAB_RULES_SETTINGS,
+      ...SETTINGS_WITH_EXAMPLES,
       unmatchedTabs: { behavior: 'group_other', otherGroupColor: 'cyan' },
     }
     const result = executePipeline(tabs, settings)
@@ -85,7 +91,7 @@ describe('executePipeline', () => {
 
   it('skips sorting when scope is off', () => {
     const settings: TabRulesSettings = {
-      ...DEFAULT_TAB_RULES_SETTINGS,
+      ...SETTINGS_WITH_EXAMPLES,
       sorting: { ...DEFAULT_TAB_RULES_SETTINGS.sorting, scope: 'off' },
     }
     const result = executePipeline(tabs, settings)
