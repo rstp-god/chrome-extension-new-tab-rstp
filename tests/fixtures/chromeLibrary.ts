@@ -9,7 +9,7 @@ export const groupsFixture: ChromeTabGroupView[] = [
     collapsed: false,
     tabsCount: 2,
     tabs: [
-      { kind: 'tab', tabId: 11, windowId: 1, title: 'GitHub', url: 'https://github.com/' },
+      { kind: 'tab', tabId: 11, windowId: 1, title: 'Twitch', url: 'https://www.twitch.tv/' },
       { kind: 'tab', tabId: 12, windowId: 1, title: 'React Docs', url: 'https://react.dev/' },
     ],
   },

@@ -9,7 +9,7 @@ import { bookmarksFixture, groupsFixture } from '@tests/fixtures/chromeLibrary.t
 
 describe('chromeLibrary widget service', () => {
   it('filters groups by query', () => {
-    expect(filterGroups(groupsFixture, 'git')).toHaveLength(1)
+    expect(filterGroups(groupsFixture, 'twitch')).toHaveLength(1)
     expect(filterGroups(groupsFixture, 'missing')).toHaveLength(0)
   })
 
