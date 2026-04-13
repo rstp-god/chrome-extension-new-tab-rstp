@@ -106,11 +106,35 @@ yarn preview:showcase
 
 - `manifest.config.ts` — манифест расширения и разрешения Chrome.
 - `src/newtab/` — UI новой вкладки.
+- `src/popup/` — popup расширения (Tab Rules Engine).
+- `src/background/` — background service worker (применение правил, cleanup).
 - `src/i18n/` — словари переводов и функция получения строки по ключу.
 - `src/store/` — Zustand-сторы приложения.
 - `src/services/chrome/` — работа с `chrome.storage` и синхронизация.
 - `src/types/widgets.ts` — типы виджетов и `widgetRegistry`.
 - `src/widgets/*` — сами виджеты (по папке на виджет).
+
+### Tab Rules Engine (popup)
+
+Popup расширения предоставляет движок автоматической группировки, сортировки и очистки вкладок.
+
+**Основные возможности:**
+
+- **Grouping Rules** — правила группировки табов по домену, regex, заголовку или пути. Правила применяются сверху вниз (first match wins), поддерживают drag-and-drop для изменения приоритета.
+- **Sorting** — сортировка табов (по домену, заголовку, последнему доступу, URL) и групп (по имени, количеству табов). Scope: Off / Window / Global (перемещение между окнами).
+- **Cleanup** — автоматическое закрытие неактивных табов (1d-28d), с режимами «спросить» (через Chrome Notifications) и «автоматически».
+- **Automation** — режимы работы: Realtime (применение на каждое событие таба), Delayed (с дебаунсом) и Manual (по кнопке Apply Now).
+
+**Архитектура:**
+
+- `src/popup/types/rules.ts` — типы, константы, дефолты
+- `src/popup/services/` — pure-функции pipeline (matchers, grouping, sorting, pipeline orchestrator)
+- `src/popup/utils/filter.ts` — фильтрация системных и закреплённых табов
+- `src/popup/store/tabRules.ts` — Zustand store с `withChromeSync`
+- `src/popup/components/` — React-компоненты popup UI
+- `src/background/` — service worker: chromeAdapter, pipelineExecutor, eventListeners, messageHandler, cleanup (activityTracker, scheduler, notifications)
+
+**Ключи storage:** `tabRules:v1`, `tabRules:activity`
 
 ### Как работает `widget registry`
 
@@ -467,8 +491,12 @@ switch (integrationName) {
 В `manifest.config.ts` уже заявлены разрешения:
 
 - `storage` — обязательно для синхронизации и сохранения сторов
-- `tabs` — нужно для открытия новых вкладок (`chrome.tabs.create`)
-- `sidePanel`, `contentSettings` — используются инфраструктурой проекта
+- `tabs` — работа с вкладками (запрос, группировка, перемещение)
+- `tabGroups` — управление группами вкладок Chrome
+- `bookmarks` — доступ к закладкам (виджет ChromeLibrary)
+- `alarms` — планировщик очистки неактивных табов
+- `notifications` — уведомления при закрытии табов (cleanup ask mode)
+- `contentSettings` — используется инфраструктурой проекта
 
 ### Правила для разработки новых виджетов
 
@@ -613,10 +641,34 @@ Test file placement:
 
 - `manifest.config.ts` — extension manifest and Chrome permissions.
 - `src/newtab/` — new-tab UI.
+- `src/popup/` — extension popup (Tab Rules Engine).
+- `src/background/` — background service worker (rule execution, cleanup).
 - `src/store/` — Zustand stores.
 - `src/services/chrome/` — `chrome.storage` integration and sync layer.
 - `src/types/widgets.ts` — widget types and `widgetRegistry`.
 - `src/widgets/*` — widget implementations (one folder per widget).
+
+### Tab Rules Engine (popup)
+
+The extension popup provides an automatic tab grouping, sorting, and cleanup engine.
+
+**Key features:**
+
+- **Grouping Rules** — group tabs by domain, regex, title, or path. Rules apply top-to-bottom (first match wins) with drag-and-drop reordering.
+- **Sorting** — sort tabs (by domain, title, last access, URL) and groups (by name, tab count). Scope: Off / Window / Global (cross-window tab consolidation).
+- **Cleanup** — auto-close inactive tabs (1d-28d threshold), with Ask (Chrome Notifications) and Auto modes.
+- **Automation** — Realtime (on every tab event), Delayed (debounced), or Manual (Apply Now button).
+
+**Architecture:**
+
+- `src/popup/types/rules.ts` — types, constants, defaults
+- `src/popup/services/` — pure pipeline functions (matchers, grouping, sorting, orchestrator)
+- `src/popup/utils/filter.ts` — system/pinned tab filtering
+- `src/popup/store/tabRules.ts` — Zustand store with `withChromeSync`
+- `src/popup/components/` — popup React UI components
+- `src/background/` — service worker: chromeAdapter, pipelineExecutor, eventListeners, messageHandler, cleanup (activityTracker, scheduler, notifications)
+
+**Storage keys:** `tabRules:v1`, `tabRules:activity`
 
 ### How `widget registry` works
 
@@ -967,8 +1019,12 @@ This is a known temporary coupling between the dialog and the store — it will 
 Current manifest permissions include:
 
 - `storage` — required for synchronized persistence
-- `tabs` — required for opening tabs (`chrome.tabs.create`)
-- `sidePanel`, `contentSettings` — project-level capabilities
+- `tabs` — tab management (query, group, move)
+- `tabGroups` — Chrome tab group management
+- `bookmarks` — bookmarks access (ChromeLibrary widget)
+- `alarms` — cleanup scheduler for inactive tabs
+- `notifications` — cleanup ask-mode notifications
+- `contentSettings` — project-level capabilities
 
 ### Permission rules for new widgets
 

@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 
 export function ChromeLibraryWidgetPreview() {
   const { t } = useTranslation('chromeLibraryWidget')
-  const faviconGithub = 'https://www.google.com/s2/favicons?domain=github.com&sz=64'
+  const faviconTwitch = 'https://www.google.com/s2/favicons?domain=twitch.tv&sz=64'
   const faviconYouTube = 'https://www.google.com/s2/favicons?domain=youtube.com&sz=64'
 
   return (
@@ -32,7 +32,7 @@ export function ChromeLibraryWidgetPreview() {
             {t('labels.bookmarks')}
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-2 text-xs">
-            <img src={faviconGithub} alt="" className="size-3.5 shrink-0 rounded-sm" />
+            <img src={faviconTwitch} alt="" className="size-3.5 shrink-0 rounded-sm" />
             <span className="truncate">{t('preview.bookmarkRowPrimary')}</span>
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-2 text-xs">

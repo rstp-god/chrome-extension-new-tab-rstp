@@ -17,7 +17,19 @@ export default defineManifest({
   chrome_url_overrides: {
     newtab: 'src/newtab/index.html',
   },
-  permissions: ['sidePanel', 'contentSettings', 'storage', 'tabs', 'bookmarks', 'tabGroups'],
+  permissions: [
+    'contentSettings',
+    'storage',
+    'tabs',
+    'bookmarks',
+    'tabGroups',
+    'alarms',
+    'notifications',
+  ],
+  background: {
+    service_worker: 'src/background/index.ts',
+    type: 'module' as const,
+  },
   host_permissions: ['https://api.trello.com/*'],
   content_scripts: [
     {
@@ -25,7 +37,4 @@ export default defineManifest({
       matches: ['https://*/*'],
     },
   ],
-  side_panel: {
-    default_path: 'src/sidepanel/index.html',
-  },
 })

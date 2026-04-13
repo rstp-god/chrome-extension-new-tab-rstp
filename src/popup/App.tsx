@@ -1,22 +1,28 @@
-import crxLogo from '@/assets/crx.svg'
-import reactLogo from '@/assets/react.svg'
-import viteLogo from '@/assets/vite.svg'
-import HelloWorld from '@/components/HelloWorld'
-import './App.css'
+import { ActionBar } from '@/popup/components/ActionBar.tsx'
+import { CleanupSection } from '@/popup/components/CleanupSection.tsx'
+import { PopupHeader } from '@/popup/components/PopupHeader.tsx'
+import { RulesList } from '@/popup/components/RulesList.tsx'
+import { SettingsSection } from '@/popup/components/SettingsSection.tsx'
+import { SortingSection } from '@/popup/components/SortingSection.tsx'
+import { useTabRulesStore } from '@/popup/store/tabRules.ts'
 
 export default function App() {
+  const enabled = useTabRulesStore((s) => s.enabled)
+
   return (
-    <div>
-      <a href="https://vite.dev" target="_blank" rel="noreferrer">
-        <img src={viteLogo} className="logo" alt="Vite logo" />
-      </a>
-      <a href="https://reactjs.org/" target="_blank" rel="noreferrer">
-        <img src={reactLogo} className="logo react" alt="React logo" />
-      </a>
-      <a href="https://crxjs.dev/vite-plugin" target="_blank" rel="noreferrer">
-        <img src={crxLogo} className="logo crx" alt="crx logo" />
-      </a>
-      <HelloWorld msg="Vite + React + CRXJS" />
+    <div className="flex h-[600px] w-[500px] flex-col bg-background text-foreground">
+      <PopupHeader />
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className={enabled ? 'space-y-2.5 px-3 pb-3' : 'space-y-2.5 px-3 pb-3 opacity-50'}>
+          <RulesList />
+          <SortingSection />
+          <CleanupSection />
+          <SettingsSection />
+        </div>
+      </div>
+
+      <ActionBar />
     </div>
   )
 }
