@@ -1,6 +1,6 @@
 import type { TabRulesSettings } from '@/popup/types/rules.ts'
 
-import { isProcessableTab } from '@/popup/services/filter.ts'
+import { isProcessableTab } from '@/popup/utils/filter.ts'
 import { executePipeline } from '@/popup/services/pipeline.ts'
 import { createOrUpdateGroup, getAllTabs, ungroupTab } from '@/background/chromeAdapter.ts'
 

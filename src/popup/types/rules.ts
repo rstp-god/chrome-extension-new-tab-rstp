@@ -5,15 +5,9 @@ export interface Matcher {
   value: string
 }
 
-export type ChromeGroupColor =
-  | 'grey'
-  | 'blue'
-  | 'red'
-  | 'yellow'
-  | 'green'
-  | 'pink'
-  | 'purple'
-  | 'cyan'
+import type { ChromeTabGroupColor } from '@/widgets/ChromeLibrary/types/types.ts'
+
+export type ChromeGroupColor = ChromeTabGroupColor
 
 export interface GroupingRule {
   id: string
@@ -59,6 +53,27 @@ export const MATCHER_LABELS: Record<MatcherType, string> = {
   title_contains: 'TITLE',
   path_contains: 'PATH',
 }
+
+export const SORT_SCOPES: { value: SortScope; labelKey: string }[] = [
+  { value: 'off', labelKey: 'sorting.scope.off' },
+  { value: 'window', labelKey: 'sorting.scope.window' },
+  { value: 'global', labelKey: 'sorting.scope.global' },
+]
+
+export const TAB_SORT_CRITERIA: { value: TabSortCriterion; labelKey: string }[] = [
+  { value: 'domain_asc', labelKey: 'sorting.tabSort.domain_asc' },
+  { value: 'title_asc', labelKey: 'sorting.tabSort.title_asc' },
+  { value: 'title_desc', labelKey: 'sorting.tabSort.title_desc' },
+  { value: 'last_access', labelKey: 'sorting.tabSort.last_access' },
+  { value: 'created', labelKey: 'sorting.tabSort.created' },
+  { value: 'url_similarity', labelKey: 'sorting.tabSort.url_similarity' },
+]
+
+export const GROUP_SORT_CRITERIA: { value: GroupSortCriterion; labelKey: string }[] = [
+  { value: 'name_asc', labelKey: 'sorting.groupSort.name_asc' },
+  { value: 'tab_count', labelKey: 'sorting.groupSort.tab_count' },
+  { value: 'manual', labelKey: 'sorting.groupSort.manual' },
+]
 
 export const AUTOMATION_MODES: { value: AutomationMode; labelKey: string }[] = [
   { value: 'realtime', labelKey: 'settings.realtime' },

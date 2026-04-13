@@ -1,27 +1,25 @@
-import type { AutomationMode, UnmatchedTabsBehavior } from '@/popup/types/rules.ts'
-
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, } from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ColorPicker } from '@/popup/components/ColorPicker.tsx'
 import { SectionCard } from '@/popup/components/SectionCard.tsx'
 import { useTabRulesStore } from '@/popup/store/tabRules.ts'
+import type { AutomationMode, UnmatchedTabsBehavior } from '@/popup/types/rules.ts'
 import { AUTOMATION_MODES } from '@/popup/types/rules.ts'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 
 export function SettingsSection() {
   const { t } = useTranslation('tabRules')
-  const automation = useTabRulesStore((s) => s.automation)
-  const updateAutomation = useTabRulesStore((s) => s.updateAutomation)
-  const unmatchedTabs = useTabRulesStore((s) => s.unmatchedTabs)
-  const updateUnmatchedTabs = useTabRulesStore((s) => s.updateUnmatchedTabs)
+  const { automation, updateAutomation, unmatchedTabs, updateUnmatchedTabs } = useTabRulesStore(
+    useShallow((s) => ({
+      automation: s.automation,
+      updateAutomation: s.updateAutomation,
+      unmatchedTabs: s.unmatchedTabs,
+      updateUnmatchedTabs: s.updateUnmatchedTabs,
+    })),
+  )
 
   return (
     <SectionCard title={t('settings.title')}>
@@ -30,7 +28,9 @@ export function SettingsSection() {
         <ToggleGroup
           type="single"
           value={automation.mode}
-          onValueChange={(v) => v && updateAutomation({ mode: v as AutomationMode })}
+          onValueChange={(v: string) => {
+            if (v) updateAutomation({ mode: v as AutomationMode })
+          }}
           className="w-full rounded-lg border border-border/50 bg-muted/30 p-0.5"
         >
           {AUTOMATION_MODES.map((m) => (
@@ -66,7 +66,7 @@ export function SettingsSection() {
           onValueChange={(v) => updateUnmatchedTabs({ behavior: v as UnmatchedTabsBehavior })}
         >
           <SelectTrigger className="h-7 text-xs">
-            <SelectValue />
+            <SelectValue/>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="leave_ungrouped">{t('settings.unmatchedTabs.leave')}</SelectItem>

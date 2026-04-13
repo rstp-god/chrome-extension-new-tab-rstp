@@ -1,7 +1,7 @@
 import type { TabRulesSettings } from '@/popup/types/rules.ts'
 
 import { CLEANUP_THRESHOLD_MS } from '@/popup/types/rules.ts'
-import { isSystemTab } from '@/popup/services/filter.ts'
+import { isSystemTab } from '@/popup/utils/filter.ts'
 import { getInactiveTabs } from '@/background/cleanup/activityTracker.ts'
 import { showCleanupNotification } from '@/background/cleanup/notifications.ts'
 

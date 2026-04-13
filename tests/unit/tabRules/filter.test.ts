@@ -1,4 +1,4 @@
-import { isProcessableTab, isSystemTab } from '@/popup/services/filter.ts'
+import { isProcessableTab, isSystemTab } from '@/popup/utils/filter.ts'
 import { describe, expect, it } from 'vitest'
 
 describe('isSystemTab', () => {

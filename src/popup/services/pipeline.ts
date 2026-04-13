@@ -1,6 +1,6 @@
 import type { ChromeGroupColor, TabRulesSettings } from '@/popup/types/rules.ts'
 
-import { isProcessableTab } from '@/popup/services/filter.ts'
+import { isProcessableTab } from '@/popup/utils/filter.ts'
 import { groupTabs } from '@/popup/services/grouping.ts'
 import { applyActiveTabOnTop, sortGroups, sortTabsInGroup } from '@/popup/services/sorting.ts'
 

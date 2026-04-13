@@ -55,12 +55,7 @@ export function RulesList() {
       {rules.length === 0 && !formOpen && (
         <div className="space-y-2 text-center">
           <p className="text-xs text-muted-foreground opacity-60">{t('rules.empty')}</p>
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs"
-            onClick={loadExamples}
-          >
+          <Button variant="outline" size="sm" className="text-xs" onClick={loadExamples}>
             <Lightbulb size={14} className="mr-1" />
             {t('rules.loadExamples')}
           </Button>

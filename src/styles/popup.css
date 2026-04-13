@@ -12,8 +12,6 @@ body {
   margin: 0;
   padding: 0;
   overflow: hidden;
-  background-color: oklch(0.147 0.004 49.3);
-  color: oklch(0.986 0.002 67.8);
 }
 
 #root {

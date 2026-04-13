@@ -12,28 +12,12 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { Label } from '@/components/ui/label'
 import { SectionCard } from '@/popup/components/SectionCard.tsx'
 import { useTabRulesStore } from '@/popup/store/tabRules.ts'
+import {
+  GROUP_SORT_CRITERIA,
+  SORT_SCOPES,
+  TAB_SORT_CRITERIA,
+} from '@/popup/types/rules.ts'
 import { useTranslation } from 'react-i18next'
-
-const SCOPES: { value: SortScope; labelKey: string }[] = [
-  { value: 'off', labelKey: 'sorting.scope.off' },
-  { value: 'window', labelKey: 'sorting.scope.window' },
-  { value: 'global', labelKey: 'sorting.scope.global' },
-]
-
-const TAB_SORTS: { value: TabSortCriterion; labelKey: string }[] = [
-  { value: 'domain_asc', labelKey: 'sorting.tabSort.domain_asc' },
-  { value: 'title_asc', labelKey: 'sorting.tabSort.title_asc' },
-  { value: 'title_desc', labelKey: 'sorting.tabSort.title_desc' },
-  { value: 'last_access', labelKey: 'sorting.tabSort.last_access' },
-  { value: 'created', labelKey: 'sorting.tabSort.created' },
-  { value: 'url_similarity', labelKey: 'sorting.tabSort.url_similarity' },
-]
-
-const GROUP_SORTS: { value: GroupSortCriterion; labelKey: string }[] = [
-  { value: 'name_asc', labelKey: 'sorting.groupSort.name_asc' },
-  { value: 'tab_count', labelKey: 'sorting.groupSort.tab_count' },
-  { value: 'manual', labelKey: 'sorting.groupSort.manual' },
-]
 
 export function SortingSection() {
   const { t } = useTranslation('tabRules')
@@ -50,7 +34,7 @@ export function SortingSection() {
         onValueChange={(v) => v && updateSorting({ scope: v as SortScope })}
         className="w-full rounded-lg border border-border/50 bg-muted/30 p-0.5"
       >
-        {SCOPES.map((s) => (
+        {SORT_SCOPES.map((s) => (
           <ToggleGroupItem
             key={s.value}
             value={s.value}
@@ -72,7 +56,7 @@ export function SortingSection() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {TAB_SORTS.map((s) => (
+              {TAB_SORT_CRITERIA.map((s) => (
                 <SelectItem key={s.value} value={s.value}>
                   {t(s.labelKey)}
                 </SelectItem>
@@ -91,7 +75,7 @@ export function SortingSection() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {GROUP_SORTS.map((s) => (
+              {GROUP_SORT_CRITERIA.map((s) => (
                 <SelectItem key={s.value} value={s.value}>
                   {t(s.labelKey)}
                 </SelectItem>
