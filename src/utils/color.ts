@@ -159,11 +159,7 @@ export function oklchToHex(oklchStr: string): string {
   if (!parts) return '#000000'
   const lab = oklchToOklab([parts.l, parts.c, parts.h])
   const [lr, lg, lb] = oklabToLinearRgb(lab)
-  const rgb: RGB = [
-    clamp01(linearToSrgb(lr)),
-    clamp01(linearToSrgb(lg)),
-    clamp01(linearToSrgb(lb)),
-  ]
+  const rgb: RGB = [clamp01(linearToSrgb(lr)), clamp01(linearToSrgb(lg)), clamp01(linearToSrgb(lb))]
   return srgbToHex(rgb)
 }
 

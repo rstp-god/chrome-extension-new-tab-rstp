@@ -1,13 +1,17 @@
-import { CARD_BASE, FONT_CSS, resolveColors } from '@/newtab/components/Settings/presets.ts'
+import { CARD_BASE, FONT_CSS, resolveColors } from '@/data/appearance.ts'
 import { useAppearanceStore } from '@/store/appearance.ts'
 import { useHeaderStore } from '@/store/header.ts'
-import { computeForeground, withAlpha } from '@/utils/color.ts'
+import { withAlpha } from '@/utils/color.ts'
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
 /**
  * Reads the appearance store + active theme and writes the resulting
  * CSS custom properties onto <html>. Re-runs whenever any dependency changes.
+ *
+ * Foregrounds come from the resolved Palette (explicit values for presets,
+ * auto-computed for custom) — NOT recomputed on the fly here. That's what
+ * keeps the "default" preset visually identical to the tokens in styles.css.
  *
  * Grid settings are intentionally NOT applied here — WidgetsGrid reads grid
  * config from the appearance store directly.
@@ -27,16 +31,16 @@ export function useApplyAppearance() {
   useEffect(() => {
     if (typeof document === 'undefined') return
     const root = document.documentElement.style
-    const colors = resolveColors(colorScheme, customColors, theme)
+    const palette = resolveColors(colorScheme, customColors, theme)
     const fontCss = FONT_CSS[font]
 
     const vars: Record<string, string> = {
-      '--primary': colors.primary,
-      '--primary-foreground': computeForeground(colors.primary),
-      '--accent': colors.accent,
-      '--accent-foreground': computeForeground(colors.accent),
-      '--muted': colors.muted,
-      '--muted-foreground': computeForeground(colors.muted),
+      '--primary': palette.primary,
+      '--primary-foreground': palette.primaryForeground,
+      '--accent': palette.accent,
+      '--accent-foreground': palette.accentForeground,
+      '--muted': palette.muted,
+      '--muted-foreground': palette.mutedForeground,
       '--radius': `${radius}rem`,
       '--card': withAlpha(CARD_BASE[theme], cardOpacity),
       '--font-sans': fontCss,

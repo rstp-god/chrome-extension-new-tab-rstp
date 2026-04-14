@@ -1,6 +1,6 @@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx'
 import { ColorInput } from '@/newtab/components/Settings/ColorInput.tsx'
-import { COLOR_PRESETS } from '@/newtab/components/Settings/presets.ts'
+import { COLOR_PRESETS } from '@/data/appearance.ts'
 import { useAppearanceStore } from '@/store/appearance.ts'
 import {
   COLOR_SCHEME_PRESETS,
@@ -54,9 +54,7 @@ export function ColorSchemeSelector() {
       >
         {COLOR_SCHEME_PRESETS.map((key) => {
           const swatch =
-            key === 'custom'
-              ? customColors.dark.primary
-              : COLOR_PRESETS[key].dark.primary
+            key === 'custom' ? customColors.dark.primary : COLOR_PRESETS[key].dark.primary
           return (
             <ToggleGroupItem key={key} value={key} className="gap-2">
               <span

@@ -11,7 +11,7 @@ import {
   GridPreset,
   ThemeColorKey,
 } from '@/types/appearance.ts'
-import { GRID_PRESETS } from '@/newtab/components/Settings/presets.ts'
+import { GRID_PRESETS } from '@/data/appearance.ts'
 import { rescaleLayout } from '@/utils/grid.ts'
 import { create } from 'zustand/react'
 
@@ -21,12 +21,22 @@ interface AppearanceStore extends AppearanceSettingsV1 {
   setRadius: (value: number) => void
   setCardOpacity: (value: number) => void
   setFont: (font: FontFamily) => void
-  setGridPreset: (preset: GridPreset) => void
-  setGridCustom: (config: Partial<Pick<GridConfig, 'columns' | 'rowHeight' | 'gap'>>) => void
-  resetToDefaults: () => void
+  setGridPreset: (preset: GridPreset) => Promise<void>
+  setGridCustom: (
+    config: Partial<Pick<GridConfig, 'columns' | 'rowHeight' | 'gap'>>,
+  ) => Promise<void>
+  resetToDefaults: () => Promise<void>
 }
 
-function rescaleWidgets(oldCols: number, newCols: number): void {
+/**
+ * Rescale the widget layout in memory and PERSIST it before the caller
+ * mutates appearance state. Awaiting the widget commit first keeps the two
+ * Chrome-synced envelopes in a sane order: if Chrome closes mid-operation,
+ * the widget layout is already in storage; the worst case is that appearance
+ * still reads the old columns count, which is recoverable at the next tick.
+ * Without the await the two envelopes race on `chrome.storage.local.set`.
+ */
+async function rescaleWidgets(oldCols: number, newCols: number): Promise<void> {
   if (oldCols === newCols) return
   const widgetStore = useWidgetStore.getState()
   const rescaled = rescaleLayout(widgetStore.layout, oldCols, newCols)
@@ -35,7 +45,7 @@ function rescaleWidgets(oldCols: number, newCols: number): void {
     return next ? { ...w, layout: { ...w.layout, x: next.x, w: next.w } } : w
   })
   widgetStore.setWidgets(widgets)
-  void widgetStore.commit()
+  await widgetStore.commit()
 }
 
 export const useAppearanceStore = create<Synced<AppearanceStore>>()(
@@ -72,18 +82,19 @@ export const useAppearanceStore = create<Synced<AppearanceStore>>()(
 
     setFont: (font) => setState({ font }),
 
-    setGridPreset: (preset) => {
+    setGridPreset: async (preset) => {
       const current = getState().grid
       if (preset === 'custom') {
+        if (current.preset === 'custom') return
         setState({ grid: { ...current, preset: 'custom' } })
         return
       }
       const values = GRID_PRESETS[preset]
-      rescaleWidgets(current.columns, values.columns)
+      await rescaleWidgets(current.columns, values.columns)
       setState({ grid: { preset, ...values } })
     },
 
-    setGridCustom: (config) => {
+    setGridCustom: async (config) => {
       const current = getState().grid
       const next: GridConfig = {
         preset: 'custom',
@@ -92,16 +103,14 @@ export const useAppearanceStore = create<Synced<AppearanceStore>>()(
         gap: config.gap ?? current.gap,
       }
       if (config.columns !== undefined) {
-        rescaleWidgets(current.columns, next.columns)
+        await rescaleWidgets(current.columns, next.columns)
       }
       setState({ grid: next })
     },
 
-    resetToDefaults: () => {
+    resetToDefaults: async () => {
       const current = getState().grid
-      if (current.columns !== DEFAULT_APPEARANCE.grid.columns) {
-        rescaleWidgets(current.columns, DEFAULT_APPEARANCE.grid.columns)
-      }
+      await rescaleWidgets(current.columns, DEFAULT_APPEARANCE.grid.columns)
       setState({ ...DEFAULT_APPEARANCE })
     },
   })),

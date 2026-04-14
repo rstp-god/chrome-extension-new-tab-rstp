@@ -1,5 +1,5 @@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx'
-import { FONT_CSS } from '@/newtab/components/Settings/presets.ts'
+import { FONT_CSS } from '@/data/appearance.ts'
 import { useAppearanceStore } from '@/store/appearance.ts'
 import { FONT_FAMILIES, type FontFamily } from '@/types/appearance.ts'
 import { TestId } from '@tests/constants/testIds.ts'

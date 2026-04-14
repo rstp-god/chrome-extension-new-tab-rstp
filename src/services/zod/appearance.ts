@@ -1,9 +1,5 @@
 import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
-import {
-  COLOR_SCHEME_PRESETS,
-  FONT_FAMILIES,
-  GRID_PRESET_KEYS,
-} from '@/types/appearance.ts'
+import { COLOR_SCHEME_PRESETS, FONT_FAMILIES, GRID_PRESET_KEYS } from '@/types/appearance.ts'
 import { z } from 'zod'
 
 const themeColorsSchema = z.object({

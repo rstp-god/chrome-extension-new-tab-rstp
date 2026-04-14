@@ -1,6 +1,6 @@
 import { Slider } from '@/components/ui/slider.tsx'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx'
-import { RADIUS_PRESETS, type RadiusPresetKey } from '@/newtab/components/Settings/presets.ts'
+import { RADIUS_PRESETS, type RadiusPresetKey } from '@/data/appearance.ts'
 import { useAppearanceStore } from '@/store/appearance.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import { useTranslation } from 'react-i18next'
