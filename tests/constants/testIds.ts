@@ -30,6 +30,13 @@ export enum TestId {
   ChromeLibrarySettingsDialog = 'chrome-library-settings-dialog',
   ChromeLibrarySettingsSectioned = 'chrome-library-settings-sectioned',
   ChromeLibrarySettingsCombined = 'chrome-library-settings-combined',
+  AppearanceSection = 'appearance-section',
+  AppearanceColorScheme = 'appearance-color-scheme',
+  AppearanceRadiusSlider = 'appearance-radius-slider',
+  AppearanceOpacitySlider = 'appearance-opacity-slider',
+  AppearanceFontSelector = 'appearance-font-selector',
+  AppearanceGridSelector = 'appearance-grid-selector',
+  AppearanceReset = 'appearance-reset',
 }
 
 export enum TestIdPrefix {

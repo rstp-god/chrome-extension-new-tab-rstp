@@ -10,8 +10,10 @@ import {
 } from '@/components/ui/dialog.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
+import { Separator } from '@/components/ui/separator.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { BackgroundDialog } from '@/newtab/components/Background/BackgroundDialog.tsx'
+import { AppearanceSection } from '@/newtab/components/Settings/AppearanceSection.tsx'
 import { useHeaderStore } from '@/store/header.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import { BackgroundStateV1 } from '@/types/background.ts'
@@ -48,69 +50,77 @@ export function SettingsDialog({ bgState, onSaveBackground }: Props) {
           <DialogDescription>{t('description')}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-6">
-          <div className="flex items-center justify-between gap-4 rounded-2xl border border-border p-4">
-            <div className="grid gap-1">
-              <div className="text-sm font-medium">{t('theme')}</div>
-              <div className="text-xs text-muted-foreground">{t('themeDescription')}</div>
+        <div className="max-h-[70vh] overflow-y-auto pr-3">
+          <div className="grid gap-6">
+            <div className="flex items-center justify-between gap-4 rounded-2xl border border-border p-4">
+              <div className="grid gap-1">
+                <div className="text-sm font-medium">{t('theme')}</div>
+                <div className="text-xs text-muted-foreground">{t('themeDescription')}</div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Label className="text-xs text-muted-foreground">{common('light')}</Label>
+                <Switch
+                  data-testid={TestId.ThemeSwitch}
+                  checked={theme === 'dark'}
+                  onCheckedChange={toggleTheme}
+                />
+                <Label className="text-xs text-muted-foreground">{common('dark')}</Label>
+              </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Label className="text-xs text-muted-foreground">{common('light')}</Label>
-              <Switch
-                data-testid={TestId.ThemeSwitch}
-                checked={theme === 'dark'}
-                onCheckedChange={toggleTheme}
+            <div className="flex items-center justify-between gap-4 rounded-2xl border border-border p-4">
+              <div className="grid gap-1">
+                <div className="text-sm font-medium">{t('language')}</div>
+                <div className="text-xs text-muted-foreground">{t('languageDescription')}</div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  variant={language === 'en' ? 'default' : 'outline'}
+                  onClick={() => setLanguage('en')}
+                >
+                  {t('english')}
+                </Button>
+                <Button
+                  size="sm"
+                  variant={language === 'ru' ? 'default' : 'outline'}
+                  onClick={() => setLanguage('ru')}
+                >
+                  {t('russian')}
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="text-sm font-medium">{t('name')}</div>
+              <div className="text-xs text-muted-foreground">{t('nameDescription')}</div>
+
+              <Input
+                value={displayName ?? ''}
+                placeholder={t('namePlaceholder')}
+                onChange={(e) => setDisplayName(e.target.value)}
               />
-              <Label className="text-xs text-muted-foreground">{common('dark')}</Label>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between gap-4 rounded-2xl border border-border p-4">
-            <div className="grid gap-1">
-              <div className="text-sm font-medium">{t('language')}</div>
-              <div className="text-xs text-muted-foreground">{t('languageDescription')}</div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant={language === 'en' ? 'default' : 'outline'}
-                onClick={() => setLanguage('en')}
-              >
-                {t('english')}
-              </Button>
-              <Button
-                size="sm"
-                variant={language === 'ru' ? 'default' : 'outline'}
-                onClick={() => setLanguage('ru')}
-              >
-                {t('russian')}
-              </Button>
-            </div>
-          </div>
+            <Separator />
 
-          <div className="grid gap-2">
-            <div className="text-sm font-medium">{t('name')}</div>
-            <div className="text-xs text-muted-foreground">{t('nameDescription')}</div>
+            <AppearanceSection />
 
-            <Input
-              value={displayName ?? ''}
-              placeholder={t('namePlaceholder')}
-              onChange={(e) => setDisplayName(e.target.value)}
+            <Separator />
+
+            <Button variant="outline" onClick={() => setBgOpen(true)}>
+              {t('changeBackground')}
+            </Button>
+
+            <BackgroundDialog
+              open={bgOpen}
+              onOpenChange={setBgOpen}
+              value={bgState}
+              onSaved={onSaveBackground}
             />
           </div>
-
-          <Button variant="outline" onClick={() => setBgOpen(true)}>
-            {t('changeBackground')}
-          </Button>
-
-          <BackgroundDialog
-            open={bgOpen}
-            onOpenChange={setBgOpen}
-            value={bgState}
-            onSaved={onSaveBackground}
-          />
         </div>
 
         <DialogFooter className="mt-2">
