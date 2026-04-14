@@ -2,40 +2,42 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx'
 import { ColorInput } from '@/newtab/components/Settings/ColorInput.tsx'
 import { COLOR_PRESETS } from '@/newtab/components/Settings/presets.ts'
 import { useAppearanceStore } from '@/store/appearance.ts'
-import type { ColorSchemePreset, ThemeColors } from '@/types/appearance.ts'
+import {
+  COLOR_SCHEME_PRESETS,
+  THEME_COLOR_KEYS,
+  type ColorSchemePreset,
+  type ThemeColorKey,
+} from '@/types/appearance.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 
-const PRESET_KEYS: ColorSchemePreset[] = [
-  'default',
-  'ocean',
-  'forest',
-  'sunset',
-  'lavender',
-  'mono',
-  'custom',
-]
+const COLOR_LABEL_KEY: Record<ThemeColorKey, string> = {
+  primary: 'primaryColor',
+  accent: 'accentColor',
+  muted: 'mutedColor',
+}
 
 export function ColorSchemeSelector() {
   const { t } = useTranslation('settingsDialog')
-  const colorScheme = useAppearanceStore((s) => s.colorScheme)
-  const customColors = useAppearanceStore((s) => s.customColors)
-  const setColorScheme = useAppearanceStore((s) => s.setColorScheme)
-  const setCustomColor = useAppearanceStore((s) => s.setCustomColor)
+  const { colorScheme, customColors, setColorScheme, setCustomColor } = useAppearanceStore(
+    useShallow((s) => ({
+      colorScheme: s.colorScheme,
+      customColors: s.customColors,
+      setColorScheme: s.setColorScheme,
+      setCustomColor: s.setCustomColor,
+    })),
+  )
 
   const [editingTheme, setEditingTheme] = useState<'light' | 'dark'>('dark')
 
-  const handleChange = (value: string) => {
+  const handleSchemeChange = (value: string) => {
     if (!value) return
     setColorScheme(value as ColorSchemePreset)
   }
 
   const editingColors = customColors[editingTheme]
-
-  const handleCustomColor = (key: keyof ThemeColors, next: string) => {
-    setCustomColor(editingTheme, key, next)
-  }
 
   return (
     <div className="flex flex-col gap-3" data-testid={TestId.AppearanceColorScheme}>
@@ -44,17 +46,17 @@ export function ColorSchemeSelector() {
       <ToggleGroup
         type="single"
         value={colorScheme}
-        onValueChange={handleChange}
+        onValueChange={handleSchemeChange}
         variant="outline"
         size="sm"
         spacing={1}
         className="flex-wrap"
       >
-        {PRESET_KEYS.map((key) => {
+        {COLOR_SCHEME_PRESETS.map((key) => {
           const swatch =
             key === 'custom'
               ? customColors.dark.primary
-              : COLOR_PRESETS[key as Exclude<ColorSchemePreset, 'custom'>].dark.primary
+              : COLOR_PRESETS[key].dark.primary
           return (
             <ToggleGroupItem key={key} value={key} className="gap-2">
               <span
@@ -81,21 +83,14 @@ export function ColorSchemeSelector() {
             <ToggleGroupItem value="dark">{t('editDark')}</ToggleGroupItem>
           </ToggleGroup>
 
-          <ColorInput
-            label={t('primaryColor')}
-            value={editingColors.primary}
-            onChange={(v) => handleCustomColor('primary', v)}
-          />
-          <ColorInput
-            label={t('accentColor')}
-            value={editingColors.accent}
-            onChange={(v) => handleCustomColor('accent', v)}
-          />
-          <ColorInput
-            label={t('mutedColor')}
-            value={editingColors.muted}
-            onChange={(v) => handleCustomColor('muted', v)}
-          />
+          {THEME_COLOR_KEYS.map((key) => (
+            <ColorInput
+              key={key}
+              label={t(COLOR_LABEL_KEY[key])}
+              value={editingColors[key]}
+              onChange={(next) => setCustomColor(editingTheme, key, next)}
+            />
+          ))}
         </div>
       )}
     </div>

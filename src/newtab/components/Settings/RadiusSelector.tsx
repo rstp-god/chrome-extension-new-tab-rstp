@@ -4,11 +4,13 @@ import { RADIUS_PRESETS, type RadiusPresetKey } from '@/newtab/components/Settin
 import { useAppearanceStore } from '@/store/appearance.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 
 export function RadiusSelector() {
   const { t } = useTranslation('settingsDialog')
-  const radius = useAppearanceStore((s) => s.radius)
-  const setRadius = useAppearanceStore((s) => s.setRadius)
+  const { radius, setRadius } = useAppearanceStore(
+    useShallow((s) => ({ radius: s.radius, setRadius: s.setRadius })),
+  )
 
   const activePreset = RADIUS_PRESETS.find((p) => Math.abs(p.value - radius) < 0.001)?.key ?? ''
 

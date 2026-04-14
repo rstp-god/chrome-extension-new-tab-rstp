@@ -5,6 +5,11 @@ export type OklchParts = {
   alpha?: number
 }
 
+// Preserved digits for stored oklch components. 6 decimals keep hex ↔ oklch
+// roundtrips idempotent across the full sRGB gamut — with 4 decimals certain
+// high-chroma colours (bright cyans, oranges) drifted by one RGB step per save.
+const DECIMAL_PRECISION = 6
+
 const OKLCH_RE = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+%?))?\s*\)$/i
 
 export function parseOklch(value: string): OklchParts | null {
@@ -44,8 +49,18 @@ export function computeForeground(oklchStr: string): string {
   return parts.l >= 0.6 ? 'oklch(0.15 0 0)' : 'oklch(0.98 0 0)'
 }
 
-// ---------- hex ↔ oklch (manual conversion, no deps) ----------
-// Implementation of the Oklab/Oklch ↔ sRGB transform from Björn Ottosson.
+// ============================================================================
+// hex ↔ oklch (manual conversion, no deps)
+// Reference: https://bottosson.github.io/posts/oklab/
+// Pipeline:
+//   hex → sRGB (0..1) → linear-sRGB (gamma decode)
+//        → Oklab (via the M1·cbrt·M2 matrices below)
+//        → Oklch (polar form of ab: C = √(a²+b²), H = atan2(b,a))
+// Reverse mirrors the same steps.
+// The numeric constants in linearRgbToOklab/oklabToLinearRgb and the sRGB
+// gamma transform are the canonical Björn Ottosson matrices — edit only if
+// you're replacing the whole algorithm.
+// ============================================================================
 
 type RGB = [number, number, number]
 
@@ -73,6 +88,7 @@ function srgbToHex([r, g, b]: RGB): string {
   return `#${to(r)}${to(g)}${to(b)}`
 }
 
+// Standard sRGB gamma transforms (IEC 61966-2-1).
 function srgbToLinear(c: number): number {
   return c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
 }
@@ -81,6 +97,8 @@ function linearToSrgb(c: number): number {
   return c >= 0.0031308 ? 1.055 * Math.pow(c, 1 / 2.4) - 0.055 : 12.92 * c
 }
 
+// Ottosson's M1 matrix (linear sRGB → LMS) followed by cube root,
+// then M2 (LMS' → Oklab). See the reference link at the top of this section.
 function linearRgbToOklab([r, g, b]: RGB): RGB {
   const l_ = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
   const m_ = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
@@ -93,6 +111,7 @@ function linearRgbToOklab([r, g, b]: RGB): RGB {
   ]
 }
 
+// Inverse: Oklab → LMS' via M2⁻¹, cube, then LMS → linear sRGB via M1⁻¹.
 function oklabToLinearRgb([L, a, b]: RGB): RGB {
   const l_ = L + 0.3963377774 * a + 0.2158037573 * b
   const m_ = L - 0.1055613458 * a - 0.0638541728 * b
@@ -140,10 +159,14 @@ export function oklchToHex(oklchStr: string): string {
   if (!parts) return '#000000'
   const lab = oklchToOklab([parts.l, parts.c, parts.h])
   const [lr, lg, lb] = oklabToLinearRgb(lab)
-  const rgb: RGB = [clamp01(linearToSrgb(lr)), clamp01(linearToSrgb(lg)), clamp01(linearToSrgb(lb))]
+  const rgb: RGB = [
+    clamp01(linearToSrgb(lr)),
+    clamp01(linearToSrgb(lg)),
+    clamp01(linearToSrgb(lb)),
+  ]
   return srgbToHex(rgb)
 }
 
 function round(n: number): string {
-  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(4)))
+  return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(DECIMAL_PRECISION)))
 }

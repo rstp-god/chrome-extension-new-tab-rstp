@@ -2,11 +2,13 @@ import { Slider } from '@/components/ui/slider.tsx'
 import { useAppearanceStore } from '@/store/appearance.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 
 export function CardOpacitySlider() {
   const { t } = useTranslation('settingsDialog')
-  const cardOpacity = useAppearanceStore((s) => s.cardOpacity)
-  const setCardOpacity = useAppearanceStore((s) => s.setCardOpacity)
+  const { cardOpacity, setCardOpacity } = useAppearanceStore(
+    useShallow((s) => ({ cardOpacity: s.cardOpacity, setCardOpacity: s.setCardOpacity })),
+  )
 
   return (
     <div className="flex flex-col gap-3" data-testid={TestId.AppearanceOpacitySlider}>

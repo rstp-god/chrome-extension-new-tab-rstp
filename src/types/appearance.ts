@@ -1,24 +1,32 @@
-export type ColorSchemePreset =
-  | 'default'
-  | 'ocean'
-  | 'forest'
-  | 'sunset'
-  | 'lavender'
-  | 'mono'
-  | 'custom'
+// Single source of truth for preset keys — used by the Zod schema, the
+// appearance store, and the UI components to avoid drift.
 
-export type ThemeColors = {
-  primary: string
-  accent: string
-  muted: string
-}
+export const COLOR_SCHEME_PRESETS = [
+  'default',
+  'ocean',
+  'forest',
+  'sunset',
+  'lavender',
+  'mono',
+  'custom',
+] as const
+export type ColorSchemePreset = (typeof COLOR_SCHEME_PRESETS)[number]
+
+export const GRID_PRESET_KEYS = ['compact', 'default', 'spacious', 'custom'] as const
+export type GridPreset = (typeof GRID_PRESET_KEYS)[number]
+
+export const FONT_FAMILIES = ['jetbrains', 'inter', 'system', 'plex'] as const
+export type FontFamily = (typeof FONT_FAMILIES)[number]
+
+export const THEME_COLOR_KEYS = ['primary', 'accent', 'muted'] as const
+export type ThemeColorKey = (typeof THEME_COLOR_KEYS)[number]
+
+export type ThemeColors = Record<ThemeColorKey, string>
 
 export type CustomColors = {
   light: ThemeColors
   dark: ThemeColors
 }
-
-export type GridPreset = 'compact' | 'default' | 'spacious' | 'custom'
 
 export type GridConfig = {
   preset: GridPreset
@@ -26,8 +34,6 @@ export type GridConfig = {
   rowHeight: number
   gap: number
 }
-
-export type FontFamily = 'jetbrains' | 'inter' | 'system' | 'plex'
 
 export type AppearanceSettingsV1 = {
   version: 1

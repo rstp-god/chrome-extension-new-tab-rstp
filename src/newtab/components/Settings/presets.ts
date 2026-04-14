@@ -1,6 +1,13 @@
-import type { ColorSchemePreset, CustomColors, FontFamily, GridPreset } from '@/types/appearance.ts'
+import type {
+  ColorSchemePreset,
+  CustomColors,
+  FontFamily,
+  GridConfig,
+  GridPreset,
+} from '@/types/appearance.ts'
 
-type ColorPresetMap = Record<Exclude<ColorSchemePreset, 'custom'>, CustomColors>
+type NonCustom<K extends 'custom' | string> = Exclude<K, 'custom'>
+type ColorPresetMap = Record<NonCustom<ColorSchemePreset>, CustomColors>
 
 /**
  * Color presets — each holds light/dark variants of primary, accent, muted.
@@ -91,10 +98,9 @@ export const RADIUS_PRESETS = [
 
 export type RadiusPresetKey = (typeof RADIUS_PRESETS)[number]['key']
 
-export const GRID_PRESETS: Record<
-  Exclude<GridPreset, 'custom'>,
-  { columns: number; rowHeight: number; gap: number }
-> = {
+/** Grid preset → numeric config. Single source of truth used both by the
+ * appearance store (on preset selection) and by the UI for labels. */
+export const GRID_PRESETS: Record<NonCustom<GridPreset>, Omit<GridConfig, 'preset'>> = {
   compact: { columns: 16, rowHeight: 24, gap: 8 },
   default: { columns: 12, rowHeight: 30, gap: 12 },
   spacious: { columns: 8, rowHeight: 40, gap: 16 },

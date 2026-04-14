@@ -9,26 +9,21 @@ import {
   FontFamily,
   GridConfig,
   GridPreset,
-  ThemeColors,
+  ThemeColorKey,
 } from '@/types/appearance.ts'
+import { GRID_PRESETS } from '@/newtab/components/Settings/presets.ts'
 import { rescaleLayout } from '@/utils/grid.ts'
 import { create } from 'zustand/react'
 
 interface AppearanceStore extends AppearanceSettingsV1 {
   setColorScheme: (preset: ColorSchemePreset) => void
-  setCustomColor: (theme: 'light' | 'dark', key: keyof ThemeColors, value: string) => void
+  setCustomColor: (theme: 'light' | 'dark', key: ThemeColorKey, value: string) => void
   setRadius: (value: number) => void
   setCardOpacity: (value: number) => void
   setFont: (font: FontFamily) => void
   setGridPreset: (preset: GridPreset) => void
   setGridCustom: (config: Partial<Pick<GridConfig, 'columns' | 'rowHeight' | 'gap'>>) => void
   resetToDefaults: () => void
-}
-
-const GRID_PRESET_VALUES: Record<Exclude<GridPreset, 'custom'>, Omit<GridConfig, 'preset'>> = {
-  compact: { columns: 16, rowHeight: 24, gap: 8 },
-  default: { columns: 12, rowHeight: 30, gap: 12 },
-  spacious: { columns: 8, rowHeight: 40, gap: 16 },
 }
 
 function rescaleWidgets(oldCols: number, newCols: number): void {
@@ -83,7 +78,7 @@ export const useAppearanceStore = create<Synced<AppearanceStore>>()(
         setState({ grid: { ...current, preset: 'custom' } })
         return
       }
-      const values = GRID_PRESET_VALUES[preset]
+      const values = GRID_PRESETS[preset]
       rescaleWidgets(current.columns, values.columns)
       setState({ grid: { preset, ...values } })
     },

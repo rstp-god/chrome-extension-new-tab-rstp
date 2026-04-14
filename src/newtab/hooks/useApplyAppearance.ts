@@ -3,6 +3,7 @@ import { useAppearanceStore } from '@/store/appearance.ts'
 import { useHeaderStore } from '@/store/header.ts'
 import { computeForeground, withAlpha } from '@/utils/color.ts'
 import { useEffect } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 /**
  * Reads the appearance store + active theme and writes the resulting
@@ -13,11 +14,15 @@ import { useEffect } from 'react'
  */
 export function useApplyAppearance() {
   const theme = useHeaderStore((s) => s.theme)
-  const colorScheme = useAppearanceStore((s) => s.colorScheme)
-  const customColors = useAppearanceStore((s) => s.customColors)
-  const radius = useAppearanceStore((s) => s.radius)
-  const cardOpacity = useAppearanceStore((s) => s.cardOpacity)
-  const font = useAppearanceStore((s) => s.font)
+  const { colorScheme, customColors, radius, cardOpacity, font } = useAppearanceStore(
+    useShallow((s) => ({
+      colorScheme: s.colorScheme,
+      customColors: s.customColors,
+      radius: s.radius,
+      cardOpacity: s.cardOpacity,
+      font: s.font,
+    })),
+  )
 
   useEffect(() => {
     if (typeof document === 'undefined') return
