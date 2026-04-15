@@ -12,6 +12,10 @@ export default defineConfig({
     toHaveScreenshot: {
       animations: 'disabled',
       caret: 'hide',
+      // Tolerate sub-pixel anti-aliasing drift between otherwise identical
+      // renders. Keeps flakes at bay without hiding real regressions
+      // (at 458×319 this ≈ 1‰ of the widget area).
+      maxDiffPixelRatio: 0.005,
     },
   },
   use: {

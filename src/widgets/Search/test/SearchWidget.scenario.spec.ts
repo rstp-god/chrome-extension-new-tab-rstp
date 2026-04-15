@@ -23,6 +23,7 @@ test('search widget typed query state matches snapshot', async () => {
   try {
     const page = await context.newPage()
     await prepareExtensionPage(page)
+    await setExtensionTheme(page, 'light')
     await captureSearchState(page, 'widget-search-filled.png')
 
     const darkPage = await context.newPage()

@@ -44,6 +44,7 @@ test('chrome library widget interaction scenarios match snapshots', async () => 
   try {
     const page = await context.newPage()
     await prepareExtensionPage(page)
+    await setExtensionTheme(page, 'light')
     await captureChromeLibraryScenarios(page, '')
 
     const darkPage = await context.newPage()
