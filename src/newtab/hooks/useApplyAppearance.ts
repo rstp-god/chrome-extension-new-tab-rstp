@@ -2,6 +2,7 @@ import { CARD_BASE, FONT_CSS, resolveColors } from '@/data/appearance.ts'
 import { useAppearanceStore } from '@/store/appearance.ts'
 import { useHeaderStore } from '@/store/header.ts'
 import { withAlpha } from '@/utils/color.ts'
+import { applyTheme } from '@/utils/theme.ts'
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -30,6 +31,12 @@ export function useApplyAppearance() {
 
   useEffect(() => {
     if (typeof document === 'undefined') return
+    // Keep the legacy `.dark` class in sync with the store. Tokens declared
+    // inside `.dark {}` in styles.css (e.g. --border, --input) are still
+    // scoped to the class, so without this call a fresh-boot session with
+    // no stored state would render dark card colours but light borders.
+    applyTheme(theme)
+
     const root = document.documentElement.style
     const palette = resolveColors(colorScheme, customColors, theme)
     const fontCss = FONT_CSS[font]
