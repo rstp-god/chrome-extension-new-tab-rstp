@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { ColorInput } from '@/newtab/components/Settings/ColorInput.tsx'
+import { ColorInput } from '@/components/compiled/ColorInput.tsx'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'

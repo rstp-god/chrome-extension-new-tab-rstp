@@ -1,5 +1,5 @@
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx'
-import { ColorInput } from '@/newtab/components/Settings/ColorInput.tsx'
+import { ColorInput } from '@/components/compiled/ColorInput.tsx'
 import { COLOR_PRESETS } from '@/data/appearance.ts'
 import { useAppearanceStore } from '@/store/appearance.ts'
 import {

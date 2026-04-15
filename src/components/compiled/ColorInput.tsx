@@ -1,7 +1,9 @@
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
 import { hexToOklch, oklchToHex } from '@/utils/color.ts'
 import { useEffect, useRef, useState } from 'react'
+import { HexColorPicker } from 'react-colorful'
 
 interface Props {
   label: string
@@ -40,12 +42,21 @@ export function ColorInput({ label, value, onChange }: Props) {
   return (
     <div className="flex items-center gap-3">
       <Label className="w-20 shrink-0 text-xs text-muted-foreground">{label}</Label>
-      <input
-        type="color"
-        value={hex}
-        onChange={(e) => handleColorChange(e.target.value)}
-        className="h-8 w-10 shrink-0 cursor-pointer rounded-md border border-border bg-transparent"
-      />
+
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={`${label} color picker`}
+            className="h-8 w-10 shrink-0 cursor-pointer rounded-md border border-border ring-offset-background transition-shadow focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            style={{ backgroundColor: hex }}
+          />
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-3" align="start">
+          <HexColorPicker color={hex} onChange={handleColorChange} />
+        </PopoverContent>
+      </Popover>
+
       <Input
         value={hex}
         onChange={(e) => handleColorChange(e.target.value)}
