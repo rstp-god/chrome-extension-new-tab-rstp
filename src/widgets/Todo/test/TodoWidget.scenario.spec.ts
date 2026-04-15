@@ -54,7 +54,7 @@ async function snapshot(page: Page, fileName: string) {
   await expect(todoFrame(page)).toHaveScreenshot(['Todo', fileName])
 }
 
-async function resetWidgetState(page: Page) {
+async function resetWidgetState(page: Page, theme: 'light' | 'dark') {
   // The persistent extension context shares `chrome.storage.local` across
   // pages, so the dark-theme run would inherit tasks (and a duplicated
   // widget) added during the light-theme run. Clear storage and reload so
@@ -67,10 +67,15 @@ async function resetWidgetState(page: Page) {
   )
   await page.reload({ waitUntil: 'domcontentloaded' })
   await stabilizeExtensionUi(page)
+  // Clearing storage wipes the theme preference too; without re-applying it
+  // the store falls back to DEFAULT_HEADER_SETTINGS.theme and every default
+  // snapshot silently renders dark.
+  await setExtensionTheme(page, theme)
 }
 
 async function captureTodoScenarios(page: Page, suffix: '' | '-dark') {
-  await resetWidgetState(page)
+  const theme: 'light' | 'dark' = suffix === '-dark' ? 'dark' : 'light'
+  await resetWidgetState(page, theme)
   await addWidget(page, 'todo')
 
   await test.step(`Empty state${suffix}`, async () => {
