@@ -1,4 +1,5 @@
 import { RenderWidget } from '@/newtab/components/WidgetLayout/RenderWidget.tsx'
+import { useAppearanceStore } from '@/store/appearance.ts'
 import { useHeaderStore } from '@/store/header.ts'
 import { useWidgetStore } from '@/store/widget.ts'
 import { WidgetInstance } from '@/types/widgets.ts'
@@ -8,6 +9,7 @@ export function WidgetsGrid() {
   const { containerRef, width, mounted } = useContainerWidth()
   const { pinned } = useHeaderStore()
   const { widgets, setWidgets, layout } = useWidgetStore()
+  const grid = useAppearanceStore((s) => s.grid)
 
   const onLayoutChange = (next: Layout) => {
     if (pinned) return
@@ -34,7 +36,12 @@ export function WidgetsGrid() {
         <ReactGridLayout
           width={width}
           layout={layout}
-          gridConfig={{ cols: 12, rowHeight: 30, margin: [12, 12], containerPadding: [0, 0] }}
+          gridConfig={{
+            cols: grid.columns,
+            rowHeight: grid.rowHeight,
+            margin: [grid.gap, grid.gap],
+            containerPadding: [0, 0],
+          }}
           dragConfig={{ enabled: !pinned, handle: '.handle' }}
           resizeConfig={{ enabled: !pinned }}
           onLayoutChange={onLayoutChange}

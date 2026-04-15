@@ -15,6 +15,7 @@ test('matches light theme screenshot', async () => {
     await installDeterministicPageState(page)
     await openExtensionNewTab(page)
     await stabilizeExtensionUi(page)
+    await setExtensionTheme(page, 'light')
 
     await expect(page).toHaveScreenshot(['NewTabTheme', 'newtab-light.png'])
   } finally {

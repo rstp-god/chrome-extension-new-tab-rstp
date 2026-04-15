@@ -70,6 +70,7 @@ test('matches extension newtab screenshots', async () => {
     await installDeterministicPageState(page)
     await openExtensionNewTab(page)
     await stabilizeExtensionUi(page)
+    await setExtensionTheme(page, 'light')
     await expectNewTabVisuals(page)
   } finally {
     await context.close()
