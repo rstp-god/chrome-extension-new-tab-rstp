@@ -93,15 +93,12 @@ export const activityRawSchema = z.array(activityEventSchema)
 const hexColorSchema = z.string().regex(HEX_COLOR_RE, 'must be #rrggbb')
 const oklchColorSchema = z.string().regex(OKLCH_RE, 'must be oklch(L C H [/ A])')
 
-const chartPaletteSchema = z.object({
+/** Soft cap on shade count — defence-in-depth, normal palettes have 3–8 shades. */
+const MAX_CHART_SHADES = 12
+
+export const chartPaletteSchema = z.object({
   baseHex: hexColorSchema,
-  shades: z.tuple([
-    oklchColorSchema,
-    oklchColorSchema,
-    oklchColorSchema,
-    oklchColorSchema,
-    oklchColorSchema,
-  ]),
+  shades: z.array(oklchColorSchema).min(1).max(MAX_CHART_SHADES),
 })
 
 const screenTimeSettingsSchema = z.object({
@@ -111,6 +108,7 @@ const screenTimeSettingsSchema = z.object({
   showGrid: z.boolean(),
   showTooltips: z.boolean(),
   maxDomains: z.number().int().positive().max(MAX_USER_DOMAINS_CAP),
+  chartPalette: chartPaletteSchema,
 })
 
 const tabStatsSettingsSchema = z.object({
@@ -124,11 +122,11 @@ const tabStatsSettingsSchema = z.object({
   }),
   format: z.enum(['cards', 'list', 'radial']),
   showSparkline: z.boolean(),
+  chartPalette: chartPaletteSchema,
 })
 
 export const activitySettingsSchema = z.object({
   paused: z.boolean(),
-  chartPalette: chartPaletteSchema,
   screenTime: screenTimeSettingsSchema,
   tabStats: tabStatsSettingsSchema,
 })

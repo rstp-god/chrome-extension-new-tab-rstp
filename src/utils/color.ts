@@ -166,3 +166,12 @@ export function oklchToHex(oklchStr: string): string {
 function round(n: number): string {
   return Number.isInteger(n) ? String(n) : String(Number(n.toFixed(DECIMAL_PRECISION)))
 }
+
+/** Chart palette: base hue fixed, lightness varied per entry. Invalid input → grey ramp. */
+export function generateChartPalette(
+  baseHex: string,
+  lightnesses: readonly number[],
+): string[] {
+  const { c, h } = parseOklch(hexToOklch(baseHex)) ?? { c: 0, h: 0 }
+  return lightnesses.map((l) => formatOklch({ l, c, h }))
+}

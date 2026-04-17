@@ -79,8 +79,11 @@ export interface ActivityAllSnapshot {
 export interface ChartPalette {
   /** Base color picked by the user (HEX). */
   baseHex: string
-  /** 5 OKLCH strings derived from `baseHex` via lightness scaling. */
-  shades: readonly [string, string, string, string, string]
+  /**
+   * OKLCH strings derived from `baseHex` via lightness scaling.
+   * Length matches `CHART_SHADE_LIGHTNESSES` in `src/data/chartPalette.ts`.
+   */
+  shades: readonly string[]
 }
 
 export type ScreenTimeChartType = 'bar' | 'area' | 'donut'
@@ -100,17 +103,20 @@ export interface ScreenTimeSettings {
   showGrid: boolean
   showTooltips: boolean
   maxDomains: number
+  /** Per-widget palette — not shared with Tab Stats. */
+  chartPalette: ChartPalette
 }
 
 export interface TabStatsSettings {
   visibleMetrics: Record<TabStatsMetricKey, boolean>
   format: TabStatsFormat
   showSparkline: boolean
+  /** Per-widget palette — not shared with Screen Time. */
+  chartPalette: ChartPalette
 }
 
 export interface ActivitySettings {
   paused: boolean
-  chartPalette: ChartPalette
   screenTime: ScreenTimeSettings
   tabStats: TabStatsSettings
 }

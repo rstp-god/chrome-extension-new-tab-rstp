@@ -8,31 +8,33 @@ import { activitySettingsEnvelope } from '@/services/zod/activitySchemas.ts'
 
 import type {
   ActivitySettings,
-  ChartPalette,
   ScreenTimeSettings,
   TabStatsSettings,
 } from '@/background/activity/types.ts'
 
 /**
- * Activity **settings** store — Pause toggle, chart palette, widget prefs.
+ * Activity **settings** store — Pause toggle + per-widget preferences.
  *
- * UI owns this key (`activity_settings`). The background worker reads it
- * via `initActivitySettings`/`getActivitySettings` and subscribes to
- * `chrome.storage.onChanged` so a `paused` toggle here takes effect
- * immediately in the worker (no extension reload required).
+ * Chart palettes live inside each widget's settings (`screenTime.chartPalette`,
+ * `tabStats.chartPalette`) so the two widgets can be coloured independently.
  *
- * Writes are debounced (250 ms) so dragging a slider or color picker
- * doesn't burn through `chrome.storage.local` write quotas.
+ * UI owns this key (`activity_settings`). The background worker reads it via
+ * `initActivitySettings`/`getActivitySettings` and subscribes to
+ * `chrome.storage.onChanged` so a `paused` toggle takes effect immediately in
+ * the worker (no extension reload required).
+ *
+ * Writes are debounced (250 ms) so dragging a slider or color picker doesn't
+ * burn through `chrome.storage.local` write quotas.
  *
  * Read-only snapshot stores for day/week/all live in `./activity.snapshots.ts`.
  */
 
 const SETTINGS_DEBOUNCE_MS = 250
 
-/**
- * Patch type for tab-stats updates. `visibleMetrics` deep-merges, so callers
- * can flip a single flag without re-supplying the whole record.
- */
+/** Patch type for screen-time updates; `chartPalette` replaces wholesale. */
+type ScreenTimePatch = Partial<ScreenTimeSettings>
+
+/** Patch type for tab-stats updates; `visibleMetrics` deep-merges. */
 type TabStatsPatch = Partial<Omit<TabStatsSettings, 'visibleMetrics'>> & {
   visibleMetrics?: Partial<TabStatsSettings['visibleMetrics']>
 }
@@ -40,8 +42,7 @@ type TabStatsPatch = Partial<Omit<TabStatsSettings, 'visibleMetrics'>> & {
 interface ActivityStore extends ActivitySettings {
   togglePause: () => void
   setPaused: (paused: boolean) => void
-  setChartPalette: (palette: ChartPalette) => void
-  updateScreenTimeSettings: (patch: Partial<ScreenTimeSettings>) => void
+  updateScreenTimeSettings: (patch: ScreenTimePatch) => void
   updateTabStatsSettings: (patch: TabStatsPatch) => void
   resetActivityDefaults: () => void
 }
@@ -52,7 +53,6 @@ export const useActivityStore = create<Synced<ActivityStore>>()(
     schema: activitySettingsEnvelope,
     partialize: (s) => ({
       paused: s.paused,
-      chartPalette: s.chartPalette,
       screenTime: s.screenTime,
       tabStats: s.tabStats,
     }),
@@ -64,8 +64,6 @@ export const useActivityStore = create<Synced<ActivityStore>>()(
     togglePause: () => setState((s) => ({ paused: !s.paused })),
 
     setPaused: (paused) => setState({ paused }),
-
-    setChartPalette: (chartPalette) => setState({ chartPalette }),
 
     updateScreenTimeSettings: (patch) =>
       setState((s) => ({ screenTime: { ...s.screenTime, ...patch } })),

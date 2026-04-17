@@ -29,13 +29,17 @@ describe('useActivityStore', () => {
     expect(useActivityStore.getState().paused).toBe(true)
   })
 
-  it('setChartPalette replaces the palette', () => {
+  it('updateScreenTimeSettings can replace chartPalette (per-widget palette)', () => {
     const palette = {
       baseHex: '#FF0055',
-      shades: ['a', 'b', 'c', 'd', 'e'] as [string, string, string, string, string],
+      shades: ['a', 'b', 'c', 'd', 'e'],
     }
-    useActivityStore.getState().setChartPalette(palette)
-    expect(useActivityStore.getState().chartPalette).toEqual(palette)
+    useActivityStore.getState().updateScreenTimeSettings({ chartPalette: palette })
+    expect(useActivityStore.getState().screenTime.chartPalette).toEqual(palette)
+    // Tab Stats palette unaffected — palettes are per-widget.
+    expect(useActivityStore.getState().tabStats.chartPalette).toEqual(
+      DEFAULT_ACTIVITY_SETTINGS.tabStats.chartPalette,
+    )
   })
 
   it('updateScreenTimeSettings patches only supplied fields', () => {
