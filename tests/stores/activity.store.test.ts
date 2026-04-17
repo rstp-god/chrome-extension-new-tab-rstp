@@ -53,9 +53,7 @@ describe('useActivityStore', () => {
     useActivityStore.getState().updateTabStatsSettings({ format: 'radial' })
     const state = useActivityStore.getState()
     expect(state.tabStats.format).toBe('radial')
-    expect(state.tabStats.showSparkline).toBe(
-      DEFAULT_ACTIVITY_SETTINGS.tabStats.showSparkline,
-    )
+    expect(state.tabStats.showSparkline).toBe(DEFAULT_ACTIVITY_SETTINGS.tabStats.showSparkline)
   })
 
   it('updateTabStatsSettings deep-merges visibleMetrics without wiping other flags', () => {
@@ -68,12 +66,8 @@ describe('useActivityStore', () => {
     expect(metrics.openNow).toBe(DEFAULT_ACTIVITY_SETTINGS.tabStats.visibleMetrics.openNow)
     expect(metrics.created).toBe(DEFAULT_ACTIVITY_SETTINGS.tabStats.visibleMetrics.created)
     expect(metrics.closed).toBe(DEFAULT_ACTIVITY_SETTINGS.tabStats.visibleMetrics.closed)
-    expect(metrics.avgLifetime).toBe(
-      DEFAULT_ACTIVITY_SETTINGS.tabStats.visibleMetrics.avgLifetime,
-    )
-    expect(metrics.activePct).toBe(
-      DEFAULT_ACTIVITY_SETTINGS.tabStats.visibleMetrics.activePct,
-    )
+    expect(metrics.avgLifetime).toBe(DEFAULT_ACTIVITY_SETTINGS.tabStats.visibleMetrics.avgLifetime)
+    expect(metrics.activePct).toBe(DEFAULT_ACTIVITY_SETTINGS.tabStats.visibleMetrics.activePct)
   })
 
   it('updateTabStatsSettings merges top-level fields alongside visibleMetrics', () => {
@@ -94,8 +88,6 @@ describe('useActivityStore', () => {
     useActivityStore.getState().updateScreenTimeSettings({ chartType: 'area' })
     useActivityStore.getState().resetActivityDefaults()
     expect(useActivityStore.getState().paused).toBe(false)
-    expect(useActivityStore.getState().screenTime).toEqual(
-      DEFAULT_ACTIVITY_SETTINGS.screenTime,
-    )
+    expect(useActivityStore.getState().screenTime).toEqual(DEFAULT_ACTIVITY_SETTINGS.screenTime)
   })
 })

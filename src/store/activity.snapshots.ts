@@ -1,10 +1,7 @@
 import { create } from 'zustand/react'
 import type { z } from 'zod'
 
-import {
-  ACTIVITY_KEYS,
-  type ActivityStorageKey,
-} from '@/background/activity/constants.ts'
+import { ACTIVITY_KEYS, type ActivityStorageKey } from '@/background/activity/constants.ts'
 import type {
   ActivityAllSnapshot,
   ActivityDaySnapshot,
@@ -37,10 +34,7 @@ interface SnapshotStore<T> {
   snapshot: T | null
 }
 
-function makeReadOnlySnapshotStore<T>(
-  key: ActivityStorageKey,
-  schema: z.ZodType<Envelope<T>>,
-) {
+function makeReadOnlySnapshotStore<T>(key: ActivityStorageKey, schema: z.ZodType<Envelope<T>>) {
   const store = create<Synced<SnapshotStore<T>>>()(
     withChromeSync<SnapshotStore<T>, T>({
       key,

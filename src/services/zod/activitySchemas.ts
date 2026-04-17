@@ -1,8 +1,6 @@
 import { z } from 'zod'
 
-import {
-  ACTIVITY_LIMITS,
-} from '@/background/activity/constants.ts'
+import { ACTIVITY_LIMITS } from '@/background/activity/constants.ts'
 import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
 
 /**

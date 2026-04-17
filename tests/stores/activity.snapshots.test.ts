@@ -72,7 +72,11 @@ describe('useActivityAllStore', () => {
   it('accepts an all-snapshot with up to 90 daily buckets', () => {
     const snap: ActivityAllSnapshot = {
       buckets: [
-        { key: '2026-04-14', domains: {}, tabs: { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0 } },
+        {
+          key: '2026-04-14',
+          domains: {},
+          tabs: { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0 },
+        },
       ],
     }
     useActivityAllStore.setState({ snapshot: snap })
