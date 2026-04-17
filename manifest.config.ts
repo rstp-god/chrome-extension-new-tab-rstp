@@ -25,6 +25,7 @@ export default defineManifest({
     'tabGroups',
     'alarms',
     'notifications',
+    'idle',
   ],
   background: {
     service_worker: 'src/background/index.ts',

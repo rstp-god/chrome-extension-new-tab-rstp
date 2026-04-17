@@ -2,7 +2,13 @@ import type { TabRulesSettings } from '@/popup/types/rules.ts'
 
 import { DEFAULT_TAB_RULES_SETTINGS, TAB_RULES_KEY } from '@/popup/types/rules.ts'
 import { tabRulesSettingsSchema } from '@/popup/services/schema.ts'
-import { restoreFromStorage, setupActivityTracking } from '@/background/cleanup/activityTracker.ts'
+import { setupActivityAlarms } from '@/background/activity/alarms.ts'
+import { getActivitySettings, initActivitySettings } from '@/background/activity/settings.ts'
+import { setupActivityTracking as setupDomainActivityTracking } from '@/background/activity/tracker.ts'
+import {
+  restoreFromStorage,
+  setupActivityTracking,
+} from '@/background/cleanup/activityTracker.ts'
 import { setupNotificationHandlers } from '@/background/cleanup/notifications.ts'
 import { setupCleanupScheduler } from '@/background/cleanup/scheduler.ts'
 import { setupEventListeners } from '@/background/eventListeners.ts'
@@ -25,11 +31,11 @@ function loadSettingsFromStorage(raw: unknown): TabRulesSettings | null {
   return result.success ? result.data : null
 }
 
-chrome.storage.local.get(TAB_RULES_KEY, (items) => {
+async function bootstrap(): Promise<void> {
+  // Tab Rules settings — must load before listeners use them.
+  const items = await chrome.storage.local.get(TAB_RULES_KEY)
   const loaded = loadSettingsFromStorage(items[TAB_RULES_KEY])
-  if (loaded) {
-    currentSettings = loaded
-  }
+  if (loaded) currentSettings = loaded
 
   setupMessageHandler(getSettings)
   setupEventListeners(getSettings)
@@ -37,6 +43,15 @@ chrome.storage.local.get(TAB_RULES_KEY, (items) => {
   setupCleanupScheduler(getSettings)
   setupNotificationHandlers()
   restoreFromStorage()
+
+  // Activity settings — same pattern, but bundled with its own init function.
+  await initActivitySettings()
+  setupDomainActivityTracking(getActivitySettings)
+  setupActivityAlarms(getActivitySettings)
+}
+
+bootstrap().catch((err: unknown) => {
+  console.error('[background] bootstrap failed', err)
 })
 
 chrome.storage.onChanged.addListener((changes, area) => {
