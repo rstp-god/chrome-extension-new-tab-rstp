@@ -52,17 +52,14 @@ export function ChartPalettePicker({ value, onChange, labels, testIdPrefix }: Pr
 
   const normalizedBase = baseHex.toLowerCase()
   const selectedPresetValue =
-    [...CHART_PALETTE_PRESETS.values()].find(
-      (preset) => preset.toLowerCase() === normalizedBase,
-    ) ?? ''
+    [...CHART_PALETTE_PRESETS.values()].find((preset) => preset.toLowerCase() === normalizedBase) ??
+    ''
 
   const swatchColor = HEX_RE.test(hex) ? hex : baseHex
 
   return (
     <div className="flex flex-col gap-3" data-testid={testIdPrefix}>
-      {labels?.description && (
-        <p className="text-xs text-muted-foreground">{labels.description}</p>
-      )}
+      {labels?.description && <p className="text-xs text-muted-foreground">{labels.description}</p>}
 
       <ToggleGroup
         type="single"
@@ -76,12 +73,7 @@ export function ChartPalettePicker({ value, onChange, labels, testIdPrefix }: Pr
         {[...CHART_PALETTE_PRESETS.entries()].map(([key, hexValue]) => {
           const label = labels?.presets?.[key] ?? key
           return (
-            <ToggleGroupItem
-              key={key}
-              value={hexValue}
-              aria-label={label}
-              className="gap-2"
-            >
+            <ToggleGroupItem key={key} value={hexValue} aria-label={label} className="gap-2">
               <span
                 className="inline-block size-3 rounded-full border border-border"
                 style={{ backgroundColor: hexValue }}

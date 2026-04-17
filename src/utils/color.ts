@@ -168,10 +168,7 @@ function round(n: number): string {
 }
 
 /** Chart palette: base hue fixed, lightness varied per entry. Invalid input → grey ramp. */
-export function generateChartPalette(
-  baseHex: string,
-  lightnesses: readonly number[],
-): string[] {
+export function generateChartPalette(baseHex: string, lightnesses: readonly number[]): string[] {
   const { c, h } = parseOklch(hexToOklch(baseHex)) ?? { c: 0, h: 0 }
   return lightnesses.map((l) => formatOklch({ l, c, h }))
 }
