@@ -1,8 +1,5 @@
 import { flushPendingWrites, type SettingsGetter } from '@/background/activity/tracker/dispatch.ts'
-import {
-  emitHeartbeat,
-  endActiveSession,
-} from '@/background/activity/tracker/session.ts'
+import { emitHeartbeat, endActiveSession } from '@/background/activity/tracker/session.ts'
 
 /**
  * Worker / window lifecycle hooks for bounded-loss shutdown.

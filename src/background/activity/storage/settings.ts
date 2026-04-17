@@ -1,10 +1,6 @@
 import { ACTIVITY_KEYS } from '@/background/activity/constants.ts'
 import { DEFAULT_ACTIVITY_SETTINGS } from '@/background/activity/defaults.ts'
-import {
-  readValidated,
-  withLock,
-  writeEnvelope,
-} from '@/background/activity/storage/internal.ts'
+import { readValidated, withLock, writeEnvelope } from '@/background/activity/storage/internal.ts'
 import type { ActivitySettings } from '@/background/activity/types.ts'
 import { activitySettingsEnvelope } from '@/services/zod/activitySchemas.ts'
 
@@ -18,7 +14,5 @@ export async function loadSettings(): Promise<ActivitySettings> {
 }
 
 export async function saveSettings(settings: ActivitySettings): Promise<void> {
-  await withLock(ACTIVITY_KEYS.settings, () =>
-    writeEnvelope(ACTIVITY_KEYS.settings, settings),
-  )
+  await withLock(ACTIVITY_KEYS.settings, () => writeEnvelope(ACTIVITY_KEYS.settings, settings))
 }

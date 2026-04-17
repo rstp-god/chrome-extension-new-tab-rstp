@@ -1,10 +1,7 @@
 import { MAX_SESSION_DURATION_MS } from '@/background/activity/constants.ts'
 import { extractDomain } from '@/background/activity/tracker/domain.ts'
 import { dispatchEvent, type SettingsGetter } from '@/background/activity/tracker/dispatch.ts'
-import {
-  endActiveSession,
-  startSession,
-} from '@/background/activity/tracker/session.ts'
+import { endActiveSession, startSession } from '@/background/activity/tracker/session.ts'
 import { state } from '@/background/activity/tracker/state.ts'
 
 /**
@@ -47,20 +44,14 @@ export function handleTabActivated(
   })
 }
 
-export function handleTabCreated(
-  tab: chrome.tabs.Tab,
-  settingsGetter: SettingsGetter,
-): void {
+export function handleTabCreated(tab: chrome.tabs.Tab, settingsGetter: SettingsGetter): void {
   if (tab.id === undefined) return
   const now = Date.now()
   state.tabCreatedAt.set(tab.id, now)
   const domain = extractDomain(tab.url)
   if (!domain) return
   state.tabDomain.set(tab.id, domain)
-  dispatchEvent(
-    { timestamp: now, domain, tabId: tab.id, eventType: 'tab_created' },
-    settingsGetter,
-  )
+  dispatchEvent({ timestamp: now, domain, tabId: tab.id, eventType: 'tab_created' }, settingsGetter)
 }
 
 export function handleTabRemoved(tabId: number, settingsGetter: SettingsGetter): void {
@@ -85,10 +76,7 @@ export function handleTabRemoved(tabId: number, settingsGetter: SettingsGetter):
     )
   } else {
     // Tab predates worker boot — record close but leave avgLifetime untouched.
-    dispatchEvent(
-      { timestamp: now, domain, tabId, eventType: 'tab_closed' },
-      settingsGetter,
-    )
+    dispatchEvent({ timestamp: now, domain, tabId, eventType: 'tab_closed' }, settingsGetter)
   }
 }
 
@@ -120,10 +108,7 @@ export function handleTabUpdated(
   }
 }
 
-export function handleWindowFocusChanged(
-  windowId: number,
-  settingsGetter: SettingsGetter,
-): void {
+export function handleWindowFocusChanged(windowId: number, settingsGetter: SettingsGetter): void {
   const now = Date.now()
   const seq = ++state.activationSeq
   if (windowId === chrome.windows.WINDOW_ID_NONE) {

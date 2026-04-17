@@ -5,10 +5,7 @@ import { tabRulesSettingsSchema } from '@/popup/services/schema.ts'
 import { setupActivityAlarms } from '@/background/activity/alarms.ts'
 import { getActivitySettings, initActivitySettings } from '@/background/activity/settings.ts'
 import { setupActivityTracking as setupDomainActivityTracking } from '@/background/activity/tracker.ts'
-import {
-  restoreFromStorage,
-  setupActivityTracking,
-} from '@/background/cleanup/activityTracker.ts'
+import { restoreFromStorage, setupActivityTracking } from '@/background/cleanup/activityTracker.ts'
 import { setupNotificationHandlers } from '@/background/cleanup/notifications.ts'
 import { setupCleanupScheduler } from '@/background/cleanup/scheduler.ts'
 import { setupEventListeners } from '@/background/eventListeners.ts'

@@ -4,10 +4,7 @@ import {
 } from '@/background/activity/constants.ts'
 import { extractDomain } from '@/background/activity/tracker/domain.ts'
 import { type SettingsGetter } from '@/background/activity/tracker/dispatch.ts'
-import {
-  endActiveSession,
-  startSession,
-} from '@/background/activity/tracker/session.ts'
+import { endActiveSession, startSession } from '@/background/activity/tracker/session.ts'
 import { state } from '@/background/activity/tracker/state.ts'
 
 /**

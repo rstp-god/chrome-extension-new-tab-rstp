@@ -26,9 +26,11 @@ export const activityEventSchema = z.object({
 })
 
 /** Rejects prototype-pollution keys when used as object-record keys. */
-const safeRecordKey = z.string().refine((k) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', {
-  message: 'reserved key',
-})
+const safeRecordKey = z
+  .string()
+  .refine((k) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', {
+    message: 'reserved key',
+  })
 
 const domainUsageSchema = z.object({
   totalTime: z.number().nonnegative(),

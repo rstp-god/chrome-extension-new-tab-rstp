@@ -36,13 +36,13 @@ All writes go through `storage.ts`. Each key is a Zod-validated envelope:
 
 The same format `withChromeSync` uses on the UI side, so worker-written records round-trip cleanly.
 
-| Key                 | Purpose                                | Cadence                                       |
-| ------------------- | -------------------------------------- | --------------------------------------------- |
-| `activity_raw`      | Source-of-truth event log              | Debounced (10s) append; 24h retention         |
-| `activity_day`      | Today's snapshot, hourly buckets       | Debounced (5s) after each event               |
-| `activity_week`     | Last 7 days, daily buckets             | On day rollover                               |
-| `activity_all`      | Up to 90 days, daily buckets           | On day rollover; capped by daily alarm        |
-| `activity_settings` | Pause, palette, widget prefs (UI-owned) | Written by UI; worker watches for changes    |
+| Key                 | Purpose                                 | Cadence                                   |
+| ------------------- | --------------------------------------- | ----------------------------------------- |
+| `activity_raw`      | Source-of-truth event log               | Debounced (10s) append; 24h retention     |
+| `activity_day`      | Today's snapshot, hourly buckets        | Debounced (5s) after each event           |
+| `activity_week`     | Last 7 days, daily buckets              | On day rollover                           |
+| `activity_all`      | Up to 90 days, daily buckets            | On day rollover; capped by daily alarm    |
+| `activity_settings` | Pause, palette, widget prefs (UI-owned) | Written by UI; worker watches for changes |
 
 ## Event flow
 
@@ -91,6 +91,7 @@ The heartbeat alarm is the main defense against "browser closed during a long fo
 ## Permissions
 
 This module uses:
+
 - `tabs` — track tab lifecycle events (already required by Tab Rules Engine).
 - `storage` — persist snapshots and settings (already required).
 - `alarms` — scheduled heartbeat / rollup / cleanup (already required).

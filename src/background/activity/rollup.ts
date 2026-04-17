@@ -124,8 +124,7 @@ export function applyEventToDay(
 
   // Skip no-op events (pure state markers with no duration and no counter change)
   // to avoid allocating empty buckets.
-  const isMarkerOnly =
-    DURATIONAL_EVENT_TYPES.includes(event.eventType) && durationSec === 0
+  const isMarkerOnly = DURATIONAL_EVENT_TYPES.includes(event.eventType) && durationSec === 0
   if (isMarkerOnly) {
     return day
   }
@@ -274,7 +273,10 @@ export function ensureRolloverForEvent(
  * Used when in-memory state is lost (worker crash) and we can't trust
  * `activity_day` to be consistent with `activity_raw`.
  */
-export function rebuildFromRaw(events: ActivityEvent[], now: number): {
+export function rebuildFromRaw(
+  events: ActivityEvent[],
+  now: number,
+): {
   day: ActivityDaySnapshot
   week: ActivityWeekSnapshot
   all: ActivityAllSnapshot

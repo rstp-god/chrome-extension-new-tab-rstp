@@ -1,7 +1,4 @@
-import {
-  DEFAULT_CHART_BASE_HEX,
-  DEFAULT_CHART_SHADES,
-} from '@/data/chartPalette.ts'
+import { DEFAULT_CHART_BASE_HEX, DEFAULT_CHART_SHADES } from '@/data/chartPalette.ts'
 import type {
   ActivitySettings,
   ChartPalette,

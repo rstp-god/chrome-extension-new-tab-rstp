@@ -24,10 +24,7 @@ export function nextRev(key: ActivityStorageKey): number {
  */
 const writeLocks: Record<string, Promise<unknown>> = {}
 
-export function withLock<T>(
-  key: ActivityStorageKey,
-  fn: () => Promise<T>,
-): Promise<T> {
+export function withLock<T>(key: ActivityStorageKey, fn: () => Promise<T>): Promise<T> {
   const prev = writeLocks[key] ?? Promise.resolve()
   const next = prev.then(fn, fn)
   // The chained promise is a "queue pointer" — we don't care about its value,
@@ -65,10 +62,7 @@ export async function readValidated<T>(
   }
 }
 
-export async function writeEnvelope<T>(
-  key: ActivityStorageKey,
-  state: T,
-): Promise<void> {
+export async function writeEnvelope<T>(key: ActivityStorageKey, state: T): Promise<void> {
   const env: Envelope<T> = {
     meta: { originId: ORIGIN_ID, rev: nextRev(key), ts: Date.now() },
     state,

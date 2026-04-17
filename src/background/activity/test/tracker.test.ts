@@ -81,9 +81,7 @@ interface MockChrome {
       addListener: (fn: Listener<[number, chrome.tabs.OnRemovedInfo]>) => void
     }
     onUpdated: {
-      addListener: (
-        fn: Listener<[number, chrome.tabs.OnUpdatedInfo, chrome.tabs.Tab]>,
-      ) => void
+      addListener: (fn: Listener<[number, chrome.tabs.OnUpdatedInfo, chrome.tabs.Tab]>) => void
     }
     get: (tabId: number) => Promise<chrome.tabs.Tab>
     query: (info: Partial<chrome.tabs.QueryInfo>) => Promise<chrome.tabs.Tab[]>
@@ -116,9 +114,7 @@ interface Listeners {
   onActivated?: Listener<[chrome.tabs.OnActivatedInfo]>
   onCreated?: Listener<[chrome.tabs.Tab]>
   onRemoved?: Listener<[number, chrome.tabs.OnRemovedInfo]>
-  onUpdated?: Listener<
-    [number, chrome.tabs.OnUpdatedInfo, chrome.tabs.Tab]
-  >
+  onUpdated?: Listener<[number, chrome.tabs.OnUpdatedInfo, chrome.tabs.Tab]>
   onFocusChanged?: Listener<[number]>
   onWindowRemoved?: Listener<[number]>
   onIdleStateChanged?: Listener<['active' | 'idle' | 'locked']>
@@ -270,9 +266,7 @@ describe('tracker state machine', () => {
     const { activeSession, pendingRaw } = __peekStateForTests()
     expect(activeSession?.domain).toBe('b.com')
     // Expect one durational event for the ended a.com session.
-    expect(pendingRaw.some((e) => e.domain === 'a.com' && e.duration === 60_000)).toBe(
-      true,
-    )
+    expect(pendingRaw.some((e) => e.domain === 'a.com' && e.duration === 60_000)).toBe(true)
   })
 
   it('paused=true blocks new sessions and event dispatch', async () => {

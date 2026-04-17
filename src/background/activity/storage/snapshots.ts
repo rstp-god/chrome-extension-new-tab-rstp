@@ -1,9 +1,5 @@
 import { ACTIVITY_KEYS } from '@/background/activity/constants.ts'
-import {
-  readValidated,
-  withLock,
-  writeEnvelope,
-} from '@/background/activity/storage/internal.ts'
+import { readValidated, withLock, writeEnvelope } from '@/background/activity/storage/internal.ts'
 import type {
   ActivityAllSnapshot,
   ActivityDaySnapshot,
