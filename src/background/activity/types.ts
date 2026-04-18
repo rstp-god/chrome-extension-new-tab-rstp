@@ -86,7 +86,11 @@ export interface ChartPalette {
   shades: readonly string[]
 }
 
-export type ScreenTimeChartType = 'bar' | 'area' | 'donut'
+export const SCREEN_TIME_CHART_TYPES = ['bar', 'area', 'donut'] as const
+export type ScreenTimeChartType = (typeof SCREEN_TIME_CHART_TYPES)[number]
+
+export const SCREEN_TIME_PERIODS = ['day', 'week', 'all'] as const
+export type ScreenTimePeriod = (typeof SCREEN_TIME_PERIODS)[number]
 export type TabStatsFormat = 'cards' | 'list' | 'radial'
 export type TabStatsMetricKey =
   | 'openNow'
@@ -98,6 +102,8 @@ export type TabStatsMetricKey =
 
 export interface ScreenTimeSettings {
   chartType: ScreenTimeChartType
+  /** User's last-selected period — persisted across sessions. */
+  period: ScreenTimePeriod
   showTopDomains: boolean
   showYAxis: boolean
   showGrid: boolean

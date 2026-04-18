@@ -1,0 +1,47 @@
+{
+  "title": "Screen Time",
+  "description": "Time spent per domain, stacked by hour, day or month.",
+  "totalHoursMinutes": "{{hours}}h {{minutes}}m",
+  "totalMinutes": "{{minutes}}m",
+  "totalBelowMinute": "<1m",
+  "other": "Other",
+  "openSettings": "Open Screen Time settings",
+  "period": {
+    "day": "Day",
+    "week": "Week",
+    "all": "Month"
+  },
+  "empty": {
+    "title": "No activity yet",
+    "subtitle": "Start browsing to see where your time goes."
+  },
+  "settings": {
+    "title": "Screen Time settings",
+    "description": "Choose how the widget renders your activity data.",
+    "chartType": "Chart type",
+    "chartTypes": {
+      "bar": "Bars",
+      "area": "Area",
+      "donut": "Donut"
+    },
+    "chartPalette": "Chart colors",
+    "chartPaletteDescription": "Pick a base color — shades are generated automatically.",
+    "chartPalettePreview": "Generated palette preview",
+    "hex": "HEX",
+    "pickColor": "Pick chart color",
+    "presets": {
+      "default": "Blue",
+      "ocean": "Ocean",
+      "forest": "Forest",
+      "sunset": "Sunset",
+      "lavender": "Lavender",
+      "mono": "Mono"
+    },
+    "display": "Display",
+    "showTopDomains": "Domains list",
+    "showYAxis": "Y axis",
+    "showGrid": "Grid",
+    "showTooltips": "Tooltips",
+    "maxDomains": "Top domains"
+  }
+}

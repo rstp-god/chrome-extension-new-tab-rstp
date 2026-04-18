@@ -1,4 +1,4 @@
-import { isSafeDomainKey } from '@/background/activity/rollup.ts'
+import { isValidDomainKey } from '@/background/activity/rollup.ts'
 
 /**
  * Privacy-critical URL filter.
@@ -20,7 +20,7 @@ export function extractDomain(url: string | undefined): string | null {
     if (hostname.endsWith('.')) hostname = hostname.slice(0, -1)
     if (!hostname) return null
     // Prototype-pollution-unsafe keys should never reach aggregation.
-    if (!isSafeDomainKey(hostname)) return null
+    if (!isValidDomainKey(hostname)) return null
     return hostname
   } catch {
     return null

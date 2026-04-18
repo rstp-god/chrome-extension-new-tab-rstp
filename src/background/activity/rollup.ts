@@ -33,14 +33,20 @@ const DURATIONAL_EVENT_TYPES: readonly ActivityEventType[] = [
 
 /**
  * Keys that must never appear as object-property keys because assigning them
- * walks up the prototype chain (Object.prototype pollution). Defense in depth:
- * even though `URL.hostname` cannot produce these and Zod schemas reject them,
- * we still refuse them at the mutation site.
+ * walks up the prototype chain (Object.prototype pollution).
  */
 const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 
-export function isSafeDomainKey(key: string): boolean {
-  return !DANGEROUS_KEYS.has(key)
+/** WHATWG-URL hostnames after `extractDomain` normalisation: ASCII + dots + hyphens. */
+const HOSTNAME_RE = /^[a-z0-9.-]{1,253}$/
+
+/**
+ * Combined validator used both at the mutation site (addDomainUsage) and in
+ * the Zod record-key schema. Rejects prototype-pollution keys AND anything
+ * that isn't a plausible hostname — the two guards the codebase cares about.
+ */
+export function isValidDomainKey(key: string): boolean {
+  return !DANGEROUS_KEYS.has(key) && HOSTNAME_RE.test(key)
 }
 
 /** Two-digit hour key `"00".."23"` — stable collation, no ambiguity. */
@@ -85,7 +91,7 @@ function addDomainUsage(
   addTime: number,
   addVisits: number,
 ): void {
-  if (!isSafeDomainKey(domain)) return
+  if (!isValidDomainKey(domain)) return
   const prev = Object.prototype.hasOwnProperty.call(target, domain) ? target[domain] : undefined
   if (prev) {
     prev.totalTime += addTime

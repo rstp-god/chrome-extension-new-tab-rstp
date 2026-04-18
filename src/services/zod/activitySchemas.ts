@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { ACTIVITY_LIMITS } from '@/background/activity/constants.ts'
+import { isValidDomainKey } from '@/background/activity/rollup.ts'
 import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
 
 /**
@@ -39,12 +40,8 @@ export const activityEventSchema = z.object({
   duration: z.number().int().nonnegative().optional(),
 })
 
-/** Rejects prototype-pollution keys when used as object-record keys. */
-const safeRecordKey = z
-  .string()
-  .refine((k) => k !== '__proto__' && k !== 'constructor' && k !== 'prototype', {
-    message: 'reserved key',
-  })
+/** Domain keys are validated by the single shared `isValidDomainKey` helper. */
+const safeRecordKey = z.string().refine(isValidDomainKey, { message: 'invalid domain key' })
 
 const domainUsageSchema = z.object({
   totalTime: z.number().nonnegative(),
@@ -103,6 +100,7 @@ export const chartPaletteSchema = z.object({
 
 const screenTimeSettingsSchema = z.object({
   chartType: z.enum(['bar', 'area', 'donut']),
+  period: z.enum(['day', 'week', 'all']),
   showTopDomains: z.boolean(),
   showYAxis: z.boolean(),
   showGrid: z.boolean(),

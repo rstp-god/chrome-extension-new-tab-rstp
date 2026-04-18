@@ -1,0 +1,47 @@
+{
+  "title": "Screen Time",
+  "description": "Время по доменам, по часам / дням / месяцу.",
+  "totalHoursMinutes": "{{hours}}ч {{minutes}}мин",
+  "totalMinutes": "{{minutes}}мин",
+  "totalBelowMinute": "<1мин",
+  "other": "Другие",
+  "openSettings": "Настройки Screen Time",
+  "period": {
+    "day": "День",
+    "week": "Неделя",
+    "all": "Месяц"
+  },
+  "empty": {
+    "title": "Пока нет данных",
+    "subtitle": "Начните серфить — статистика появится здесь."
+  },
+  "settings": {
+    "title": "Настройки Screen Time",
+    "description": "Как виджет отображает активность.",
+    "chartType": "Тип графика",
+    "chartTypes": {
+      "bar": "Столбцы",
+      "area": "Область",
+      "donut": "Кольцо"
+    },
+    "chartPalette": "Цвета графика",
+    "chartPaletteDescription": "Выберите базовый цвет — оттенки сгенерируются автоматически.",
+    "chartPalettePreview": "Сгенерированная палитра",
+    "hex": "HEX",
+    "pickColor": "Выбрать цвет",
+    "presets": {
+      "default": "Синий",
+      "ocean": "Океан",
+      "forest": "Лес",
+      "sunset": "Закат",
+      "lavender": "Лаванда",
+      "mono": "Моно"
+    },
+    "display": "Отображение",
+    "showTopDomains": "Список доменов",
+    "showYAxis": "Ось Y",
+    "showGrid": "Сетка",
+    "showTooltips": "Подсказки",
+    "maxDomains": "Топ доменов"
+  }
+}

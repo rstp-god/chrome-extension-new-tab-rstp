@@ -19,6 +19,7 @@ export const DEFAULT_CHART_PALETTE: ChartPalette = {
 
 export const DEFAULT_SCREEN_TIME_SETTINGS: ScreenTimeSettings = {
   chartType: 'bar',
+  period: 'day',
   showTopDomains: true,
   showYAxis: true,
   showGrid: false,
