@@ -15,12 +15,7 @@ interface Props {
   onOpenSettings: () => void
 }
 
-export function ScreenTimeHeader({
-  totalSeconds,
-  period,
-  onPeriodChange,
-  onOpenSettings,
-}: Props) {
+export function ScreenTimeHeader({ totalSeconds, period, onPeriodChange, onOpenSettings }: Props) {
   const { t } = useTranslation('screenTimeWidget')
   const { hours, minutes, subMinute } = toHoursMinutes(totalSeconds)
 
@@ -33,9 +28,7 @@ export function ScreenTimeHeader({
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="flex flex-col">
-        <span className="text-xs uppercase tracking-wide text-muted-foreground">
-          {t('title')}
-        </span>
+        <span className="text-xs uppercase tracking-wide text-muted-foreground">{t('title')}</span>
         <span className="mt-0.5 text-2xl font-semibold leading-tight">{total}</span>
       </div>
 

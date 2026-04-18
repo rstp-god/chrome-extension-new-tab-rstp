@@ -1,11 +1,7 @@
 import { Pie, PieChart } from 'recharts'
 
 import type { ChartConfig } from '@/components/ui/chart.tsx'
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from '@/components/ui/chart.tsx'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart.tsx'
 import type { DomainTotal } from '@/widgets/ScreenTime/types.ts'
 import { OTHER_KEY } from '@/widgets/ScreenTime/types.ts'
 import {
@@ -21,12 +17,7 @@ interface Props {
   showTooltips: boolean
 }
 
-export function ScreenTimeDonutChart({
-  topDomains,
-  otherSeconds,
-  config,
-  showTooltips,
-}: Props) {
+export function ScreenTimeDonutChart({ topDomains, otherSeconds, config, showTooltips }: Props) {
   const data = [
     ...topDomains.map((d) => ({
       name: d.slug,

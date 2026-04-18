@@ -1,11 +1,7 @@
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from 'recharts'
 
 import type { ChartConfig } from '@/components/ui/chart.tsx'
-import {
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from '@/components/ui/chart.tsx'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart.tsx'
 import type { DomainTotal, ScreenTimeChartRow } from '@/widgets/ScreenTime/types.ts'
 import { OTHER_KEY } from '@/widgets/ScreenTime/types.ts'
 import {

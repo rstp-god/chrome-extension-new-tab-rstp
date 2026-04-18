@@ -64,8 +64,7 @@ export function ScreenTimeWidget() {
   const data = useScreenTimeData(screenTime.period, screenTime.maxDomains)
   const hasOther = data.otherSeconds > 0
   const config = useMemo(
-    () =>
-      buildChartConfig(data.topDomains, screenTime.chartPalette.shades, t('other'), hasOther),
+    () => buildChartConfig(data.topDomains, screenTime.chartPalette.shades, t('other'), hasOther),
     [data.topDomains, screenTime.chartPalette.shades, t, hasOther],
   )
 

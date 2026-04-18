@@ -24,12 +24,7 @@ export function ScreenTimeDomainList({ domains, otherSeconds, shades }: Props) {
         />
       ))}
       {otherSeconds > 0 && (
-        <DomainRow
-          label={t('other')}
-          color={null}
-          seconds={otherSeconds}
-          dataKey={OTHER_KEY}
-        />
+        <DomainRow label={t('other')} color={null} seconds={otherSeconds} dataKey={OTHER_KEY} />
       )}
     </ul>
   )

@@ -6,11 +6,7 @@ import {
   useActivityDayStore,
   useActivityWeekStore,
 } from '@/store/activity.snapshots.ts'
-import type {
-  DomainTotal,
-  ScreenTimeChartRow,
-  ScreenTimeData,
-} from '@/widgets/ScreenTime/types.ts'
+import type { DomainTotal, ScreenTimeChartRow, ScreenTimeData } from '@/widgets/ScreenTime/types.ts'
 import { OTHER_KEY } from '@/widgets/ScreenTime/types.ts'
 import { slugifyDomain } from '@/widgets/ScreenTime/utils/domainSlug.ts'
 import { pickSnapshot } from '@/widgets/ScreenTime/utils/snapshot.ts'
@@ -21,10 +17,7 @@ import { pickSnapshot } from '@/widgets/ScreenTime/utils/snapshot.ts'
  * emits recharts-ready rows with every top-domain column pre-filled to 0
  * (clean zero-baseline on sparse buckets).
  */
-export function useScreenTimeData(
-  period: ScreenTimePeriod,
-  maxDomains: number,
-): ScreenTimeData {
+export function useScreenTimeData(period: ScreenTimePeriod, maxDomains: number): ScreenTimeData {
   const day = useActivityDayStore((s) => s.snapshot)
   const week = useActivityWeekStore((s) => s.snapshot)
   const all = useActivityAllStore((s) => s.snapshot)

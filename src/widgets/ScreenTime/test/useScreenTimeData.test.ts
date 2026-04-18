@@ -89,16 +89,8 @@ describe('useScreenTimeData', () => {
   it('sorts top domains by totalTime desc and assigns colorIndex + slug', () => {
     act(() => useActivityDayStore.setState({ snapshot: DAY_SNAPSHOT }))
     const { result } = renderHook(() => useScreenTimeData('day', 5))
-    expect(result.current.topDomains.map((d) => d.domain)).toEqual([
-      'a.com',
-      'b.com',
-      'c.com',
-    ])
-    expect(result.current.topDomains.map((d) => d.slug)).toEqual([
-      'd_a_com',
-      'd_b_com',
-      'd_c_com',
-    ])
+    expect(result.current.topDomains.map((d) => d.domain)).toEqual(['a.com', 'b.com', 'c.com'])
+    expect(result.current.topDomains.map((d) => d.slug)).toEqual(['d_a_com', 'd_b_com', 'd_c_com'])
     expect(result.current.topDomains.map((d) => d.colorIndex)).toEqual([0, 1, 2])
     expect(result.current.totalSeconds).toBe(1710)
     expect(result.current.isEmpty).toBe(false)

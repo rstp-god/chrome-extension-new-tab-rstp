@@ -86,9 +86,7 @@ export function ScreenTimeSettingsDialog({ open, onOpenChange }: Props) {
           <Separator />
 
           <section className="flex flex-col gap-2">
-            <Label className="text-xs text-muted-foreground">
-              {t('settings.chartPalette')}
-            </Label>
+            <Label className="text-xs text-muted-foreground">{t('settings.chartPalette')}</Label>
             <ChartPalettePicker
               value={screenTime.chartPalette}
               onChange={(next) => update({ chartPalette: next })}
@@ -115,9 +113,7 @@ export function ScreenTimeSettingsDialog({ open, onOpenChange }: Props) {
 
           <section className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs text-muted-foreground">
-                {t('settings.maxDomains')}
-              </Label>
+              <Label className="text-xs text-muted-foreground">{t('settings.maxDomains')}</Label>
               <span className="font-mono text-xs">{screenTime.maxDomains}</span>
             </div>
             <Slider
