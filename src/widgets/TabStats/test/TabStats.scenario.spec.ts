@@ -75,10 +75,7 @@ async function resetWidgetState(page: Page, theme: 'light' | 'dark') {
   await setExtensionTheme(page, theme)
 }
 
-async function seedAndWait(
-  page: Page,
-  fixtures: Parameters<typeof seedActivityStorage>[1],
-) {
+async function seedAndWait(page: Page, fixtures: Parameters<typeof seedActivityStorage>[1]) {
   await seedActivityStorage(page, fixtures)
   await page.waitForTimeout(600)
 }

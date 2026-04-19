@@ -33,14 +33,10 @@ function buildStubChrome(registry: StubListenerRegistry, tabs: chrome.tabs.Tab[]
         },
       },
       onUpdated: {
-        addListener: (
-          fn: (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => void,
-        ) => {
+        addListener: (fn: (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => void) => {
           registry.onUpdated.push(fn)
         },
-        removeListener: (
-          fn: (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => void,
-        ) => {
+        removeListener: (fn: (tabId: number, changeInfo: chrome.tabs.OnUpdatedInfo) => void) => {
           const i = registry.onUpdated.indexOf(fn)
           if (i >= 0) registry.onUpdated.splice(i, 1)
         },

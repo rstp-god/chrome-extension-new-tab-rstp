@@ -45,10 +45,7 @@ async function resetWidgetState(page: Page, theme: 'light' | 'dark') {
   await setExtensionTheme(page, theme)
 }
 
-async function seedAndWait(
-  page: Page,
-  fixtures: Parameters<typeof seedActivityStorage>[1],
-) {
+async function seedAndWait(page: Page, fixtures: Parameters<typeof seedActivityStorage>[1]) {
   await seedActivityStorage(page, fixtures)
   // `withChromeSync` listens on `chrome.storage.onChanged`, so the seed
   // propagates into the snapshot stores without needing a reload — we just
