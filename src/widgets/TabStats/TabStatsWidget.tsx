@@ -26,13 +26,7 @@ function renderLayout(
     case 'list':
       return <TabStatsListLayout visibleKeys={visibleKeys} data={data} />
     case 'radial':
-      return (
-        <TabStatsRadialLayout
-          visibleKeys={visibleKeys}
-          data={data}
-          radialFill={radialFill}
-        />
-      )
+      return <TabStatsRadialLayout visibleKeys={visibleKeys} data={data} radialFill={radialFill} />
   }
 }
 

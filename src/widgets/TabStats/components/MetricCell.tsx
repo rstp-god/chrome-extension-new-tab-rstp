@@ -15,18 +15,14 @@ export function MetricCell({ label, value, secondary, variant = 'card' }: Props)
         <span className="text-xs text-muted-foreground">{label}</span>
         <span className="flex items-baseline gap-2">
           <span className="text-lg font-semibold leading-none">{value}</span>
-          {secondary && (
-            <span className="text-[10px] text-muted-foreground">{secondary}</span>
-          )}
+          {secondary && <span className="text-[10px] text-muted-foreground">{secondary}</span>}
         </span>
       </div>
     )
   }
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </span>
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
       <span className="text-2xl font-semibold leading-tight">{value}</span>
       {secondary && <span className="text-[10px] text-muted-foreground">{secondary}</span>}
     </div>

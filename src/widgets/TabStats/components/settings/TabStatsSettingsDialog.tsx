@@ -2,10 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 
 import type { TabStatsFormat } from '@/background/activity/types.ts'
-import {
-  TAB_STATS_FORMATS,
-  TAB_STATS_METRIC_KEYS,
-} from '@/background/activity/types.ts'
+import { TAB_STATS_FORMATS, TAB_STATS_METRIC_KEYS } from '@/background/activity/types.ts'
 import { ChartPalettePicker } from '@/components/compiled/ChartPalettePicker.tsx'
 import {
   Dialog,
@@ -99,9 +96,7 @@ export function TabStatsSettingsDialog({ open, onOpenChange }: Props) {
           <Separator />
 
           <section className="flex flex-col gap-2">
-            <Label className="text-xs text-muted-foreground">
-              {t('settings.chartPalette')}
-            </Label>
+            <Label className="text-xs text-muted-foreground">{t('settings.chartPalette')}</Label>
             <ChartPalettePicker
               value={tabStats.chartPalette}
               onChange={(next) => update({ chartPalette: next })}

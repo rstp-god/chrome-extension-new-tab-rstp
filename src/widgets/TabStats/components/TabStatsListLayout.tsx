@@ -21,12 +21,7 @@ export function TabStatsListLayout({ visibleKeys, data }: Props) {
         return (
           <div key={key}>
             {i > 0 && <Separator className="my-1" />}
-            <MetricCell
-              label={m.label}
-              value={m.value}
-              secondary={m.secondary}
-              variant="row"
-            />
+            <MetricCell label={m.label} value={m.value} secondary={m.secondary} variant="row" />
           </div>
         )
       })}

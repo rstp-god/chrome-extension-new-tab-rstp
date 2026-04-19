@@ -1,9 +1,4 @@
-import {
-  PolarAngleAxis,
-  RadialBar,
-  RadialBarChart,
-  ResponsiveContainer,
-} from 'recharts'
+import { PolarAngleAxis, RadialBar, RadialBarChart, ResponsiveContainer } from 'recharts'
 import { useTranslation } from 'react-i18next'
 
 interface Props {

@@ -33,10 +33,7 @@ export function TabStatsWidgetPreview() {
         </div>
 
         {PREVIEW_TAB_STATS_DATA.sparkline && (
-          <TabStatsSparkline
-            points={PREVIEW_TAB_STATS_DATA.sparkline}
-            stroke={primary}
-          />
+          <TabStatsSparkline points={PREVIEW_TAB_STATS_DATA.sparkline} stroke={primary} />
         )}
       </div>
     </WidgetFrame>

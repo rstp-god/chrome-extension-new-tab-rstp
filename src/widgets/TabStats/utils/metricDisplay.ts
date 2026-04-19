@@ -75,9 +75,10 @@ export function getMetricDisplay(
         secondary: null,
       }
     case 'activePct': {
-      const pct = data.openNow === 0
-        ? 0
-        : Math.round(((data.openNow - data.discardedNow) / data.openNow) * 100)
+      const pct =
+        data.openNow === 0
+          ? 0
+          : Math.round(((data.openNow - data.discardedNow) / data.openNow) * 100)
       return {
         key,
         label: t('tabStatsWidget:metrics.activePct'),

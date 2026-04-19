@@ -39,10 +39,7 @@ export function useOpenTabs(): OpenTabsState {
     // onUpdated fires for every url/title/favicon/status change on every tab —
     // we only care about discard state flips (changes `activePct`). Filtering
     // prevents burning CPU on rapid tab-load flurries.
-    const onUpdated = (
-      _id: number,
-      changeInfo: chrome.tabs.OnUpdatedInfo,
-    ) => {
+    const onUpdated = (_id: number, changeInfo: chrome.tabs.OnUpdatedInfo) => {
       if (changeInfo.discarded !== undefined) void refresh()
     }
     tabsApi.onCreated.addListener(onCreatedOrRemoved)
