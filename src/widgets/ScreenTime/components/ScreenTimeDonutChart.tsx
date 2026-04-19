@@ -40,6 +40,7 @@ export function ScreenTimeDonutChart({ topDomains, otherSeconds, config, showToo
           innerRadius={DONUT_INNER_RADIUS}
           outerRadius={DONUT_OUTER_RADIUS}
           strokeWidth={DONUT_STROKE_WIDTH}
+          isAnimationActive={false}
         />
       </PieChart>
     </ChartContainer>

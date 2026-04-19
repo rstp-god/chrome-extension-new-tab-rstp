@@ -67,6 +67,7 @@ export function ScreenTimeBarChart({
             stackId="a"
             fill={`var(--color-${d.slug})`}
             radius={BAR_RADIUS_NONE}
+            isAnimationActive={false}
           />
         ))}
         {hasOther && (
@@ -75,6 +76,7 @@ export function ScreenTimeBarChart({
             stackId="a"
             fill={`var(--color-${OTHER_KEY})`}
             radius={BAR_RADIUS_TOP}
+            isAnimationActive={false}
           />
         )}
       </BarChart>

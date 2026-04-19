@@ -69,6 +69,7 @@ export function ScreenTimeAreaChart({
             fill={`var(--color-${d.slug})`}
             stroke={`var(--color-${d.slug})`}
             fillOpacity={AREA_FILL_OPACITY_DOMAIN}
+            isAnimationActive={false}
           />
         ))}
         {hasOther && (
@@ -79,6 +80,7 @@ export function ScreenTimeAreaChart({
             fill={`var(--color-${OTHER_KEY})`}
             stroke={`var(--color-${OTHER_KEY})`}
             fillOpacity={AREA_FILL_OPACITY_OTHER}
+            isAnimationActive={false}
           />
         )}
       </AreaChart>
