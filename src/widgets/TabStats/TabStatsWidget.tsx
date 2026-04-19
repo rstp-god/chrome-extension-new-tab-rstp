@@ -49,7 +49,7 @@ export function TabStatsWidget() {
   const primaryColor = tabStats.chartPalette.shades[0] ?? DEFAULT_CHART_SHADES[0]
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden">
       <TabStatsHeader onOpenSettings={() => setSettingsOpen(true)} />
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">

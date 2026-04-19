@@ -24,8 +24,16 @@ interface ActivityFixtures {
   settings?: Partial<ActivitySettings>
 }
 
+/**
+ * Monotonically increasing rev across calls. `withChromeSync` ignores
+ * envelopes whose `rev` is ≤ its running `lastRev`, so a scenario that
+ * re-seeds the same key twice (cards → list → radial) needs fresh revs or
+ * the second write is silently dropped.
+ */
+let nextRev = 1
+
 function envelope<T>(state: T): { meta: { originId: string; rev: number; ts: number }; state: T } {
-  return { meta: { originId: 'e2e-fixture', rev: 1, ts: 0 }, state }
+  return { meta: { originId: 'e2e-fixture', rev: nextRev++, ts: Date.now() }, state }
 }
 
 export async function seedActivityStorage(page: Page, fixtures: ActivityFixtures) {

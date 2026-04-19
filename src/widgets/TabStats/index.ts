@@ -8,7 +8,7 @@ export const meta = {
   titleI18nKey: 'tabStatsWidget:title',
   description: 'Open tabs, creation rate, and average lifetime.',
   descriptionI18nKey: 'tabStatsWidget:description',
-  defaultLayout: { w: 4, h: 6, minW: 3, minH: 4 },
+  defaultLayout: { w: 4, h: 8, minW: 3, minH: 6 },
 } satisfies WidgetMeta
 
 export const Component = TabStatsWidget
