@@ -9,6 +9,7 @@ import {
   emptyWeek,
   extractDomain,
   onPauseChanged,
+  primeActiveSessionIfNeeded,
   setupActivityTracking,
 } from '@/background/activity/tracker.ts'
 import {
@@ -500,5 +501,61 @@ describe('lifecycle hooks', () => {
     await Promise.resolve()
 
     expect(__peekStateForTests().activeSession?.domain).toBe('a.com')
+  })
+})
+
+describe('primeActiveSessionIfNeeded', () => {
+  it('starts a session from the focused tab when none is active', async () => {
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    tabUrls.set(7, 'https://github.com/foo')
+    // No prior activation — activeSession is null (simulates post-suspend wake).
+    expect(__peekStateForTests().activeSession).toBeNull()
+
+    await primeActiveSessionIfNeeded(makeSettings())
+
+    const { activeSession } = __peekStateForTests()
+    expect(activeSession?.domain).toBe('github.com')
+    expect(activeSession?.tabId).toBe(7)
+  })
+
+  it('does not overwrite an existing active session', async () => {
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    tabUrls.set(1, 'https://a.com/')
+    listeners.onActivated!({ tabId: 1, windowId: 1 })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Different tab becomes the focused one, but primer must NOT steal the
+    // ongoing session — heartbeat still attributes time to a.com.
+    tabUrls.set(2, 'https://b.com/')
+    await primeActiveSessionIfNeeded(makeSettings())
+
+    expect(__peekStateForTests().activeSession?.domain).toBe('a.com')
+  })
+
+  it('is a no-op when paused', async () => {
+    setupActivityTracking(makeSettings(true))
+    seedFreshSnapshots(BASE_TIME)
+
+    tabUrls.set(1, 'https://a.com/')
+    await primeActiveSessionIfNeeded(makeSettings(true))
+
+    expect(__peekStateForTests().activeSession).toBeNull()
+  })
+
+  it('is a no-op when the focused tab is a non-http page', async () => {
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    // No http(s) tab — stubbed query returns the first entry which is a
+    // chrome:// URL → extractDomain returns null → no session started.
+    tabUrls.set(9, 'chrome://settings/')
+    await primeActiveSessionIfNeeded(makeSettings())
+
+    expect(__peekStateForTests().activeSession).toBeNull()
   })
 })

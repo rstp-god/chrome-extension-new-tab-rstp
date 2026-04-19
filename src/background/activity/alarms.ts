@@ -23,7 +23,7 @@ import {
   saveDay,
   saveWeek,
 } from '@/background/activity/storage.ts'
-import { emitHeartbeat } from '@/background/activity/tracker.ts'
+import { emitHeartbeat, primeActiveSessionIfNeeded } from '@/background/activity/tracker.ts'
 
 /**
  * Scheduled safety-net jobs. See README.md for the full cadence table.
@@ -40,11 +40,16 @@ export function setupActivityAlarms(settingsGetter: () => ActivitySettings): voi
   chrome.alarms.onAlarm.addListener(async (alarm) => {
     switch (alarm.name) {
       case ACTIVITY_HEARTBEAT_ALARM:
+        // Worker may have suspended since the last heartbeat, wiping
+        // `state.activeSession`. Re-prime from the currently-focused tab so
+        // `emitHeartbeat` has a session to record against.
+        await primeActiveSessionIfNeeded(settingsGetter)
         emitHeartbeat(settingsGetter)
         break
       case ACTIVITY_ROLLUP_ALARM:
         // Still heartbeat here so a dropped heartbeat alarm doesn't block the
         // hourly commit. Day rollover + prune are the main job.
+        await primeActiveSessionIfNeeded(settingsGetter)
         emitHeartbeat(settingsGetter)
         await runRollupAlarm()
         break

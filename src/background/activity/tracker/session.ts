@@ -1,5 +1,6 @@
 import { MAX_SESSION_DURATION_MS } from '@/background/activity/constants.ts'
 import { dispatchEvent, type SettingsGetter } from '@/background/activity/tracker/dispatch.ts'
+import { extractDomain } from '@/background/activity/tracker/domain.ts'
 import { state } from '@/background/activity/tracker/state.ts'
 import type { ActivityEventType } from '@/background/activity/types.ts'
 
@@ -61,6 +62,34 @@ export function onPauseChanged(paused: boolean): void {
   if (paused) {
     state.activeSession = null
     state.activationSeq += 1
+  }
+}
+
+/**
+ * Recover `state.activeSession` from the currently-focused Chrome tab after
+ * worker suspension wiped in-memory state. Called on tracker setup and before
+ * every heartbeat alarm — if a user sits on one tab without switching, the
+ * worker sleeps, `activeSession` is lost, and without this re-prime the
+ * heartbeat would have nothing to record (30+ min on one tab → blank widget).
+ *
+ * Starts the session clock at `now`, so we accept a max ≤ heartbeat-period
+ * of lost time per wake cycle instead of losing everything.
+ */
+export async function primeActiveSessionIfNeeded(
+  settingsGetter: SettingsGetter,
+): Promise<void> {
+  if (state.activeSession) return
+  if (settingsGetter().paused) return
+  if (state.userIdle) return
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true })
+    const tab = tabs[0]
+    if (!tab || tab.id === undefined) return
+    const domain = extractDomain(tab.url)
+    if (!domain) return
+    startSession(tab.id, domain, Date.now(), settingsGetter)
+  } catch (err) {
+    console.warn('[activity] primeActiveSessionIfNeeded failed', err)
   }
 }
 
