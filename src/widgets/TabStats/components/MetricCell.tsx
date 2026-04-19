@@ -26,9 +26,7 @@ export function MetricCell({ label, value, secondary, variant = 'card' }: Props)
         {label}
       </span>
       <span className="truncate text-xl font-semibold leading-tight">{value}</span>
-      {secondary && (
-        <span className="truncate text-[10px] text-muted-foreground">{secondary}</span>
-      )}
+      {secondary && <span className="truncate text-[10px] text-muted-foreground">{secondary}</span>}
     </div>
   )
 }

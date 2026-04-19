@@ -34,10 +34,7 @@ function screenTimeFrame(page: Page) {
 const SNAPSHOT_OPTS = { maxDiffPixelRatio: 0.02 }
 
 async function snapshot(page: Page, fileName: string) {
-  await expect(screenTimeFrame(page)).toHaveScreenshot(
-    ['ScreenTime', fileName],
-    SNAPSHOT_OPTS,
-  )
+  await expect(screenTimeFrame(page)).toHaveScreenshot(['ScreenTime', fileName], SNAPSHOT_OPTS)
 }
 
 async function resetWidgetState(page: Page, theme: 'light' | 'dark') {
