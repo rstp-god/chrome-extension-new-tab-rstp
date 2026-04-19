@@ -69,7 +69,7 @@ export function ScreenTimeWidget() {
   )
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden">
       <ScreenTimeHeader
         totalSeconds={data.totalSeconds}
         period={screenTime.period}
@@ -77,7 +77,7 @@ export function ScreenTimeWidget() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
-      <div className="flex min-h-0 flex-1 items-stretch">
+      <div className="flex min-h-0 flex-1 items-stretch overflow-hidden">
         {data.isEmpty ? (
           <div className="h-full w-full">
             <ScreenTimeEmpty />
@@ -92,11 +92,13 @@ export function ScreenTimeWidget() {
       </div>
 
       {!data.isEmpty && screenTime.showTopDomains && (
-        <ScreenTimeDomainList
-          domains={data.topDomains}
-          otherSeconds={data.otherSeconds}
-          shades={screenTime.chartPalette.shades}
-        />
+        <div className="shrink-0 overflow-hidden">
+          <ScreenTimeDomainList
+            domains={data.topDomains}
+            otherSeconds={data.otherSeconds}
+            shades={screenTime.chartPalette.shades}
+          />
+        </div>
       )}
 
       <ScreenTimeSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />

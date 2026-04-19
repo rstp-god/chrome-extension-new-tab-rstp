@@ -59,8 +59,12 @@ function tabStatsFrame(page: Page) {
   return page.getByTestId(testIds.widgetFrame('tabStats'))
 }
 
+// Sparkline + radial SVG rendering jitter 0.5–1% between runs. Relax the
+// global 0.5% threshold to 2% just for these widget shots.
+const SNAPSHOT_OPTS = { maxDiffPixelRatio: 0.02 }
+
 async function snapshot(page: Page, fileName: string) {
-  await expect(tabStatsFrame(page)).toHaveScreenshot(['TabStats', fileName])
+  await expect(tabStatsFrame(page)).toHaveScreenshot(['TabStats', fileName], SNAPSHOT_OPTS)
 }
 
 async function resetWidgetState(page: Page, theme: 'light' | 'dark') {
@@ -122,10 +126,10 @@ async function captureScenarios(page: Page, suffix: '' | '-dark') {
   await test.step(`Settings dialog open${suffix}`, async () => {
     await page.getByTestId(TestId.TabStatsOpenSettings).click()
     await expect(page.getByTestId(TestId.TabStatsSettingsDialog)).toBeVisible()
-    await expect(page.getByTestId(TestId.TabStatsSettingsDialog)).toHaveScreenshot([
-      'TabStats',
-      `widget-tab-stats-settings${suffix}.png`,
-    ])
+    await expect(page.getByTestId(TestId.TabStatsSettingsDialog)).toHaveScreenshot(
+      ['TabStats', `widget-tab-stats-settings${suffix}.png`],
+      SNAPSHOT_OPTS,
+    )
     await page.keyboard.press('Escape')
     await expect(page.getByTestId(TestId.TabStatsSettingsDialog)).toBeHidden()
   })

@@ -14,7 +14,7 @@ interface Props {
 export function TabStatsCardsLayout({ visibleKeys, data }: Props) {
   const { t } = useTranslation('tabStatsWidget')
   return (
-    <div className="grid grid-cols-2 gap-3">
+    <div className="grid h-full grid-cols-2 content-start gap-3 overflow-y-auto">
       {visibleKeys.map((key) => {
         const m = getMetricDisplay(key, data, t)
         return (

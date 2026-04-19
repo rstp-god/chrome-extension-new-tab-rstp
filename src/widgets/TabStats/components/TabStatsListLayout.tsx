@@ -15,7 +15,7 @@ interface Props {
 export function TabStatsListLayout({ visibleKeys, data }: Props) {
   const { t } = useTranslation('tabStatsWidget')
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex h-full flex-col gap-1 overflow-y-auto">
       {visibleKeys.map((key, i) => {
         const m = getMetricDisplay(key, data, t)
         return (

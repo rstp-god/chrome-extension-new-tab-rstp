@@ -19,11 +19,11 @@ interface Props {
 export function TabStatsSparkline({ points, stroke }: Props) {
   const { t } = useTranslation('tabStatsWidget')
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex shrink-0 flex-col gap-1">
       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
         {t('sparklineCaption')}
       </span>
-      <div className="h-12 w-full">
+      <div className="h-10 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={points} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
             <XAxis

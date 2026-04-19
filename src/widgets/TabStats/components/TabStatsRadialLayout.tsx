@@ -24,18 +24,18 @@ export function TabStatsRadialLayout({ visibleKeys, data, radialFill }: Props) {
   // only thing left to show, so give it the full width.
   if (listedKeys.length === 0) {
     return (
-      <div className="flex min-h-0 items-center justify-center">
+      <div className="flex h-full min-h-0 items-center justify-center overflow-hidden">
         <TabStatsRadial percent={pct} fill={radialFill} />
       </div>
     )
   }
 
   return (
-    <div className="flex min-h-0 gap-4">
+    <div className="flex h-full min-h-0 gap-4 overflow-hidden">
       <div className="flex w-2/5 min-w-0 items-stretch">
         <TabStatsRadial percent={pct} fill={radialFill} />
       </div>
-      <div className="flex flex-1 flex-col gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-2 overflow-y-auto">
         {listedKeys.map((key) => {
           const m = getMetricDisplay(key, data, t)
           return (

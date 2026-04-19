@@ -21,10 +21,14 @@ export function MetricCell({ label, value, secondary, variant = 'card' }: Props)
     )
   }
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
-      <span className="text-2xl font-semibold leading-tight">{value}</span>
-      {secondary && <span className="text-[10px] text-muted-foreground">{secondary}</span>}
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className="truncate text-xl font-semibold leading-tight">{value}</span>
+      {secondary && (
+        <span className="truncate text-[10px] text-muted-foreground">{secondary}</span>
+      )}
     </div>
   )
 }
