@@ -91,14 +91,18 @@ export type ScreenTimeChartType = (typeof SCREEN_TIME_CHART_TYPES)[number]
 
 export const SCREEN_TIME_PERIODS = ['day', 'week', 'all'] as const
 export type ScreenTimePeriod = (typeof SCREEN_TIME_PERIODS)[number]
-export type TabStatsFormat = 'cards' | 'list' | 'radial'
-export type TabStatsMetricKey =
-  | 'openNow'
-  | 'created'
-  | 'closed'
-  | 'avgLifetime'
-  | 'activePct'
-  | 'peakOpen'
+export const TAB_STATS_FORMATS = ['cards', 'list', 'radial'] as const
+export type TabStatsFormat = (typeof TAB_STATS_FORMATS)[number]
+
+export const TAB_STATS_METRIC_KEYS = [
+  'openNow',
+  'created',
+  'closed',
+  'avgLifetime',
+  'activePct',
+  'peakOpen',
+] as const
+export type TabStatsMetricKey = (typeof TAB_STATS_METRIC_KEYS)[number]
 
 export interface ScreenTimeSettings {
   chartType: ScreenTimeChartType

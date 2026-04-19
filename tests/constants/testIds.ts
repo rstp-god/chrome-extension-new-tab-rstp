@@ -40,6 +40,9 @@ export enum TestId {
   ScreenTimeOpenSettings = 'screen-time-open-settings',
   ScreenTimeSettingsDialog = 'screen-time-settings-dialog',
   ScreenTimeChartPalette = 'screen-time-chart-palette',
+  TabStatsOpenSettings = 'tab-stats-open-settings',
+  TabStatsSettingsDialog = 'tab-stats-settings-dialog',
+  TabStatsChartPalette = 'tab-stats-chart-palette',
 }
 
 export enum TestIdPrefix {

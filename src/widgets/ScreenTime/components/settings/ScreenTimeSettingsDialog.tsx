@@ -16,7 +16,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group.tsx'
 import type { ScreenTimeChartType, ScreenTimeSettings } from '@/background/activity/types.ts'
 import { SCREEN_TIME_CHART_TYPES } from '@/background/activity/types.ts'
 import { useActivityStore } from '@/store/activity.ts'
-import { ToggleRow } from '@/widgets/ScreenTime/components/settings/ToggleRow.tsx'
+import { ToggleRow } from '@/components/compiled/ToggleRow.tsx'
 import { TestId } from '@tests/constants/testIds.ts'
 
 interface Props {
