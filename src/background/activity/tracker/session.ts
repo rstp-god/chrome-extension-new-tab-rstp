@@ -75,9 +75,7 @@ export function onPauseChanged(paused: boolean): void {
  * Starts the session clock at `now`, so we accept a max ≤ heartbeat-period
  * of lost time per wake cycle instead of losing everything.
  */
-export async function primeActiveSessionIfNeeded(
-  settingsGetter: SettingsGetter,
-): Promise<void> {
+export async function primeActiveSessionIfNeeded(settingsGetter: SettingsGetter): Promise<void> {
   if (state.activeSession) return
   if (settingsGetter().paused) return
   if (state.userIdle) return
