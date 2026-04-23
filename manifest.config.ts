@@ -31,11 +31,5 @@ export default defineManifest({
     service_worker: 'src/background/index.ts',
     type: 'module' as const,
   },
-  host_permissions: ['https://api.trello.com/*'],
-  content_scripts: [
-    {
-      js: ['src/content/main.tsx'],
-      matches: ['https://*/*'],
-    },
-  ],
+  host_permissions: ['https://api.trello.com/*']
 })
