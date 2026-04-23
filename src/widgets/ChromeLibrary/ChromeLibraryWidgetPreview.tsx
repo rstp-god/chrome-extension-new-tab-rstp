@@ -1,12 +1,10 @@
 import { Separator } from '@/components/ui/separator.tsx'
 import { WidgetFrame } from '@/newtab/components/WidgetLayout/WidgetFrame.tsx'
-import { BookmarkIcon, LayersIcon } from 'lucide-react'
+import { BookmarkIcon, LayersIcon, TwitchIcon, YoutubeIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 export function ChromeLibraryWidgetPreview() {
   const { t } = useTranslation('chromeLibraryWidget')
-  const faviconTwitch = 'https://www.google.com/s2/favicons?domain=twitch.tv&sz=64'
-  const faviconYouTube = 'https://www.google.com/s2/favicons?domain=youtube.com&sz=64'
 
   return (
     <WidgetFrame title={t('title')} pinned={false}>
@@ -32,11 +30,11 @@ export function ChromeLibraryWidgetPreview() {
             {t('labels.bookmarks')}
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-2 text-xs">
-            <img src={faviconTwitch} alt="" className="size-3.5 shrink-0 rounded-sm" />
+            <TwitchIcon className="size-3.5 shrink-0 text-[#9146ff]" aria-hidden />
             <span className="truncate">{t('preview.bookmarkRowPrimary')}</span>
           </div>
           <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-muted/10 px-3 py-2 text-xs">
-            <img src={faviconYouTube} alt="" className="size-3.5 shrink-0 rounded-sm" />
+            <YoutubeIcon className="size-3.5 shrink-0 text-[#ff0000]" aria-hidden />
             <span className="truncate">{t('preview.bookmarkRowSecondary')}</span>
           </div>
         </div>
