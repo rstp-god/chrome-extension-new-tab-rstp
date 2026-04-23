@@ -105,5 +105,4 @@ describe('createOrUpdateGroup', () => {
     expect(chromeMock.tabs.group).not.toHaveBeenCalled()
     expect(chromeMock.tabs.move).not.toHaveBeenCalled()
   })
-
 })
