@@ -28,6 +28,13 @@ export async function createOrUpdateGroup(
   }
 
   await chrome.tabGroups.update(groupId, { title: name, color })
+
+  const groupTabs = await chrome.tabs.query({ groupId, windowId })
+  if (groupTabs.length > 0) {
+    const startIndex = Math.min(...groupTabs.map((t) => t.index))
+    await chrome.tabs.move(ids, { index: startIndex })
+  }
+
   return groupId
 }
 
@@ -39,8 +46,4 @@ export async function ungroupAll(): Promise<void> {
   const tabs = await chrome.tabs.query({})
   const groupedTabs = tabs.filter((t) => t.groupId !== -1 && t.id !== undefined)
   await Promise.all(groupedTabs.map((t) => ungroupTab(t.id!)))
-}
-
-export async function moveTab(tabId: number, index: number): Promise<void> {
-  await chrome.tabs.move(tabId, { index })
 }
