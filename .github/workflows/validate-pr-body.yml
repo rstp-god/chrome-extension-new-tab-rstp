@@ -1,15 +1,24 @@
 name: Validate PR body
 
+# The PR body only changes on `edited`, so synchronize events (= pushes) have
+# nothing new to validate. We keep `synchronize` in the trigger list only so
+# that a check run is posted on each head SHA (keeps the PR's last commit
+# green without re-running validation). Actual work is step-gated below.
 on:
   pull_request:
-    types: [opened, edited, synchronize, reopened]
+    types: [opened, edited, reopened, synchronize]
 
 jobs:
   validate:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Skip on synchronize (PR body unchanged by pushes)
+        if: github.event.action == 'synchronize'
+        run: echo "PR body unchanged — nothing to re-validate."
+
       - name: Validate PR description
+        if: github.event.action != 'synchronize'
         uses: actions/github-script@v7
         with:
           script: |
