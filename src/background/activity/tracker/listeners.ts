@@ -21,22 +21,22 @@ async function resolveDomain(tabId: number): Promise<string | null> {
   }
 }
 
-export function handleTabActivated(
-  { tabId }: chrome.tabs.OnActivatedInfo,
+/**
+ * Start a session for `tabId`, using the cached domain if available or
+ * resolving asynchronously. Aborts the slow path if a newer context-changing
+ * event supersedes this one (guarded by `seq`). Shared by tab-activated and
+ * window-focus handlers.
+ */
+function resumeSessionFor(
+  tabId: number,
+  seq: number,
   settingsGetter: SettingsGetter,
 ): void {
-  const now = Date.now()
-  const seq = ++state.activationSeq
-  endActiveSession(now, 'tab_activated', settingsGetter)
-
-  // Fast path: use cached domain if known.
   const cached = state.tabDomain.get(tabId)
   if (cached) {
     startSession(tabId, cached, Date.now(), settingsGetter)
     return
   }
-
-  // Slow path: resolve async, but abort if a newer event superseded us.
   void resolveDomain(tabId).then((domain) => {
     if (seq !== state.activationSeq) return
     if (!domain) return
@@ -44,14 +44,34 @@ export function handleTabActivated(
   })
 }
 
+export function handleTabActivated(
+  { tabId }: chrome.tabs.OnActivatedInfo,
+  settingsGetter: SettingsGetter,
+): void {
+  const now = Date.now()
+  const seq = ++state.activationSeq
+  endActiveSession(now, 'tab_activated', settingsGetter)
+  resumeSessionFor(tabId, seq, settingsGetter)
+}
+
 export function handleTabCreated(tab: chrome.tabs.Tab, settingsGetter: SettingsGetter): void {
   if (tab.id === undefined) return
   const now = Date.now()
   state.tabCreatedAt.set(tab.id, now)
+  state.openTabIds.add(tab.id)
   const domain = extractDomain(tab.url)
   if (!domain) return
   state.tabDomain.set(tab.id, domain)
-  dispatchEvent({ timestamp: now, domain, tabId: tab.id, eventType: 'tab_created' }, settingsGetter)
+  dispatchEvent(
+    {
+      timestamp: now,
+      domain,
+      tabId: tab.id,
+      eventType: 'tab_created',
+      openTabCount: state.openTabIds.size,
+    },
+    settingsGetter,
+  )
 }
 
 export function handleTabRemoved(tabId: number, settingsGetter: SettingsGetter): void {
@@ -62,8 +82,12 @@ export function handleTabRemoved(tabId: number, settingsGetter: SettingsGetter):
   }
   const createdAt = state.tabCreatedAt.get(tabId)
   const domain = state.tabDomain.get(tabId)
+  // Sample peak BEFORE shrinking the set so this hour's `peakOpen` still
+  // reflects the moment the tab was open.
+  const openTabCount = state.openTabIds.size
   state.tabCreatedAt.delete(tabId)
   state.tabDomain.delete(tabId)
+  state.openTabIds.delete(tabId)
 
   // Only record close when we know the domain — 'unknown' would pollute metrics.
   if (!domain) return
@@ -71,12 +95,23 @@ export function handleTabRemoved(tabId: number, settingsGetter: SettingsGetter):
   if (createdAt !== undefined) {
     const lifetime = Math.max(0, Math.min(MAX_SESSION_DURATION_MS, now - createdAt))
     dispatchEvent(
-      { timestamp: now, domain, tabId, eventType: 'tab_closed', duration: lifetime },
+      {
+        timestamp: now,
+        domain,
+        tabId,
+        eventType: 'tab_closed',
+        duration: lifetime,
+        openTabCount,
+      },
       settingsGetter,
     )
   } else {
-    // Tab predates worker boot — record close but leave avgLifetime untouched.
-    dispatchEvent({ timestamp: now, domain, tabId, eventType: 'tab_closed' }, settingsGetter)
+    // Tab predates worker boot — record close without duration; avgLifetime
+    // untouched (timedCloses guards the denominator).
+    dispatchEvent(
+      { timestamp: now, domain, tabId, eventType: 'tab_closed', openTabCount },
+      settingsGetter,
+    )
   }
 }
 
@@ -111,37 +146,34 @@ export function handleTabUpdated(
 export function handleWindowFocusChanged(windowId: number, settingsGetter: SettingsGetter): void {
   const now = Date.now()
   const seq = ++state.activationSeq
-  if (windowId === chrome.windows.WINDOW_ID_NONE) {
-    endActiveSession(now, 'window_focus', settingsGetter)
-    return
-  }
   endActiveSession(now, 'window_focus', settingsGetter)
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return
   chrome.tabs
     .query({ active: true, windowId })
     .then((tabs) => {
       if (seq !== state.activationSeq) return
       const tab = tabs[0]
       if (!tab || tab.id === undefined) return
-      const domain = extractDomain(tab.url)
-      if (!domain) return
-      startSession(tab.id, domain, Date.now(), settingsGetter)
+      resumeSessionFor(tab.id, seq, settingsGetter)
     })
     .catch((err: unknown) => {
       console.warn('[activity] focus query failed', err)
     })
 }
 
-/** Prime tabDomain for tabs that existed before the worker started. */
+/**
+ * Prime `tabDomain` and `openTabIds` for tabs that existed before the worker
+ * started. `chrome.tabs.query` does not reject when the `tabs` permission is
+ * granted (per the manifest), so no try/catch is needed — a failure here
+ * would indicate a manifest misconfiguration we want to surface loudly.
+ */
 export async function primeExistingTabs(): Promise<void> {
-  try {
-    const tabs = await chrome.tabs.query({})
-    for (const tab of tabs) {
-      if (tab.id === undefined) continue
-      const domain = extractDomain(tab.url)
-      if (domain) state.tabDomain.set(tab.id, domain)
-    }
-  } catch (err) {
-    console.warn('[activity] tab priming failed', err)
+  const tabs = await chrome.tabs.query({})
+  for (const tab of tabs) {
+    if (tab.id === undefined) continue
+    state.openTabIds.add(tab.id)
+    const domain = extractDomain(tab.url)
+    if (domain) state.tabDomain.set(tab.id, domain)
   }
 }
 

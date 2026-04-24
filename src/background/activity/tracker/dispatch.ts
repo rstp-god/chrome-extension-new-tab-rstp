@@ -20,7 +20,7 @@ import {
   saveDay,
   saveWeek,
 } from '@/background/activity/storage.ts'
-import { state } from '@/background/activity/tracker/state.ts'
+import { PRE_HYDRATION_BUFFER_MAX, state } from '@/background/activity/tracker/state.ts'
 import type { ActivityEvent, ActivitySettings } from '@/background/activity/types.ts'
 
 /**
@@ -33,7 +33,16 @@ export type SettingsGetter = () => ActivitySettings
 
 export function dispatchEvent(event: ActivityEvent, settingsGetter: SettingsGetter): void {
   if (settingsGetter().paused) return
-  if (!state.day || !state.week || !state.all) return
+
+  // Pre-hydration window: snapshots aren't loaded yet. Buffer the event so
+  // the first tab switch after wake-up isn't silently lost; hydrate drains
+  // the buffer once all three snapshots are ready.
+  if (!state.day || !state.week || !state.all) {
+    if (state.preHydrationEvents.length < PRE_HYDRATION_BUFFER_MAX) {
+      state.preHydrationEvents.push(event)
+    }
+    return
+  }
 
   // Rollover on real wall-clock time, not event timestamp — otherwise
   // out-of-order events could reverse-rollover and corrupt snapshots.
@@ -53,21 +62,32 @@ export function dispatchEvent(event: ActivityEvent, settingsGetter: SettingsGett
 /**
  * Restore snapshots independently on worker wake — a single corrupt envelope
  * must not wipe the other two keys. Missing ones fall back to `rebuildFromRaw`.
+ * After all three are populated, drain any events that arrived during the
+ * hydration window through `dispatchEvent`.
  */
-export async function hydrateSnapshots(now: number): Promise<void> {
+export async function hydrateSnapshots(
+  now: number,
+  settingsGetter: SettingsGetter,
+): Promise<void> {
   const [day, week, all] = await Promise.all([loadDay(), loadWeek(), loadAll()])
 
   if (day) state.day = day
   if (week) state.week = week
   if (all) state.all = all
 
-  if (state.day && state.week && state.all) return
+  if (!state.day || !state.week || !state.all) {
+    const raw = await loadRaw()
+    const rebuilt = rebuildFromRaw(raw, now)
+    if (!state.day) state.day = rebuilt.day
+    if (!state.week) state.week = rebuilt.week
+    if (!state.all) state.all = rebuilt.all
+  }
 
-  const raw = await loadRaw()
-  const rebuilt = rebuildFromRaw(raw, now)
-  if (!state.day) state.day = rebuilt.day
-  if (!state.week) state.week = rebuilt.week
-  if (!state.all) state.all = rebuilt.all
+  if (state.preHydrationEvents.length > 0) {
+    const buffered = state.preHydrationEvents
+    state.preHydrationEvents = []
+    for (const ev of buffered) dispatchEvent(ev, settingsGetter)
+  }
 
   scheduleSnapshotFlush()
 }

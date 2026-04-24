@@ -29,7 +29,7 @@ export function setupActivityTracking(settingsGetter: SettingsGetter): void {
   // Start a session for the currently-focused tab so time is recorded even
   // if the user never switches tabs during this worker lifetime.
   void primeActiveSessionIfNeeded(settingsGetter)
-  void hydrateSnapshots(Date.now())
+  void hydrateSnapshots(Date.now(), settingsGetter)
 }
 
 // --- Public API re-exports ---

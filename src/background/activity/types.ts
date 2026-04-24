@@ -26,6 +26,12 @@ export interface ActivityEvent {
   eventType: ActivityEventType
   /** ms; set on tab_activated when the tab loses focus (retrospective). */
   duration?: number
+  /**
+   * Total open-tab count at the moment this event was emitted. Sampled at the
+   * dispatch site so `rollup` can update `peakOpen` without reaching into
+   * tracker state. Absent on events from older raw logs (pre-peakOpen fix).
+   */
+  openTabCount?: number
 }
 
 export interface DomainUsage {
@@ -41,6 +47,12 @@ export interface TabMetrics {
   peakOpen: number
   /** Seconds. */
   avgLifetime: number
+  /**
+   * Number of closes that carried a `duration` — i.e. tabs whose lifetime we
+   * actually measured. Denominator for `avgLifetime` so closes of tabs that
+   * predate worker boot (no duration) don't pull the average toward zero.
+   */
+  timedCloses: number
 }
 
 /**

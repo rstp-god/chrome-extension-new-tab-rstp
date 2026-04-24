@@ -24,7 +24,12 @@ vi.mock('@/services/chrome/runtime.ts', () => ({
   hasChromeStorageEvents: () => false,
 }))
 
-const EMPTY_METRICS = { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0 }
+// Shape of `TabStatsData.today` — the hook strips `timedCloses`, so this
+// only carries the four fields the UI cares about.
+const EMPTY_TODAY = { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0 }
+
+// Full `TabMetrics` shape — used for snapshot fixtures.
+const EMPTY_METRICS = { ...EMPTY_TODAY, timedCloses: 0 }
 
 const DAY: ActivityDaySnapshot = {
   date: '2026-04-18',
@@ -32,12 +37,12 @@ const DAY: ActivityDaySnapshot = {
     {
       key: '10',
       domains: {},
-      tabs: { created: 12, closed: 8, peakOpen: 20, avgLifetime: 3600 },
+      tabs: { created: 12, closed: 8, peakOpen: 20, avgLifetime: 3600, timedCloses: 8 },
     },
     {
       key: '14',
       domains: {},
-      tabs: { created: 5, closed: 3, peakOpen: 22, avgLifetime: 7200 },
+      tabs: { created: 5, closed: 3, peakOpen: 22, avgLifetime: 7200, timedCloses: 3 },
     },
   ],
   totalsByDomain: {},
@@ -49,12 +54,12 @@ const WEEK: ActivityWeekSnapshot = {
     {
       key: '2026-04-13',
       domains: {},
-      tabs: { created: 10, closed: 8, peakOpen: 15, avgLifetime: 1800 },
+      tabs: { created: 10, closed: 8, peakOpen: 15, avgLifetime: 1800, timedCloses: 8 },
     },
     {
       key: '2026-04-14',
       domains: {},
-      tabs: { created: 12, closed: 10, peakOpen: 18, avgLifetime: 2400 },
+      tabs: { created: 12, closed: 10, peakOpen: 18, avgLifetime: 2400, timedCloses: 10 },
     },
   ],
   totalsByDomain: {},
@@ -65,7 +70,7 @@ const ALL_WITH_YESTERDAY: ActivityAllSnapshot = {
     {
       key: '2026-04-17',
       domains: {},
-      tabs: { created: 10, closed: 5, peakOpen: 14, avgLifetime: 3600 },
+      tabs: { created: 10, closed: 5, peakOpen: 14, avgLifetime: 3600, timedCloses: 5 },
     },
     {
       key: '2026-04-18',
@@ -89,7 +94,7 @@ describe('useTabStatsData', () => {
     const { result } = renderHook(() => useTabStatsData())
     expect(result.current.isEmpty).toBe(true)
     expect(result.current.openNow).toBe(0)
-    expect(result.current.today).toEqual(EMPTY_METRICS)
+    expect(result.current.today).toEqual(EMPTY_TODAY)
     expect(result.current.sparkline).toBeNull()
   })
 

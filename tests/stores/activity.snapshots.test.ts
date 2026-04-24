@@ -75,7 +75,7 @@ describe('useActivityAllStore', () => {
         {
           key: '2026-04-14',
           domains: {},
-          tabs: { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0 },
+          tabs: { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0, timedCloses: 0 },
         },
       ],
     }

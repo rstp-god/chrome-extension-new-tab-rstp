@@ -25,6 +25,11 @@ export function __seedSnapshotsForTests(
   state.day = day
   state.week = week
   state.all = all
+  // Tests seed snapshots synchronously right after setupActivityTracking,
+  // bypassing the async hydration path. Any events the tracker received in
+  // that narrow window have landed in preHydrationEvents — drop them so
+  // scripted scenarios see a clean slate.
+  state.preHydrationEvents = []
 }
 
 export function __peekStateForTests(): {

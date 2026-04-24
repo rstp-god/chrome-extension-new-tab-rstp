@@ -17,7 +17,13 @@ import {
 import { useScreenTimeData } from '@/widgets/ScreenTime/hooks/useScreenTimeData.ts'
 import { OTHER_KEY } from '@/widgets/ScreenTime/types.ts'
 
-const EMPTY_TAB_METRICS = { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0 }
+const EMPTY_TAB_METRICS = {
+  created: 0,
+  closed: 0,
+  peakOpen: 0,
+  avgLifetime: 0,
+  timedCloses: 0,
+}
 
 const DAY_SNAPSHOT: ActivityDaySnapshot = {
   date: '2026-04-18',

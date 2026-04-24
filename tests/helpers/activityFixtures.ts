@@ -72,7 +72,7 @@ export function buildDayFixture(date: string): ActivityDaySnapshot {
         'github.com': { totalTime: 1800, visits: 3 },
         'youtube.com': { totalTime: 900, visits: 2 },
       },
-      tabs: { created: 6, closed: 3, peakOpen: 18, avgLifetime: 1200 },
+      tabs: { created: 6, closed: 3, peakOpen: 18, avgLifetime: 1200, timedCloses: 3 },
     },
     {
       key: '14',
@@ -81,7 +81,7 @@ export function buildDayFixture(date: string): ActivityDaySnapshot {
         'youtube.com': { totalTime: 2100, visits: 4 },
         'chatgpt.com': { totalTime: 1500, visits: 3 },
       },
-      tabs: { created: 5, closed: 4, peakOpen: 22, avgLifetime: 3600 },
+      tabs: { created: 5, closed: 4, peakOpen: 22, avgLifetime: 3600, timedCloses: 4 },
     },
   ]
   const totalsByDomain: Record<string, { totalTime: number; visits: number }> = {}
@@ -110,7 +110,13 @@ export function buildWeekFixture(weekStart: string): ActivityWeekSnapshot {
         'github.com': { totalTime: 900 + i * 100, visits: 2 + i },
         'youtube.com': { totalTime: 600 + i * 150, visits: 3 },
       },
-      tabs: { created: 10 + i, closed: 8 + i, peakOpen: peak, avgLifetime: 2400 },
+      tabs: {
+        created: 10 + i,
+        closed: 8 + i,
+        peakOpen: peak,
+        avgLifetime: 2400,
+        timedCloses: 8 + i,
+      },
     }
   })
   return { weekStart, buckets, totalsByDomain: {} }
@@ -123,12 +129,12 @@ export function buildAllFixture(todayDate: string, yesterdayDate: string): Activ
       {
         key: yesterdayDate,
         domains: { 'github.com': { totalTime: 2000, visits: 5 } },
-        tabs: { created: 8, closed: 6, peakOpen: 15, avgLifetime: 3000 },
+        tabs: { created: 8, closed: 6, peakOpen: 15, avgLifetime: 3000, timedCloses: 6 },
       },
       {
         key: todayDate,
         domains: { 'github.com': { totalTime: 2400, visits: 4 } },
-        tabs: { created: 11, closed: 7, peakOpen: 22, avgLifetime: 3400 },
+        tabs: { created: 11, closed: 7, peakOpen: 22, avgLifetime: 3400, timedCloses: 7 },
       },
     ],
   }

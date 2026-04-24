@@ -38,6 +38,7 @@ export const activityEventSchema = z.object({
   tabId: z.number().int(),
   eventType: activityEventTypeSchema,
   duration: z.number().int().nonnegative().optional(),
+  openTabCount: z.number().int().nonnegative().optional(),
 })
 
 /** Domain keys are validated by the single shared `isValidDomainKey` helper. */
@@ -53,6 +54,8 @@ const tabMetricsSchema = z.object({
   closed: z.number().int().nonnegative(),
   peakOpen: z.number().int().nonnegative(),
   avgLifetime: z.number().nonnegative(),
+  // Defaulted so envelopes written by pre-fix builds re-hydrate without dropping.
+  timedCloses: z.number().int().nonnegative().default(0),
 })
 
 const boundedDomainRecord = z

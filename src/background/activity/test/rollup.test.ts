@@ -102,7 +102,36 @@ describe('applyEventToDay', () => {
     applyEventToDay(day, mkEvent({ eventType: 'tab_closed', duration: 60_000 })) // 60s
     applyEventToDay(day, mkEvent({ eventType: 'tab_closed', duration: 120_000 })) // 120s
     expect(day.buckets[0].tabs.closed).toBe(2)
+    expect(day.buckets[0].tabs.timedCloses).toBe(2)
     expect(day.buckets[0].tabs.avgLifetime).toBe(90) // (60 + 120) / 2
+  })
+
+  it('tab_closed without duration counts toward `closed` but not `avgLifetime`', () => {
+    // Simulates a tab that predates worker boot: close event, no lifetime.
+    const day = emptyDay(REF)
+    applyEventToDay(day, mkEvent({ eventType: 'tab_closed', duration: 60_000 }))
+    applyEventToDay(day, mkEvent({ eventType: 'tab_closed' })) // unknown lifetime
+    applyEventToDay(day, mkEvent({ eventType: 'tab_closed', duration: 120_000 }))
+    const tabs = day.buckets[0].tabs
+    expect(tabs.closed).toBe(3)
+    expect(tabs.timedCloses).toBe(2)
+    expect(tabs.avgLifetime).toBe(90) // only the two timed closes average in
+  })
+
+  it('samples peakOpen from event.openTabCount and keeps the max', () => {
+    const day = emptyDay(REF)
+    applyEventToDay(day, mkEvent({ eventType: 'tab_created', openTabCount: 5 }))
+    applyEventToDay(day, mkEvent({ eventType: 'tab_created', openTabCount: 11 }))
+    applyEventToDay(day, mkEvent({ eventType: 'tab_closed', duration: 1000, openTabCount: 10 }))
+    expect(day.buckets[0].tabs.peakOpen).toBe(11)
+  })
+
+  it('records peakOpen from a marker-only activation that carries openTabCount', () => {
+    // Verifies the isMarkerOnly skip doesn't swallow peak samples.
+    const day = emptyDay(REF)
+    applyEventToDay(day, mkEvent({ eventType: 'tab_activated', openTabCount: 7 }))
+    expect(day.buckets).toHaveLength(1)
+    expect(day.buckets[0].tabs.peakOpen).toBe(7)
   })
 
   it('accumulates domain totals across multiple events', () => {

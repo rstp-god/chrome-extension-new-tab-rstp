@@ -66,7 +66,7 @@ export function weekStartKey(timestamp: number): string {
 }
 
 export function emptyTabMetrics(): TabMetrics {
-  return { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0 }
+  return { created: 0, closed: 0, peakOpen: 0, avgLifetime: 0, timedCloses: 0 }
 }
 
 export function emptyBucket(key: string): ActivityBucket {
@@ -128,22 +128,31 @@ export function applyEventToDay(
   const durationSec =
     event.duration !== undefined ? Math.max(0, Math.round(event.duration / 1000)) : 0
 
-  // Skip no-op events (pure state markers with no duration and no counter change)
-  // to avoid allocating empty buckets.
-  const isMarkerOnly = DURATIONAL_EVENT_TYPES.includes(event.eventType) && durationSec === 0
+  // Skip no-op events (pure state markers: durational event with zero duration
+  // AND no peakOpen sample to record). Keeps bucket allocation sparse.
+  const isMarkerOnly =
+    DURATIONAL_EVENT_TYPES.includes(event.eventType) &&
+    durationSec === 0 &&
+    event.openTabCount === undefined
   if (isMarkerOnly) {
     return day
   }
 
   const bucket = upsertBucket(day.buckets, hourKey(event.timestamp))
 
+  if (event.openTabCount !== undefined && event.openTabCount > bucket.tabs.peakOpen) {
+    bucket.tabs.peakOpen = event.openTabCount
+  }
+
   switch (event.eventType) {
     case 'tab_activated':
     case 'tab_navigated':
     case 'window_focus': {
-      // duration is the time spent on `event.domain` leading up to this event.
-      addDomainUsage(bucket.domains, event.domain, durationSec, 1)
-      addDomainUsage(day.totalsByDomain, event.domain, durationSec, 1)
+      if (durationSec > 0) {
+        // duration is the time spent on `event.domain` leading up to this event.
+        addDomainUsage(bucket.domains, event.domain, durationSec, 1)
+        addDomainUsage(day.totalsByDomain, event.domain, durationSec, 1)
+      }
       break
     }
     case 'tab_created': {
@@ -153,10 +162,12 @@ export function applyEventToDay(
     case 'tab_closed': {
       bucket.tabs.closed += 1
       if (durationSec > 0) {
-        // duration on tab_closed is the tab's lifetime.
-        // Update running average: ((avg * n) + lifetime) / (n + 1).
-        const n = bucket.tabs.closed - 1
+        // duration on tab_closed is the tab's lifetime. Only closes that
+        // carry a measured duration weigh the average — otherwise we'd pull
+        // the mean toward zero for tabs that predate worker boot.
+        const n = bucket.tabs.timedCloses
         bucket.tabs.avgLifetime = (bucket.tabs.avgLifetime * n + durationSec) / (n + 1)
+        bucket.tabs.timedCloses = n + 1
       }
       break
     }
@@ -178,13 +189,14 @@ export function collapseDayToBucket(day: ActivityDaySnapshot): ActivityBucket {
     bucket.tabs.created += hourBucket.tabs.created
     bucket.tabs.closed += hourBucket.tabs.closed
     bucket.tabs.peakOpen = Math.max(bucket.tabs.peakOpen, hourBucket.tabs.peakOpen)
-    // Weight avgLifetime by number of closed tabs per hour.
-    if (hourBucket.tabs.closed > 0) {
-      const weight = hourBucket.tabs.closed
+    // Weight avgLifetime by number of *timed* closes per hour (see note above).
+    if (hourBucket.tabs.timedCloses > 0) {
+      const priorTimed = bucket.tabs.timedCloses
+      const weight = hourBucket.tabs.timedCloses
+      bucket.tabs.timedCloses = priorTimed + weight
       bucket.tabs.avgLifetime =
-        (bucket.tabs.avgLifetime * (bucket.tabs.closed - weight) +
-          hourBucket.tabs.avgLifetime * weight) /
-        bucket.tabs.closed
+        (bucket.tabs.avgLifetime * priorTimed + hourBucket.tabs.avgLifetime * weight) /
+        bucket.tabs.timedCloses
     }
   }
   return bucket
