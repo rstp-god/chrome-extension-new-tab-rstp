@@ -5,8 +5,10 @@ import enCommon from '@/i18n/resources/en/common.json'
 import enErrors from '@/i18n/resources/en/errors.json'
 import enHeader from '@/i18n/resources/en/header.json'
 import enChromeLibraryWidget from '@/i18n/resources/en/widgets/chromeLibraryWidget.json'
+import enScreenTimeWidget from '@/i18n/resources/en/widgets/screenTimeWidget.json'
 import enSearchWidget from '@/i18n/resources/en/widgets/searchWidget.json'
 import enTabRules from '@/i18n/resources/en/widgets/tabRules.json'
+import enTabStatsWidget from '@/i18n/resources/en/widgets/tabStatsWidget.json'
 import enTodoWidget from '@/i18n/resources/en/widgets/todoWidget.json'
 import enSettingsDialog from '@/i18n/resources/en/settingsDialog.json'
 import ruBackgroundDialog from '@/i18n/resources/ru/backgroundDialog.json'
@@ -14,8 +16,10 @@ import ruCommon from '@/i18n/resources/ru/common.json'
 import ruErrors from '@/i18n/resources/ru/errors.json'
 import ruHeader from '@/i18n/resources/ru/header.json'
 import ruChromeLibraryWidget from '@/i18n/resources/ru/widgets/chromeLibraryWidget.json'
+import ruScreenTimeWidget from '@/i18n/resources/ru/widgets/screenTimeWidget.json'
 import ruSearchWidget from '@/i18n/resources/ru/widgets/searchWidget.json'
 import ruTabRules from '@/i18n/resources/ru/widgets/tabRules.json'
+import ruTabStatsWidget from '@/i18n/resources/ru/widgets/tabStatsWidget.json'
 import ruTodoWidget from '@/i18n/resources/ru/widgets/todoWidget.json'
 import ruSettingsDialog from '@/i18n/resources/ru/settingsDialog.json'
 
@@ -26,8 +30,10 @@ const resources = {
     settingsDialog: ruSettingsDialog,
     backgroundDialog: ruBackgroundDialog,
     chromeLibraryWidget: ruChromeLibraryWidget,
+    screenTimeWidget: ruScreenTimeWidget,
     searchWidget: ruSearchWidget,
     tabRules: ruTabRules,
+    tabStatsWidget: ruTabStatsWidget,
     todoWidget: ruTodoWidget,
     errors: ruErrors,
   },
@@ -37,8 +43,10 @@ const resources = {
     settingsDialog: enSettingsDialog,
     backgroundDialog: enBackgroundDialog,
     chromeLibraryWidget: enChromeLibraryWidget,
+    screenTimeWidget: enScreenTimeWidget,
     searchWidget: enSearchWidget,
     tabRules: enTabRules,
+    tabStatsWidget: enTabStatsWidget,
     todoWidget: enTodoWidget,
     errors: enErrors,
   },
@@ -55,8 +63,10 @@ i18n.use(initReactI18next).init({
     'settingsDialog',
     'backgroundDialog',
     'chromeLibraryWidget',
+    'screenTimeWidget',
     'searchWidget',
     'tabRules',
+    'tabStatsWidget',
     'todoWidget',
     'errors',
   ],

@@ -1,0 +1,53 @@
+{
+  "title": "Tab Stats",
+  "description": "Open tabs, creation rate, and average lifetime.",
+  "periodTodayLabel": "Today",
+  "openSettings": "Open Tab Stats settings",
+  "sparklineCaption": "Open tabs this week",
+  "hours": "{{hours}}h",
+  "deltaVsYesterday": "{{delta}} vs yesterday",
+  "deltaFlat": "same as yesterday",
+  "metrics": {
+    "openNow": "Open",
+    "created": "Created",
+    "closed": "Closed",
+    "avgLifetime": "Avg lifetime",
+    "activePct": "Active",
+    "peakOpen": "Peak"
+  },
+  "metricsSecondary": {
+    "openNowActive": "{{count}} active",
+    "avgLifetime": "avg lifetime: {{lifetime}}",
+    "activeFraction": "{{active}} / {{total}}",
+    "peakTodayCaption": "peak today"
+  },
+  "empty": {
+    "title": "No tab data yet",
+    "subtitle": "Open and close some tabs to see stats."
+  },
+  "settings": {
+    "title": "Tab Stats settings",
+    "description": "Choose format, metrics, and colours.",
+    "format": "Layout",
+    "formats": {
+      "cards": "Cards",
+      "list": "List",
+      "radial": "Radial"
+    },
+    "metrics": "Metrics",
+    "showSparkline": "Show weekly sparkline",
+    "chartPalette": "Chart colors",
+    "chartPaletteDescription": "Pick a base color — shades are generated automatically.",
+    "chartPalettePreview": "Generated palette preview",
+    "hex": "HEX",
+    "pickColor": "Pick chart color",
+    "presets": {
+      "default": "Blue",
+      "ocean": "Ocean",
+      "forest": "Forest",
+      "sunset": "Sunset",
+      "lavender": "Lavender",
+      "mono": "Mono"
+    }
+  }
+}

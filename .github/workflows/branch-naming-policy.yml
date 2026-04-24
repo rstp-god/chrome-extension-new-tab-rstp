@@ -1,5 +1,9 @@
 name: Branch Naming Policy
 
+# The branch name is fixed for the lifetime of a PR, so re-checking on every
+# push is wasted work. We keep `synchronize` in the trigger list only so that
+# a check run is posted on each head SHA (keeps the PR's last commit green
+# without re-running validation). Actual work is step-gated below.
 on:
   pull_request:
     branches:
@@ -7,15 +11,20 @@ on:
     types:
       - opened
       - edited
-      - synchronize
       - reopened
+      - synchronize
 
 jobs:
   branch-naming-policy:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Skip on synchronize (branch name cannot change mid-PR)
+        if: github.event.action == 'synchronize'
+        run: echo "Branch name unchanged — nothing to re-validate."
+
       - name: Run Branch Naming Policy Action
+        if: github.event.action != 'synchronize'
         uses: nicklegan/github-repo-branch-naming-policy-action@v1.1.1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}

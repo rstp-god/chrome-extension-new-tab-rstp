@@ -11,10 +11,19 @@ export default defineConfig({
   test: {
     environment: 'node',
     setupFiles: ['./tests/setup.ts'],
-    include: ['src/widgets/**/*.test.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
+    include: [
+      'src/background/**/*.test.{ts,tsx}',
+      'src/widgets/**/*.test.{ts,tsx}',
+      'tests/**/*.test.{ts,tsx}',
+    ],
     coverage: {
       reporter: ['text', 'html'],
-      include: ['src/services/**/*.ts', 'src/widgets/**/*.ts', 'src/widgets/**/*.tsx'],
+      include: [
+        'src/background/**/*.ts',
+        'src/services/**/*.ts',
+        'src/widgets/**/*.ts',
+        'src/widgets/**/*.tsx',
+      ],
       thresholds: {
         lines: 70,
         functions: 70,
