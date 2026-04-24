@@ -36,10 +36,14 @@ jobs:
           mkdir -p snapshot-artifacts/src/widgets/ChromeLibrary/test
           mkdir -p snapshot-artifacts/src/widgets/Search/test
           mkdir -p snapshot-artifacts/src/widgets/Todo/test
+          mkdir -p snapshot-artifacts/src/widgets/ScreenTime/test
+          mkdir -p snapshot-artifacts/src/widgets/TabStats/test
           cp -R tests/extension/chromium-ci snapshot-artifacts/tests/extension/chromium-ci
           cp -R src/widgets/ChromeLibrary/test/chromium-ci snapshot-artifacts/src/widgets/ChromeLibrary/test/chromium-ci
           cp -R src/widgets/Search/test/chromium-ci snapshot-artifacts/src/widgets/Search/test/chromium-ci
           cp -R src/widgets/Todo/test/chromium-ci snapshot-artifacts/src/widgets/Todo/test/chromium-ci
+          cp -R src/widgets/ScreenTime/test/chromium-ci snapshot-artifacts/src/widgets/ScreenTime/test/chromium-ci
+          cp -R src/widgets/TabStats/test/chromium-ci snapshot-artifacts/src/widgets/TabStats/test/chromium-ci
 
       - name: Upload CI visual snapshots
         if: always()
