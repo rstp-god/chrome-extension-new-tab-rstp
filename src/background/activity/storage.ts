@@ -18,6 +18,7 @@
  */
 
 export {
+  clearLastHeartbeatTs,
   loadLastHeartbeatTs,
   saveLastHeartbeatTs,
 } from '@/background/activity/storage/heartbeat.ts'

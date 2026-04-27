@@ -1,5 +1,9 @@
 import { SLEEP_DETECTION_THRESHOLD_MS } from '@/background/activity/constants.ts'
-import { loadLastHeartbeatTs, saveLastHeartbeatTs } from '@/background/activity/storage.ts'
+import {
+  clearLastHeartbeatTs,
+  loadLastHeartbeatTs,
+  saveLastHeartbeatTs,
+} from '@/background/activity/storage.ts'
 import { dispatchEvent, type SettingsGetter } from '@/background/activity/tracker/dispatch.ts'
 import { extractDomain } from '@/background/activity/tracker/domain.ts'
 import { state } from '@/background/activity/tracker/state.ts'
@@ -84,18 +88,20 @@ export function startSession(
  * Pause transition hook. On pause, drop the active session with no dispatch;
  * on resume, no-op (the next real activation restarts timing).
  *
- * Persisting `lastHeartbeatTs = now` on pause is critical: without it,
- * `primeActiveSessionIfNeeded` after a worker wake would back-date
- * `startedAt` to the *previous* heartbeat (which was before the pause),
- * causing the entire paused window to be recorded as active screen time
- * on the next heartbeat dispatch. Stamping `now` here means the gap from
- * pause-instant onward is correctly treated as "no signal" by the primer.
+ * Clearing `lastHeartbeatTs` on pause is critical: leaving any anchor (the
+ * pre-pause heartbeat OR a stamp at pause-instant) lets `primeActiveSession-
+ * IfNeeded` after a worker wake back-date `startedAt` into the inactive
+ * window, recording paused minutes as active screen time. With the anchor
+ * dropped, the primer falls back to `now` and the next dispatch only counts
+ * post-unpause activity.
  */
 export function onPauseChanged(paused: boolean): void {
   if (paused) {
     state.activeSession = null
     state.activationSeq += 1
-    persistHeartbeatTs(Date.now())
+    clearLastHeartbeatTs().catch((err: unknown) => {
+      console.warn('[activity] clearLastHeartbeatTs failed', err)
+    })
   }
 }
 
