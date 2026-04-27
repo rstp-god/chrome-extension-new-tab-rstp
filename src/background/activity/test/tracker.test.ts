@@ -668,11 +668,10 @@ describe('worker suspension and sleep recovery', () => {
     // a same-domain SPA-style URL change on the now non-active tab). Pre-fix:
     // this bumped `activationSeq` even though no session changed, killing the
     // pending tab-2 activation. Post-fix: no bump for non-active tabs.
-    listeners.onUpdated!(
-      1,
-      { url: 'https://a.com/page' },
-      { id: 1, url: 'https://a.com/page' } as chrome.tabs.Tab,
-    )
+    listeners.onUpdated!(1, { url: 'https://a.com/page' }, {
+      id: 1,
+      url: 'https://a.com/page',
+    } as chrome.tabs.Tab)
 
     // Now flush tab 2's resolveDomain.
     await Promise.resolve()

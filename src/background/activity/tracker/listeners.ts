@@ -27,11 +27,7 @@ async function resolveDomain(tabId: number): Promise<string | null> {
  * event supersedes this one (guarded by `seq`). Shared by tab-activated and
  * window-focus handlers.
  */
-function resumeSessionFor(
-  tabId: number,
-  seq: number,
-  settingsGetter: SettingsGetter,
-): void {
+function resumeSessionFor(tabId: number, seq: number, settingsGetter: SettingsGetter): void {
   const cached = state.tabDomain.get(tabId)
   if (cached) {
     startSession(tabId, cached, Date.now(), settingsGetter)

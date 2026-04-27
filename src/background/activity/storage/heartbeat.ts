@@ -18,7 +18,5 @@ export async function loadLastHeartbeatTs(): Promise<number | null> {
 }
 
 export async function saveLastHeartbeatTs(ts: number): Promise<void> {
-  await withLock(ACTIVITY_KEYS.lastHeartbeat, () =>
-    writeEnvelope(ACTIVITY_KEYS.lastHeartbeat, ts),
-  )
+  await withLock(ACTIVITY_KEYS.lastHeartbeat, () => writeEnvelope(ACTIVITY_KEYS.lastHeartbeat, ts))
 }

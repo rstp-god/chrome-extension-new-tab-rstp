@@ -28,23 +28,54 @@ function loadSettingsFromStorage(raw: unknown): TabRulesSettings | null {
   return result.success ? result.data : null
 }
 
-async function bootstrap(): Promise<void> {
+/**
+ * Hydrate persisted state from `chrome.storage.local`. All async I/O of the
+ * boot sequence lives here — listeners and schedulers attach synchronously
+ * once this resolves. Each load degrades gracefully so a single corrupt key
+ * doesn't take down the whole worker.
+ */
+async function hydratePersistedState(): Promise<void> {
   // Tab Rules settings — must load before listeners use them.
-  const items = await chrome.storage.local.get(TAB_RULES_KEY)
-  const loaded = loadSettingsFromStorage(items[TAB_RULES_KEY])
-  if (loaded) currentSettings = loaded
+  try {
+    const items = await chrome.storage.local.get(TAB_RULES_KEY)
+    const loaded = loadSettingsFromStorage(items[TAB_RULES_KEY])
+    if (loaded) currentSettings = loaded
+  } catch (err) {
+    console.warn('[background] tab-rules load failed; using defaults', err)
+  }
 
+  // Cleanup fallback map. Empty map is still a working state (Chrome's
+  // `tab.lastAccessed` is the primary age source) — far better than letting
+  // the throw kill the cleanup scheduler entirely.
+  try {
+    await restoreFromStorage()
+  } catch (err) {
+    console.warn('[cleanup] restoreFromStorage failed; starting with empty map', err)
+  }
+
+  // Activity feature has its own settings + initializer.
+  await initActivitySettings()
+}
+
+/**
+ * Wire all chrome.* event listeners and alarm schedulers. Must run AFTER
+ * `hydratePersistedState` so settings reads from inside listeners see the
+ * persisted values, and the cleanup tracker doesn't overwrite the restored
+ * map with `now` for every existing tab.
+ */
+function attachListeners(): void {
   setupMessageHandler(getSettings)
   setupEventListeners(getSettings)
   setupActivityTracking()
   setupCleanupScheduler(getSettings)
   setupNotificationHandlers()
-  restoreFromStorage()
-
-  // Activity settings — same pattern, but bundled with its own init function.
-  await initActivitySettings()
   setupDomainActivityTracking(getActivitySettings)
   setupActivityAlarms(getActivitySettings)
+}
+
+async function bootstrap(): Promise<void> {
+  await hydratePersistedState()
+  attachListeners()
 }
 
 bootstrap().catch((err: unknown) => {
