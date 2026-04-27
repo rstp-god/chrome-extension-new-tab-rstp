@@ -83,11 +83,19 @@ export function startSession(
 /**
  * Pause transition hook. On pause, drop the active session with no dispatch;
  * on resume, no-op (the next real activation restarts timing).
+ *
+ * Persisting `lastHeartbeatTs = now` on pause is critical: without it,
+ * `primeActiveSessionIfNeeded` after a worker wake would back-date
+ * `startedAt` to the *previous* heartbeat (which was before the pause),
+ * causing the entire paused window to be recorded as active screen time
+ * on the next heartbeat dispatch. Stamping `now` here means the gap from
+ * pause-instant onward is correctly treated as "no signal" by the primer.
  */
 export function onPauseChanged(paused: boolean): void {
   if (paused) {
     state.activeSession = null
     state.activationSeq += 1
+    persistHeartbeatTs(Date.now())
   }
 }
 

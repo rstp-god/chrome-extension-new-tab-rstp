@@ -679,4 +679,50 @@ describe('worker suspension and sleep recovery', () => {
 
     expect(__peekStateForTests().activeSession?.domain).toBe('www.youtube.com')
   })
+
+  it('paused window is not back-dated into a recovered session', async () => {
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    tabUrls.set(1, 'https://a.com/')
+    listeners.onActivated!({ tabId: 1, windowId: 1 })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Heartbeat at +5 min — persists `lastHeartbeatTs = BASE + 5min`.
+    vi.setSystemTime(BASE_TIME + 5 * 60_000)
+    emitHeartbeat(makeSettings())
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // User pauses at +7 min. Without persisting the heartbeat anchor here,
+    // the primer below would back-date `startedAt` to BASE+5min, sweeping
+    // the 3 paused minutes (7→10) into the next dispatched duration.
+    vi.setSystemTime(BASE_TIME + 7 * 60_000)
+    onPauseChanged(true)
+    // Flush the withLock → writeEnvelope → chrome.storage.local.set chain.
+    for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    expect(await loadLastHeartbeatTs()).toBe(BASE_TIME + 7 * 60_000)
+
+    // User unpauses at +10 min and does nothing else (no tab switch).
+    vi.setSystemTime(BASE_TIME + 10 * 60_000)
+    // Worker suspended — re-prime as the next heartbeat alarm would.
+    __resetTrackerForTests()
+    seedFreshSnapshots(BASE_TIME + 10 * 60_000)
+
+    // Next heartbeat at +12 min. `now - lastHeartbeatTs` = 12-7 = 5 min,
+    // within the sleep threshold, so the primer recovers `startedAt = 7min`.
+    // The dispatched duration must be 12-7 = 5 min — the 2 min of inactivity
+    // post-unpause are recorded (we have no signal they weren't real
+    // browsing), but the 3 min of paused time before unpause are NOT.
+    vi.setSystemTime(BASE_TIME + 12 * 60_000)
+    await primeActiveSessionIfNeeded(makeSettings())
+    emitHeartbeat(makeSettings())
+
+    const { pendingRaw } = __peekStateForTests()
+    const slice = pendingRaw.find((e) => e.duration !== undefined)
+    expect(slice?.duration).toBe(5 * 60_000)
+    // Sanity: never anywhere near the pre-fix value (7 min including pause).
+    expect(slice?.duration).not.toBe(7 * 60_000)
+  })
 })
