@@ -18,6 +18,7 @@ export const ACTIVITY_KEYS = {
   week: 'activity_week',
   all: 'activity_all',
   settings: 'activity_settings',
+  lastHeartbeat: 'activity_lastHeartbeat',
 } as const
 
 export type ActivityStorageKey = (typeof ACTIVITY_KEYS)[keyof typeof ACTIVITY_KEYS]
@@ -73,3 +74,20 @@ export const ACTIVITY_CLEANUP_ALARM = 'activity-cleanup'
 export const HEARTBEAT_PERIOD_MIN = 5
 export const ROLLUP_PERIOD_MIN = 60
 export const CLEANUP_PERIOD_MIN = 60 * 24
+
+/**
+ * Heartbeat fires every `HEARTBEAT_PERIOD_MIN` minutes; any single slice
+ * larger than 3× that window means the OS / Chrome was frozen between alarms
+ * (laptop sleep, deep suspension). 3× is deliberate — Chrome MV3 alarm jitter
+ * under heavy load can push delivery 3–5 min late, so 2× would false-positive
+ * into legitimate-activity drops. The threshold only needs to catch sleeps,
+ * which are on the order of hours, so being generous here costs nothing.
+ *
+ * Used to drop the phantom duration and to decide whether a persisted
+ * `lastHeartbeatTs` is still trustworthy as the `startedAt` after a wake.
+ *
+ * `MAX_SESSION_DURATION_MS` (24h) above remains a defence-in-depth clamp for
+ * the `tab_closed` lifetime path in `handleTabRemoved`, which doesn't go
+ * through this sleep-guard logic.
+ */
+export const SLEEP_DETECTION_THRESHOLD_MS = HEARTBEAT_PERIOD_MIN * ONE_MINUTE_MS * 3

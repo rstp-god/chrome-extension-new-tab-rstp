@@ -132,8 +132,11 @@ export const activitySettingsSchema = z.object({
   tabStats: tabStatsSettingsSchema,
 })
 
+export const lastHeartbeatSchema = z.number().int().nonnegative()
+
 export const activityRawEnvelope = makeEnvelopeSchema(activityRawSchema)
 export const activityDayEnvelope = makeEnvelopeSchema(activityDaySnapshotSchema)
 export const activityWeekEnvelope = makeEnvelopeSchema(activityWeekSnapshotSchema)
 export const activityAllEnvelope = makeEnvelopeSchema(activityAllSnapshotSchema)
 export const activitySettingsEnvelope = makeEnvelopeSchema(activitySettingsSchema)
+export const lastHeartbeatEnvelope = makeEnvelopeSchema(lastHeartbeatSchema)

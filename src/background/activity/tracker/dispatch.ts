@@ -65,10 +65,7 @@ export function dispatchEvent(event: ActivityEvent, settingsGetter: SettingsGett
  * After all three are populated, drain any events that arrived during the
  * hydration window through `dispatchEvent`.
  */
-export async function hydrateSnapshots(
-  now: number,
-  settingsGetter: SettingsGetter,
-): Promise<void> {
+export async function hydrateSnapshots(now: number, settingsGetter: SettingsGetter): Promise<void> {
   const [day, week, all] = await Promise.all([loadDay(), loadWeek(), loadAll()])
 
   if (day) state.day = day

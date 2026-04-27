@@ -17,6 +17,10 @@
  * directly. Keeping I/O in one place is what lets us reason about concurrency.
  */
 
+export {
+  loadLastHeartbeatTs,
+  saveLastHeartbeatTs,
+} from '@/background/activity/storage/heartbeat.ts'
 export { appendRaw, loadRaw, pruneRaw, saveRaw } from '@/background/activity/storage/raw.ts'
 export {
   loadAll,
