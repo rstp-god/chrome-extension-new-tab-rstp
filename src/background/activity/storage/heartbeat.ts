@@ -20,3 +20,16 @@ export async function loadLastHeartbeatTs(): Promise<number | null> {
 export async function saveLastHeartbeatTs(ts: number): Promise<void> {
   await withLock(ACTIVITY_KEYS.lastHeartbeat, () => writeEnvelope(ACTIVITY_KEYS.lastHeartbeat, ts))
 }
+
+/**
+ * Drop the persisted anchor entirely. Used by transitions that intentionally
+ * stop time accumulation (pause) — leaving a stale anchor would let the next
+ * `primeActiveSessionIfNeeded` back-date `startedAt` into the inactive
+ * window, recording paused / unmonitored time as active screen time.
+ * After clear, the primer falls back to `now` and sessions restart cleanly.
+ */
+export async function clearLastHeartbeatTs(): Promise<void> {
+  await withLock(ACTIVITY_KEYS.lastHeartbeat, () =>
+    chrome.storage.local.remove(ACTIVITY_KEYS.lastHeartbeat),
+  )
+}

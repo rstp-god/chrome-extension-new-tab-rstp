@@ -111,6 +111,7 @@ interface MockChrome {
     local: {
       get: (keys?: string | string[]) => Promise<Record<string, unknown>>
       set: (items: Record<string, unknown>) => Promise<void>
+      remove: (keys: string | string[]) => Promise<void>
     }
     onChanged: { addListener: (fn: Listener<[unknown, string]>) => void }
   }
@@ -218,6 +219,10 @@ function installChromeMock(): void {
           for (const [key, value] of Object.entries(items)) {
             storageMap.set(key, value)
           }
+        },
+        remove: async (keys: string | string[]) => {
+          const list = Array.isArray(keys) ? keys : [keys]
+          for (const key of list) storageMap.delete(key)
         },
       },
       onChanged: {
@@ -678,5 +683,76 @@ describe('worker suspension and sleep recovery', () => {
     await Promise.resolve()
 
     expect(__peekStateForTests().activeSession?.domain).toBe('www.youtube.com')
+  })
+
+  it('pause clears the heartbeat anchor so paused time is never back-dated', async () => {
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    tabUrls.set(1, 'https://a.com/')
+    listeners.onActivated!({ tabId: 1, windowId: 1 })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Heartbeat at +5 min — persists `lastHeartbeatTs = BASE + 5min`.
+    vi.setSystemTime(BASE_TIME + 5 * 60_000)
+    emitHeartbeat(makeSettings())
+    for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    expect(await loadLastHeartbeatTs()).toBe(BASE_TIME + 5 * 60_000)
+
+    // User pauses at +7 min. The anchor must be dropped — leaving any
+    // ts behind (the pre-pause heartbeat OR a stamp at pause-instant) lets
+    // the primer below back-date `startedAt` into the inactive window.
+    vi.setSystemTime(BASE_TIME + 7 * 60_000)
+    onPauseChanged(true)
+    for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    expect(await loadLastHeartbeatTs()).toBeNull()
+
+    // User unpauses at +10 min and does nothing else (no tab switch).
+    // Worker suspended — re-prime as the next heartbeat alarm would.
+    vi.setSystemTime(BASE_TIME + 10 * 60_000)
+    __resetTrackerForTests()
+    seedFreshSnapshots(BASE_TIME + 10 * 60_000)
+
+    // Next heartbeat at +12 min. With the anchor cleared the primer falls
+    // back to `startedAt = now`, so emitHeartbeat sees elapsed=0 and
+    // dispatches nothing — paused minutes (7→10) and uncertain post-unpause
+    // minutes (10→12) are correctly NOT recorded as active screen time.
+    vi.setSystemTime(BASE_TIME + 12 * 60_000)
+    await primeActiveSessionIfNeeded(makeSettings())
+    emitHeartbeat(makeSettings())
+
+    const { pendingRaw } = __peekStateForTests()
+    const slice = pendingRaw.find((e) => e.duration !== undefined)
+    expect(slice).toBeUndefined()
+  })
+
+  it('Codex regression: stale anchor + brief pause does not record paused minutes', async () => {
+    // Reproduces Codex's exact scenario: a stale anchor from hours ago,
+    // pause for 5 min, unpause, next heartbeat. Pre-fix (anchor stamped at
+    // pause): primer back-dates startedAt to pause-instant → emits 5 min of
+    // pure paused time. Post-fix (anchor cleared): primer starts fresh.
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    tabUrls.set(1, 'https://a.com/')
+    // Plant a stale anchor 10 hours in the past as if from a long-ago
+    // heartbeat the worker suspended after.
+    await saveLastHeartbeatTs(BASE_TIME - 10 * 60 * 60_000)
+
+    // User pauses now.
+    onPauseChanged(true)
+    for (let i = 0; i < 5; i += 1) await Promise.resolve()
+    expect(await loadLastHeartbeatTs()).toBeNull()
+
+    // 5 min later, user unpauses (no-op) and the heartbeat fires.
+    vi.setSystemTime(BASE_TIME + 5 * 60_000)
+    __resetTrackerForTests()
+    seedFreshSnapshots(BASE_TIME + 5 * 60_000)
+    await primeActiveSessionIfNeeded(makeSettings())
+    emitHeartbeat(makeSettings())
+
+    const { pendingRaw } = __peekStateForTests()
+    expect(pendingRaw.find((e) => e.duration !== undefined)).toBeUndefined()
   })
 })
