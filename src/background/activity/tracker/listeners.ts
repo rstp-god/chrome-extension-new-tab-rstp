@@ -123,10 +123,16 @@ export function handleTabUpdated(
 ): void {
   if (changeInfo.url === undefined) return
   const newDomain = extractDomain(tab.url)
-  state.activationSeq += 1
+  // `activationSeq` is the supersession token for in-flight async resolutions
+  // started by `handleTabActivated` / `handleWindowFocusChanged`. Bumping it
+  // here cancels those resolutions — so we must only bump when this update
+  // actually changes session state. For SPA URL changes that don't end or
+  // restart a session (e.g. YouTube Shorts scrolling on an already-active
+  // tab, or any update for a non-active tab), the bump would gratuitously
+  // kill a legitimate pending activation for this same domain.
   if (!newDomain) {
-    // Navigated to non-HTTP(S) — end session if this tab was active.
     if (state.activeSession?.tabId === tabId) {
+      state.activationSeq += 1
       endActiveSession(Date.now(), 'tab_navigated', settingsGetter)
     }
     state.tabDomain.delete(tabId)
@@ -134,8 +140,9 @@ export function handleTabUpdated(
   }
   const prevDomain = state.tabDomain.get(tabId)
   if (prevDomain === newDomain) return
-  const now = Date.now()
   if (state.activeSession?.tabId === tabId) {
+    state.activationSeq += 1
+    const now = Date.now()
     endActiveSession(now, 'tab_navigated', settingsGetter)
     startSession(tabId, newDomain, now, settingsGetter)
   } else {

@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { __resetForTests as __resetStorageForTests } from '@/background/activity/storage.ts'
+import {
+  loadLastHeartbeatTs,
+  saveLastHeartbeatTs,
+} from '@/background/activity/storage/heartbeat.ts'
 import type { ActivitySettings } from '@/background/activity/types.ts'
 import { DEFAULT_ACTIVITY_SETTINGS } from '@/background/activity/types.ts'
 import {
@@ -125,6 +130,7 @@ interface Listeners {
 const listeners: Listeners = {}
 const tabUrls = new Map<number, string>()
 const openWindows: chrome.windows.Window[] = []
+const storageMap = new Map<string, unknown>()
 
 function installChromeMock(): void {
   const mockChrome: MockChrome = {
@@ -197,9 +203,21 @@ function installChromeMock(): void {
     },
     storage: {
       local: {
-        get: async () => ({}),
-        set: async () => {
-          /* no-op */
+        get: async (keys?: string | string[]) => {
+          if (!keys) {
+            return Object.fromEntries(storageMap)
+          }
+          const list = Array.isArray(keys) ? keys : [keys]
+          const out: Record<string, unknown> = {}
+          for (const key of list) {
+            if (storageMap.has(key)) out[key] = storageMap.get(key)
+          }
+          return out
+        },
+        set: async (items: Record<string, unknown>) => {
+          for (const [key, value] of Object.entries(items)) {
+            storageMap.set(key, value)
+          }
         },
       },
       onChanged: {
@@ -227,6 +245,8 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.setSystemTime(BASE_TIME)
   __resetTrackerForTests()
+  __resetStorageForTests()
+  storageMap.clear()
   listeners.onActivated = undefined
   listeners.onCreated = undefined
   listeners.onRemoved = undefined
@@ -242,6 +262,8 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetTrackerForTests()
+  __resetStorageForTests()
+  storageMap.clear()
   vi.useRealTimers()
 })
 
@@ -349,17 +371,20 @@ describe('tracker state machine', () => {
     await Promise.resolve()
     await Promise.resolve()
 
-    vi.setSystemTime(BASE_TIME + 3600_000) // 1h later
+    // One heartbeat-period later — within the sleep guard threshold so the
+    // slice is dispatched. (Gaps larger than 2× the heartbeat period are
+    // treated as OS-freeze artifacts and dropped — covered separately.)
+    vi.setSystemTime(BASE_TIME + 5 * 60_000)
     emitHeartbeat(makeSettings())
 
     const { activeSession, pendingRaw } = __peekStateForTests()
     expect(activeSession?.domain).toBe('a.com')
     // startedAt should be reset to current time, so future heartbeats don't double-count.
-    expect(activeSession?.startedAt).toBe(BASE_TIME + 3600_000)
-    expect(pendingRaw.some((e) => e.duration === 3600_000)).toBe(true)
+    expect(activeSession?.startedAt).toBe(BASE_TIME + 5 * 60_000)
+    expect(pendingRaw.some((e) => e.duration === 5 * 60_000)).toBe(true)
   })
 
-  it('duration is clamped to 24h (clock skew / system sleep)', async () => {
+  it('drops the duration when the elapsed gap exceeds the sleep threshold', async () => {
     setupActivityTracking(makeSettings())
     seedFreshSnapshots(BASE_TIME)
 
@@ -368,13 +393,15 @@ describe('tracker state machine', () => {
     await Promise.resolve()
     await Promise.resolve()
 
-    // Jump 5 days forward — simulating a long sleep / clock skew.
+    // Jump 5 days forward — simulating a long sleep / clock skew. The sleep
+    // guard in `endActiveSession` recognises this as an OS freeze and refuses
+    // to emit the phantom duration, leaving the daily aggregate clean.
     vi.setSystemTime(BASE_TIME + 5 * 86_400_000)
     listeners.onFocusChanged!(-1)
 
     const { pendingRaw } = __peekStateForTests()
     const durational = pendingRaw.find((e) => e.duration !== undefined)
-    expect(durational?.duration).toBe(24 * 60 * 60 * 1000)
+    expect(durational).toBeUndefined()
   })
 })
 
@@ -557,5 +584,100 @@ describe('primeActiveSessionIfNeeded', () => {
     await primeActiveSessionIfNeeded(makeSettings())
 
     expect(__peekStateForTests().activeSession).toBeNull()
+  })
+})
+
+describe('worker suspension and sleep recovery', () => {
+  it('recovers elapsed time across worker suspension via persisted lastHeartbeatTs', async () => {
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    tabUrls.set(1, 'https://a.com/')
+    listeners.onActivated!({ tabId: 1, windowId: 1 })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // First heartbeat after 5 min — persists `lastHeartbeatTs`.
+    vi.setSystemTime(BASE_TIME + 5 * 60_000)
+    emitHeartbeat(makeSettings())
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(await loadLastHeartbeatTs()).toBe(BASE_TIME + 5 * 60_000)
+
+    // Worker suspended → in-memory state wiped. Re-seed snapshots so the
+    // tracker can dispatch (mirrors the alarm path: hydrate then run).
+    __resetTrackerForTests()
+    seedFreshSnapshots(BASE_TIME + 5 * 60_000)
+
+    // 3 min later the heartbeat alarm fires. Without the persisted ts the
+    // session would re-prime with `startedAt = now` and emit duration ≈ 0.
+    vi.setSystemTime(BASE_TIME + 8 * 60_000)
+    await primeActiveSessionIfNeeded(makeSettings())
+    emitHeartbeat(makeSettings())
+
+    const { pendingRaw } = __peekStateForTests()
+    const slice = pendingRaw.find((e) => e.duration !== undefined)
+    expect(slice?.domain).toBe('a.com')
+    expect(slice?.duration).toBe(3 * 60_000)
+  })
+
+  it('drops the heartbeat slice when elapsed exceeds the sleep threshold', async () => {
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    tabUrls.set(1, 'https://a.com/')
+    listeners.onActivated!({ tabId: 1, windowId: 1 })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Simulate the laptop having slept for 8 hours after a real heartbeat.
+    await saveLastHeartbeatTs(BASE_TIME)
+    vi.setSystemTime(BASE_TIME + 8 * 60 * 60_000)
+
+    // Worker survived sleep — emitHeartbeat is called directly with a stale
+    // session.startedAt 8h in the past. The sleep guard must drop it.
+    emitHeartbeat(makeSettings())
+    await Promise.resolve()
+    await Promise.resolve()
+
+    const { activeSession, pendingRaw } = __peekStateForTests()
+    const slice = pendingRaw.find((e) => e.duration !== undefined)
+    expect(slice).toBeUndefined()
+    // Clock is reset and the new ts is persisted so the next heartbeat starts fresh.
+    expect(activeSession?.startedAt).toBe(BASE_TIME + 8 * 60 * 60_000)
+    expect(await loadLastHeartbeatTs()).toBe(BASE_TIME + 8 * 60 * 60_000)
+  })
+
+  it('SPA URL change for a non-active tab does not cancel a pending activation', async () => {
+    setupActivityTracking(makeSettings())
+    seedFreshSnapshots(BASE_TIME)
+
+    // Activate tab 1 (a.com) so it has the active session; YouTube is in tab 2.
+    tabUrls.set(1, 'https://a.com/')
+    listeners.onActivated!({ tabId: 1, windowId: 1 })
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(__peekStateForTests().activeSession?.domain).toBe('a.com')
+
+    // Switch to YouTube tab. resumeSessionFor goes async because tab 2's
+    // domain isn't cached yet — captures `seq = N`.
+    tabUrls.set(2, 'https://www.youtube.com/')
+    listeners.onActivated!({ tabId: 2, windowId: 1 })
+
+    // Before the resolution flushes, an update fires for tab 1 (a.com → a.com,
+    // a same-domain SPA-style URL change on the now non-active tab). Pre-fix:
+    // this bumped `activationSeq` even though no session changed, killing the
+    // pending tab-2 activation. Post-fix: no bump for non-active tabs.
+    listeners.onUpdated!(
+      1,
+      { url: 'https://a.com/page' },
+      { id: 1, url: 'https://a.com/page' } as chrome.tabs.Tab,
+    )
+
+    // Now flush tab 2's resolveDomain.
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(__peekStateForTests().activeSession?.domain).toBe('www.youtube.com')
   })
 })
