@@ -201,6 +201,56 @@ describe('aggregateDaily', () => {
     expect(resultAfter.wip).toBe(0)
   })
 
+  // 9. Last day of a month boundary (Jan 31 → Feb 1)
+  it('task created/completed on Jan 31 counts in Jan 31; a Feb 1 task is not counted', () => {
+    const jan31 = '2024-01-31'
+    const feb1 = '2024-02-01'
+
+    const jan31Task = makeTask({
+      createdAt: ts(jan31, 10, 0),
+      status: 'completed',
+      statusChangedAt: ts(jan31, 18, 0),
+      completedAt: ts(jan31, 18, 0),
+    })
+    // Task created exactly at local midnight Feb 1 — must NOT appear in Jan 31
+    const feb1Task = makeTask({
+      createdAt: ts(feb1, 0, 0, 0, 0),
+    })
+
+    const result = aggregateDaily([jan31Task, feb1Task], localMidnight(jan31))
+
+    expect(result.date).toBe(jan31)
+    expect(result.planned).toBe(1) // only jan31Task
+    expect(result.closed).toBe(1)
+    expect(result.fullFlow).toBe(1)
+    expect(result.wip).toBe(0)
+  })
+
+  // 10. Year boundary (Dec 31 → Jan 1)
+  it('task created/completed on Dec 31 counts in Dec 31; a Jan 1 task is not counted', () => {
+    const dec31 = '2024-12-31'
+    const jan1 = '2025-01-01'
+
+    const dec31Task = makeTask({
+      createdAt: ts(dec31, 14, 0),
+      status: 'completed',
+      statusChangedAt: ts(dec31, 22, 0),
+      completedAt: ts(dec31, 22, 0),
+    })
+    // Task created exactly at local midnight Jan 1 — must NOT appear in Dec 31
+    const jan1Task = makeTask({
+      createdAt: ts(jan1, 0, 0, 0, 0),
+    })
+
+    const result = aggregateDaily([dec31Task, jan1Task], localMidnight(dec31))
+
+    expect(result.date).toBe(dec31)
+    expect(result.planned).toBe(1) // only dec31Task
+    expect(result.closed).toBe(1)
+    expect(result.fullFlow).toBe(1)
+    expect(result.wip).toBe(0)
+  })
+
   // Additional: multiple tasks mixed metrics
   it('multiple tasks produce correct aggregate totals', () => {
     const day = '2024-07-15'

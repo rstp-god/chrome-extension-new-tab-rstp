@@ -43,11 +43,20 @@ function dayWindowMs(
   // We know the answer is within ±14 hours of the UTC midnight for this date.
   const utcMidnightApprox = Date.UTC(year, month, day)
   const dayStart = findLocalMidnight(utcMidnightApprox, year, month, day, timeZone)
+
+  // Derive the next calendar day by normalising through Date.UTC so that
+  // month-end and year-end rollovers (e.g. Jan 31 → Feb 1, Dec 31 → Jan 1)
+  // are handled correctly instead of producing an out-of-range day-of-month.
+  const nextDayUtc = Date.UTC(year, month, day + 1)
+  const nextDayDate = new Date(nextDayUtc)
+  const nextYear = nextDayDate.getUTCFullYear()
+  const nextMonth = nextDayDate.getUTCMonth() // 0-based
+  const nextDay = nextDayDate.getUTCDate()
   const dayStartOfNextDay = findLocalMidnight(
     utcMidnightApprox + 86_400_000,
-    year,
-    month,
-    day + 1,
+    nextYear,
+    nextMonth,
+    nextDay,
     timeZone,
   )
 
