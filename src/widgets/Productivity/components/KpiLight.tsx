@@ -10,11 +10,14 @@ export function computeKpi(
   today: ProductivityDaily,
   baseline: BaselineStats,
   coldStart: boolean,
+  splitWeekdayWeekend: boolean,
 ): KpiStatus {
   if (coldStart) return 'cold'
-  const isWeekend = today.weekday >= 5 // 5 = Sat, 6 = Sun
-  const closedBaseline = isWeekend ? baseline.closed.weekendMedian : baseline.closed.weekdayMedian
-  const wipBaseline = isWeekend ? baseline.wip.weekendMedian : baseline.wip.weekdayMedian
+  const useWeekendMedian = splitWeekdayWeekend && today.weekday >= 5
+  const closedBaseline = useWeekendMedian
+    ? baseline.closed.weekendMedian
+    : baseline.closed.weekdayMedian
+  const wipBaseline = useWeekendMedian ? baseline.wip.weekendMedian : baseline.wip.weekdayMedian
   if (closedBaseline === null || wipBaseline === null) return 'cold'
   const goodClosed = today.closed >= closedBaseline
   const goodWip = today.wip <= wipBaseline + 1
@@ -27,6 +30,7 @@ interface KpiLightProps {
   today: ProductivityDaily
   baseline: BaselineStats
   coldStart: boolean
+  splitWeekdayWeekend: boolean
 }
 
 const DOT_COLOR: Record<KpiStatus, string> = {
@@ -36,9 +40,9 @@ const DOT_COLOR: Record<KpiStatus, string> = {
   cold: 'bg-zinc-400',
 }
 
-export function KpiLight({ today, baseline, coldStart }: KpiLightProps) {
+export function KpiLight({ today, baseline, coldStart, splitWeekdayWeekend }: KpiLightProps) {
   const { t } = useTranslation('productivityWidget')
-  const status = computeKpi(today, baseline, coldStart)
+  const status = computeKpi(today, baseline, coldStart, splitWeekdayWeekend)
 
   return (
     <div className="flex items-center gap-1.5">

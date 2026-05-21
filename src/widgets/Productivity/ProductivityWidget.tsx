@@ -93,7 +93,12 @@ export function ProductivityWidget() {
         <CardTitle>{t('title')}</CardTitle>
         <CardAction>
           <div className="flex items-center gap-1">
-            <KpiLight today={today} baseline={baseline} coldStart={coldStart} />
+            <KpiLight
+              today={today}
+              baseline={baseline}
+              coldStart={coldStart}
+              splitWeekdayWeekend={splitWeekdayWeekend}
+            />
             <ProductivitySettings />
           </div>
         </CardAction>

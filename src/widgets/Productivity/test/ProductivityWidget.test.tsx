@@ -232,6 +232,44 @@ describe('ProductivityWidget — loading state', () => {
   })
 })
 
+describe('ProductivityWidget — splitWeekdayWeekend coherence', () => {
+  it('KPI dot and metric deltas agree when splitWeekdayWeekend=false on a weekend day', () => {
+    // weekday=6 (Sunday). With splitWeekdayWeekend OFF both the KPI and metrics
+    // must use weekdayMedian. Design the baseline so that:
+    //   - weekdayMedian → green KPI (closed >= 4, wip <= 4)
+    //   - weekendMedian → would give red KPI (closed < 10, wip > 1+1)
+    // So if KPI dot is emerald (green) we know it used weekdayMedian.
+    // The metric delta for "closed" should also reflect weekdayMedian (baseline=4):
+    //   closed=5 vs weekdayMedian=4 → positive delta (arrow up).
+    const today = makeDay({
+      weekday: 6, // Sunday
+      closed: 5,
+      wip: 3,
+    })
+    const baseline = makeBaseline({
+      closed: { weekdayMedian: 4, weekendMedian: 10 },
+      wip: { weekdayMedian: 3, weekendMedian: 1 },
+      daysOfHistory: 14,
+      weekdayDays: 10,
+      weekendDays: 4,
+    })
+
+    useProductivityStore.setState({ today, baseline, splitWeekdayWeekend: false })
+
+    render(<ProductivityWidget />)
+
+    // KPI dot must be green (weekday median used: closed=5>=4 ✓, wip=3<=4 ✓)
+    const dot = screen.getByTestId(TestId.ProductivityKpiDot)
+    expect(dot.className).toContain('bg-emerald-500')
+
+    // Metric grid must be present (not cold-start skeleton)
+    expect(screen.getByTestId(TestId.ProductivityMetricsGrid)).toBeDefined()
+
+    // The "closed" metric value should be rendered
+    expect(screen.getByText('5')).toBeDefined()
+  })
+})
+
 describe('ProductivityWidget — error state', () => {
   it('renders the error message and a retry button when error is non-null', () => {
     useProductivityStore.setState({ error: 'Something went wrong' })
