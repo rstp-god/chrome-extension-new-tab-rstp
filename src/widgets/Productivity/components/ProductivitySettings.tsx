@@ -4,16 +4,16 @@ import { useTranslation } from 'react-i18next'
 import { Settings } from 'lucide-react'
 
 import { Button } from '@/components/ui/button.tsx'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { Separator } from '@/components/ui/separator.tsx'
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { isShowcaseMode } from '@/services/chrome/runtime.ts'
 import { rebuildDailyCache } from '@/widgets/Productivity/lib/dailyCache.ts'
@@ -44,8 +44,8 @@ export function ProductivitySettings() {
   }
 
   return (
-    <Sheet>
-      <SheetTrigger asChild>
+    <Dialog>
+      <DialogTrigger asChild>
         <Button
           variant="ghost"
           size="icon"
@@ -54,14 +54,14 @@ export function ProductivitySettings() {
         >
           <Settings />
         </Button>
-      </SheetTrigger>
-      <SheetContent>
-        <SheetHeader>
-          <SheetTitle>{t('settings.title')}</SheetTitle>
-          <SheetDescription>{t('settings.description')}</SheetDescription>
-        </SheetHeader>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('settings.title')}</DialogTitle>
+          <DialogDescription>{t('settings.description')}</DialogDescription>
+        </DialogHeader>
 
-        <div className="flex flex-col gap-4 px-6 py-4">
+        <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between gap-4">
             <Label htmlFor="productivity-show-full-flow">{t('settings.showFullFlow')}</Label>
             <Switch
@@ -112,7 +112,7 @@ export function ProductivitySettings() {
 
           <p className="text-xs text-muted-foreground">{t('settings.baselineHint')}</p>
         </div>
-      </SheetContent>
-    </Sheet>
+      </DialogContent>
+    </Dialog>
   )
 }

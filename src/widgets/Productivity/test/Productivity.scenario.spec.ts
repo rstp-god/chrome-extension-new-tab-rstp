@@ -169,20 +169,20 @@ async function captureScenarios(page: Page, suffix: '' | '-dark') {
     await snapshot(page, `widget-productivity-red${suffix}.png`)
   })
 
-  // ── Settings sheet ────────────────────────────────────────────────────────
+  // ── Settings dialog ───────────────────────────────────────────────────────
   // (Checked against green state which remains loaded.)
 
-  await test.step(`Settings sheet${suffix}`, async () => {
-    // Open the sheet via the settings gear button inside the widget
+  await test.step(`Settings dialog${suffix}`, async () => {
+    // Open the dialog via the settings gear button inside the widget
     const settingsBtn = productivityFrame(page).getByTestId(TestId.ProductivityOpenSettings)
     await settingsBtn.click()
 
-    // The sheet is rendered in a portal; locate it by its heading text
-    const sheet = page.locator('[data-slot="sheet-content"]')
-    await expect(sheet).toBeVisible()
+    // The dialog is rendered in a portal; locate it by its data-slot
+    const dialog = page.locator('[data-slot="dialog-content"]')
+    await expect(dialog).toBeVisible()
 
     // Functional: all four toggle switches are visible
-    const switches = sheet.locator('[role="switch"]')
+    const switches = dialog.locator('[role="switch"]')
     await expect(switches).toHaveCount(4)
 
     // Functional: toggling showFullFlow works (click and check aria-checked flips)
@@ -192,9 +192,9 @@ async function captureScenarios(page: Page, suffix: '' | '-dark') {
     const flippedChecked = await firstSwitch.getAttribute('aria-checked')
     expect(flippedChecked).not.toBe(initialChecked)
 
-    // Close the sheet
+    // Close the dialog
     await page.keyboard.press('Escape')
-    await expect(sheet).toBeHidden()
+    await expect(dialog).toBeHidden()
   })
 }
 

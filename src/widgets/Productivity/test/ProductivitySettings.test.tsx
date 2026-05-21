@@ -57,10 +57,10 @@ afterEach(() => {
 })
 
 // ---------------------------------------------------------------------------
-// Helper: open the Sheet
+// Helper: open the Dialog
 // ---------------------------------------------------------------------------
 
-async function openSheet() {
+async function openDialog() {
   const user = userEvent.setup()
   // The trigger button aria-label key is returned as-is by the mock t()
   const trigger = screen.getByRole('button', { name: 'settings.openLabel' })
@@ -71,16 +71,16 @@ async function openSheet() {
 // Tests
 // ---------------------------------------------------------------------------
 
-describe('ProductivitySettings — Sheet trigger', () => {
+describe('ProductivitySettings — Dialog trigger', () => {
   it('renders the trigger button with a settings icon', () => {
     render(<ProductivitySettings />)
     const trigger = screen.getByRole('button', { name: 'settings.openLabel' })
     expect(trigger).toBeDefined()
   })
 
-  it('opens the Sheet and shows all four switch rows', async () => {
+  it('opens the Dialog and shows all four switch rows', async () => {
     render(<ProductivitySettings />)
-    await openSheet()
+    await openDialog()
 
     // All four labels (mock t() returns the key)
     expect(screen.getByText('settings.showFullFlow')).toBeDefined()
@@ -96,10 +96,10 @@ describe('ProductivitySettings — Sheet trigger', () => {
   })
 })
 
-describe('ProductivitySettings — toggle switches', () => {
+describe('ProductivitySettings — Dialog toggle switches', () => {
   it('toggling "Show WIP" switch calls setShowMetric and flips store.showWip', async () => {
     render(<ProductivitySettings />)
-    await openSheet()
+    await openDialog()
 
     expect(useProductivityStore.getState().showWip).toBe(true)
 
@@ -113,7 +113,7 @@ describe('ProductivitySettings — toggle switches', () => {
 
   it('toggling "Show Full Flow" switch flips store.showFullFlow', async () => {
     render(<ProductivitySettings />)
-    await openSheet()
+    await openDialog()
 
     expect(useProductivityStore.getState().showFullFlow).toBe(true)
 
@@ -127,7 +127,7 @@ describe('ProductivitySettings — toggle switches', () => {
 
   it('toggling "Show Planned" switch flips store.showPlanned', async () => {
     render(<ProductivitySettings />)
-    await openSheet()
+    await openDialog()
 
     expect(useProductivityStore.getState().showPlanned).toBe(true)
 
@@ -139,7 +139,7 @@ describe('ProductivitySettings — toggle switches', () => {
 
   it('toggling "Split weekday/weekend" switch flips store.splitWeekdayWeekend', async () => {
     render(<ProductivitySettings />)
-    await openSheet()
+    await openDialog()
 
     expect(useProductivityStore.getState().splitWeekdayWeekend).toBe(true)
 
@@ -152,7 +152,7 @@ describe('ProductivitySettings — toggle switches', () => {
   })
 })
 
-describe('ProductivitySettings — rebuild history', () => {
+describe('ProductivitySettings — Dialog rebuild history', () => {
   it('clicking "Rebuild history" calls rebuildDailyCache with current tasks and then refresh()', async () => {
     const mockTask = {
       id: 'task-1',
@@ -176,7 +176,7 @@ describe('ProductivitySettings — rebuild history', () => {
     >)
 
     render(<ProductivitySettings />)
-    await openSheet()
+    await openDialog()
 
     const rebuildButton = screen.getByRole('button', { name: 'settings.rebuildHistory' })
     expect(rebuildButton).toBeDefined()
@@ -206,7 +206,7 @@ describe('ProductivitySettings — rebuild history', () => {
     >)
 
     render(<ProductivitySettings />)
-    await openSheet()
+    await openDialog()
 
     const rebuildButton = screen.getByRole('button', { name: 'settings.rebuildHistory' })
 

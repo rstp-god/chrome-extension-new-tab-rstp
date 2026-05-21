@@ -88,7 +88,7 @@ src/widgets/Productivity/
 ├── components/
 │   ├── KpiLight.tsx                  # traffic-light dot + computeKpi
 │   ├── ProductivityNumber.tsx        # single metric card with delta arrow
-│   └── ProductivitySettings.tsx     # settings sheet
+│   └── ProductivitySettings.tsx     # settings dialog
 ├── lib/
 │   ├── aggregateDaily.ts             # pure: todo tasks → ProductivityDaily
 │   ├── baseline.ts                   # pure: cache → BaselineStats (median)
