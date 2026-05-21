@@ -144,10 +144,7 @@ export async function ensureCustomizeMode(page: Page) {
   await expect(addWidgetTrigger).toBeVisible()
 }
 
-export async function addWidget(
-  page: Page,
-  widgetType: 'todo' | 'chromeLibrary' | 'screenTime' | 'tabStats',
-) {
+export async function addWidget(page: Page, widgetType: 'todo' | 'chromeLibrary' | 'screenTime') {
   await ensureCustomizeMode(page)
   await page.getByTestId(TestId.AddWidgetTrigger).click()
   await expect(page.getByTestId(testIds.addWidgetItem(widgetType))).toBeVisible()
