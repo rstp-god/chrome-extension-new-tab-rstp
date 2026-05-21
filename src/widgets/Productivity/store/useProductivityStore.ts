@@ -141,7 +141,7 @@ export const useProductivityStore = create<Synced<ProductivityStore>>()(
  *   updates within the same window are ignored (no runaway queuing).
  */
 export function startProductivityAutoRefresh(): () => void {
-  let trailingTimerId: ReturnType<typeof setTimeout> | null = null
+  let trailingTimerId: number | null = null
 
   const debouncedRefresh = debounce(() => {
     const { lastComputedAt } = useProductivityStore.getState()
@@ -155,7 +155,7 @@ export function startProductivityAutoRefresh(): () => void {
       // for when the window expires. Do not stack multiple trailing timers.
       if (trailingTimerId !== null) return
       const remaining = THROTTLE_MS - elapsed
-      trailingTimerId = setTimeout(() => {
+      trailingTimerId = window.setTimeout(() => {
         trailingTimerId = null
         void useProductivityStore.getState().refresh()
       }, remaining)
@@ -172,7 +172,7 @@ export function startProductivityAutoRefresh(): () => void {
     unsubscribe()
     debouncedRefresh.cancel()
     if (trailingTimerId !== null) {
-      clearTimeout(trailingTimerId)
+      window.clearTimeout(trailingTimerId)
       trailingTimerId = null
     }
   }
