@@ -1,6 +1,6 @@
 # Activity tracking module
 
-Background service-worker module that feeds the **Screen Time** widget. Collects per-domain time spent and tab-management metrics, fully local, no cloud sync.
+Background service-worker module that feeds the **Screen Time** widget. Collects per-domain time spent, fully local, no cloud sync.
 
 ## Module layout
 
