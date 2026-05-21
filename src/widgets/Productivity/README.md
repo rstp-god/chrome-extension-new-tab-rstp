@@ -49,7 +49,7 @@ rendered.
 Implemented in `components/KpiLight.tsx::computeKpi`.
 
 1. If `coldStart` is `true` → **cold** (grey).
-2. Pick the relevant baseline median for today's day type (weekday or weekend, depending on `splitWeekdayWeekend`). If either `closedBaseline` or `wipBaseline` is `null` → **cold**.
+2. Pick the baseline median for today's day type — weekend medians on Sat/Sun, weekday medians otherwise. `computeKpi` always branches on `today.weekday`; it does not read `splitWeekdayWeekend` (that setting only affects the `coldStart` derivation and the per-metric delta arrows). If either `closedBaseline` or `wipBaseline` is `null` → **cold**.
 3. `goodClosed` = `today.closed >= closedBaseline`
 4. `goodWip` = `today.wip <= wipBaseline + 1`
 5. Both good → **green**; neither good → **red**; one good → **yellow**.
