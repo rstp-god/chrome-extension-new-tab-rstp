@@ -260,6 +260,70 @@ describe('computeBaseline', () => {
     expect(result.closed.weekendMedian).toBeNull()
   })
 
+  // 9. All four metrics are wired to their own data (guards against cross-metric copy-paste bugs)
+  it('all four metrics are computed independently with distinct medians', () => {
+    // Window: 2024-01-08 … 2024-01-21 (asOf = 2024-01-22)
+    // Use 5 weekday entries (Mon–Fri of the first week) so cold-start gate passes.
+    // Each metric gets a clearly different set of values → distinct medians:
+    //   closed    : [1,2,3,4,5]  → median 3
+    //   fullFlow  : [10,20,30,40,50] → median 30
+    //   planned   : [100,101,102,103,104] → median 102
+    //   wip       : [7,14,21,28,35] → median 21
+    const weekdayDates = [
+      { date: '2024-01-08', closed: 1, fullFlow: 10, planned: 100, wip: 7 },
+      { date: '2024-01-09', closed: 2, fullFlow: 20, planned: 101, wip: 14 },
+      { date: '2024-01-10', closed: 3, fullFlow: 30, planned: 102, wip: 21 },
+      { date: '2024-01-11', closed: 4, fullFlow: 40, planned: 103, wip: 28 },
+      { date: '2024-01-12', closed: 5, fullFlow: 50, planned: 104, wip: 35 },
+    ]
+
+    const entries = weekdayDates.map(({ date, ...rest }) => makeDaily(date, rest))
+    const cache = buildCache(entries)
+    const result = computeBaseline(cache, AS_OF)
+
+    expect(result.weekdayDays).toBe(5)
+    expect(result.closed.weekdayMedian).toBe(3)
+    expect(result.fullFlow.weekdayMedian).toBe(30)
+    expect(result.planned.weekdayMedian).toBe(102)
+    expect(result.wip.weekdayMedian).toBe(21)
+
+    // All four medians are distinct — if any metric were cross-wired these would collide.
+    const medians = [
+      result.closed.weekdayMedian,
+      result.fullFlow.weekdayMedian,
+      result.planned.weekdayMedian,
+      result.wip.weekdayMedian,
+    ]
+    expect(new Set(medians).size).toBe(4)
+  })
+
+  // 10. Window crossing a year boundary — entries in late December must be picked up
+  it('window spanning a year boundary picks up December entries correctly', () => {
+    // asOf = 2024-01-05 (Friday). 14-day window = 2023-12-22 … 2024-01-04.
+    const asOf = new Date(2024, 0, 5) // Friday
+
+    // Populate 3 weekday entries that fall inside the window in late December 2023.
+    //   2023-12-27 (Wed, wd=2), 2023-12-28 (Thu, wd=3), 2023-12-29 (Fri, wd=4)
+    // And one entry just outside the window to make sure it is excluded:
+    //   2023-12-21 (Thu) — asOf-15, must NOT be included.
+    const entries = [
+      makeDaily('2023-12-27', { closed: 5 }),
+      makeDaily('2023-12-28', { closed: 7 }),
+      makeDaily('2023-12-29', { closed: 9 }),
+      makeDaily('2023-12-21', { closed: 999 }), // outside window — excluded
+    ]
+    const cache = buildCache(entries)
+    const result = computeBaseline(cache, asOf)
+
+    // Only the 3 in-window entries should contribute.
+    expect(result.weekdayDays).toBe(3)
+    expect(result.daysOfHistory).toBe(3)
+    // median of [5, 7, 9] = 7
+    expect(result.closed.weekdayMedian).toBe(7)
+    // The out-of-window entry with value 999 must NOT appear.
+    expect(result.closed.weekdayMedian).not.toBe(999)
+  })
+
   // 8. Custom windowDays parameter
   it('windowDays=7 respects a shorter window', () => {
     // asOf=2024-01-22; 7-day window = Jan 15–21

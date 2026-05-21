@@ -28,7 +28,7 @@ export interface BaselineStats {
   fullFlow: MetricBaseline
   planned: MetricBaseline
   wip: MetricBaseline
-  /** Total unique days present in the window */
+  /** Total days with data present in the window */
   daysOfHistory: number
   /** Weekday (Mon–Fri) days present in the window */
   weekdayDays: number
