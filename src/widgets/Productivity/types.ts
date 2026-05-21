@@ -17,3 +17,21 @@ export interface ProductivityDaily {
   /** Day-of-week: Monday = 0 … Sunday = 6 */
   weekday: 0 | 1 | 2 | 3 | 4 | 5 | 6
 }
+
+export interface MetricBaseline {
+  weekdayMedian: number | null
+  weekendMedian: number | null
+}
+
+export interface BaselineStats {
+  closed: MetricBaseline
+  fullFlow: MetricBaseline
+  planned: MetricBaseline
+  wip: MetricBaseline
+  /** Total unique days present in the window */
+  daysOfHistory: number
+  /** Weekday (Mon–Fri) days present in the window */
+  weekdayDays: number
+  /** Weekend (Sat–Sun) days present in the window */
+  weekendDays: number
+}
