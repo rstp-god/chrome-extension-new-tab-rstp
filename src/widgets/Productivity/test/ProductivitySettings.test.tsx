@@ -172,7 +172,7 @@ describe('ProductivitySettings — rebuild history', () => {
 
     const refreshSpy = vi.fn().mockResolvedValue(undefined)
     useProductivityStore.setState({ refresh: refreshSpy } as Partial<
-      typeof useProductivityStore extends { getState: () => infer S } ? S : never
+      ReturnType<typeof useProductivityStore.getState>
     >)
 
     render(<ProductivitySettings />)
@@ -202,7 +202,7 @@ describe('ProductivitySettings — rebuild history', () => {
     )
 
     useProductivityStore.setState({ refresh: vi.fn().mockResolvedValue(undefined) } as Partial<
-      typeof useProductivityStore extends { getState: () => infer S } ? S : never
+      ReturnType<typeof useProductivityStore.getState>
     >)
 
     render(<ProductivitySettings />)

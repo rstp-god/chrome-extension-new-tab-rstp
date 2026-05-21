@@ -9,11 +9,13 @@ import { Separator } from '@/components/ui/separator.tsx'
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
   SheetTrigger,
 } from '@/components/ui/sheet.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
+import { isShowcaseMode } from '@/services/chrome/runtime.ts'
 import { rebuildDailyCache } from '@/widgets/Productivity/lib/dailyCache.ts'
 import { useProductivityStore } from '@/widgets/Productivity/store/useProductivityStore.ts'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
@@ -50,6 +52,7 @@ export function ProductivitySettings() {
       <SheetContent>
         <SheetHeader>
           <SheetTitle>{t('settings.title')}</SheetTitle>
+          <SheetDescription>{t('settings.description')}</SheetDescription>
         </SheetHeader>
 
         <div className="flex flex-col gap-4 px-6 py-4">
@@ -95,7 +98,7 @@ export function ProductivitySettings() {
 
           <Button
             variant="destructive"
-            disabled={isRebuilding}
+            disabled={isRebuilding || isShowcaseMode()}
             onClick={() => void handleRebuild()}
           >
             {t('settings.rebuildHistory')}
