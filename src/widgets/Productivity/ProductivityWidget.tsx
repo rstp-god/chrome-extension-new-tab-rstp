@@ -8,6 +8,7 @@ import { KpiLight } from '@/widgets/Productivity/components/KpiLight.tsx'
 import { ProductivityNumber } from '@/widgets/Productivity/components/ProductivityNumber.tsx'
 import { ProductivitySettings } from '@/widgets/Productivity/components/ProductivitySettings.tsx'
 import { useProductivityStore } from '@/widgets/Productivity/store/useProductivityStore.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 
 export function ProductivityWidget() {
   const { t } = useTranslation('productivityWidget')
@@ -29,7 +30,7 @@ export function ProductivityWidget() {
   // ── Error state ────────────────────────────────────────────────────────────
   if (error !== null) {
     return (
-      <Card className="h-full" data-testid="productivity-widget-error">
+      <Card className="h-full" data-testid={TestId.ProductivityWidgetError}>
         <CardContent className="flex flex-col items-center gap-3 pt-6">
           <p className="text-sm text-muted-foreground">{t('error.message')}</p>
           <Button variant="outline" size="sm" onClick={() => void refresh()}>
@@ -44,7 +45,7 @@ export function ProductivityWidget() {
   // Only show skeleton when we have no data yet (not during background refreshes)
   if (today === null || baseline === null) {
     return (
-      <Card className="h-full" data-testid="productivity-widget-skeleton">
+      <Card className="h-full" data-testid={TestId.ProductivityWidgetSkeleton}>
         <CardHeader>
           <Skeleton className="h-5 w-32" />
           <CardAction>
@@ -87,7 +88,7 @@ export function ProductivityWidget() {
     : t('delta.average')
 
   return (
-    <Card className="h-full" data-testid="productivity-widget">
+    <Card className="h-full" data-testid={TestId.ProductivityWidget}>
       <CardHeader>
         <CardTitle>{t('title')}</CardTitle>
         <CardAction>
@@ -101,7 +102,7 @@ export function ProductivityWidget() {
       <CardContent>
         <div
           className="grid grid-cols-1 gap-4 sm:grid-cols-2"
-          data-testid="productivity-metrics-grid"
+          data-testid={TestId.ProductivityMetricsGrid}
         >
           <ProductivityNumber
             label={t('metrics.closed')}

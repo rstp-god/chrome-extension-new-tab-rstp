@@ -2,6 +2,7 @@ import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils.ts'
 import type { BaselineStats, ProductivityDaily } from '@/widgets/Productivity/types.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 
 export type KpiStatus = 'green' | 'yellow' | 'red' | 'cold'
 
@@ -44,7 +45,7 @@ export function KpiLight({ today, baseline, coldStart }: KpiLightProps) {
       <span
         aria-hidden="true"
         className={cn('h-3 w-3 shrink-0 rounded-full', DOT_COLOR[status])}
-        data-testid="kpi-dot"
+        data-testid={TestId.ProductivityKpiDot}
       />
       <span className="text-sm">{t(`kpi.${status}`)}</span>
     </div>

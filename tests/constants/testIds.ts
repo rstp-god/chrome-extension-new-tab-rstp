@@ -40,6 +40,16 @@ export enum TestId {
   ScreenTimeOpenSettings = 'screen-time-open-settings',
   ScreenTimeSettingsDialog = 'screen-time-settings-dialog',
   ScreenTimeChartPalette = 'screen-time-chart-palette',
+  ProductivityWidget = 'productivity-widget',
+  ProductivityWidgetError = 'productivity-widget-error',
+  ProductivityWidgetSkeleton = 'productivity-widget-skeleton',
+  ProductivityKpiDot = 'kpi-dot',
+  ProductivityMetricsGrid = 'productivity-metrics-grid',
+  ProductivityOpenSettings = 'productivity-open-settings',
+  ProductivityDeltaColdStart = 'delta-cold-start',
+  ProductivityDeltaPositive = 'delta-positive',
+  ProductivityDeltaNegative = 'delta-negative',
+  ProductivityDeltaAsUsual = 'delta-as-usual',
 }
 
 export enum TestIdPrefix {

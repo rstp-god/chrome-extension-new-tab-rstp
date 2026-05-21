@@ -8,6 +8,7 @@ vi.mock('react-i18next', () => createI18nModuleMock())
 
 import { KpiLight, computeKpi } from '@/widgets/Productivity/components/KpiLight.tsx'
 import type { BaselineStats, ProductivityDaily } from '@/widgets/Productivity/types.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 
 afterEach(cleanup)
 
@@ -161,7 +162,7 @@ describe('KpiLight', () => {
     const day = makeDay({ weekday: 0, closed: 5, wip: 3 })
     const baseline = makeBaseline()
     render(<KpiLight today={day} baseline={baseline} coldStart={false} />)
-    const dot = screen.getByTestId('kpi-dot')
+    const dot = screen.getByTestId(TestId.ProductivityKpiDot)
     expect(dot.className).toContain('bg-emerald-500')
   })
 
@@ -177,7 +178,7 @@ describe('KpiLight', () => {
     const day = makeDay({ weekday: 0, closed: 0, wip: 10 })
     const baseline = makeBaseline()
     render(<KpiLight today={day} baseline={baseline} coldStart={false} />)
-    const dot = screen.getByTestId('kpi-dot')
+    const dot = screen.getByTestId(TestId.ProductivityKpiDot)
     expect(dot.className).toContain('bg-rose-500')
   })
 
@@ -188,13 +189,13 @@ describe('KpiLight', () => {
 
   it('cold status → dot has bg-zinc-400 class', () => {
     render(<KpiLight today={makeDay()} baseline={makeBaseline()} coldStart={true} />)
-    const dot = screen.getByTestId('kpi-dot')
+    const dot = screen.getByTestId(TestId.ProductivityKpiDot)
     expect(dot.className).toContain('bg-zinc-400')
   })
 
   it('dot is aria-hidden (decorative)', () => {
     render(<KpiLight today={makeDay()} baseline={makeBaseline()} coldStart={false} />)
-    const dot = screen.getByTestId('kpi-dot')
+    const dot = screen.getByTestId(TestId.ProductivityKpiDot)
     expect(dot.getAttribute('aria-hidden')).toBe('true')
   })
 
@@ -204,7 +205,7 @@ describe('KpiLight', () => {
     const baseline = makeBaseline()
     render(<KpiLight today={day} baseline={baseline} coldStart={false} />)
     expect(screen.getByText('kpi.yellow')).toBeDefined()
-    const dot = screen.getByTestId('kpi-dot')
+    const dot = screen.getByTestId(TestId.ProductivityKpiDot)
     expect(dot.className).toContain('bg-amber-500')
   })
 })

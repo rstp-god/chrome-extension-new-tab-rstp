@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 
-import { testIds } from '@tests/constants/testIds.ts'
+import { TestId, testIds } from '@tests/constants/testIds.ts'
 import {
   addWidget,
   launchExtensionContext,
@@ -113,14 +113,16 @@ async function captureScenarios(page: Page, suffix: '' | '-dark') {
 
     // Wait for the widget to finish loading (skeleton disappears)
     await expect(
-      page.getByTestId('productivity-widget').or(page.getByTestId('productivity-widget-error')),
+      page
+        .getByTestId(TestId.ProductivityWidget)
+        .or(page.getByTestId(TestId.ProductivityWidgetError)),
     ).toBeVisible({ timeout: 15_000 })
 
     // Functional: KPI dot is present
-    await expect(productivityFrame(page).getByTestId('kpi-dot')).toBeVisible()
+    await expect(productivityFrame(page).getByTestId(TestId.ProductivityKpiDot)).toBeVisible()
 
-    // Functional: the four metric numbers are present (closed is always shown)
-    await expect(productivityFrame(page).getByTestId('productivity-metrics-grid')).toBeVisible()
+    // Functional: the metrics-grid container is rendered (visual snapshot covers the cells)
+    await expect(productivityFrame(page).getByTestId(TestId.ProductivityMetricsGrid)).toBeVisible()
 
     await snapshot(page, `widget-productivity-cold${suffix}.png`)
   })
@@ -136,10 +138,12 @@ async function captureScenarios(page: Page, suffix: '' | '-dark') {
     await addWidget(page, 'productivity')
 
     await expect(
-      page.getByTestId('productivity-widget').or(page.getByTestId('productivity-widget-error')),
+      page
+        .getByTestId(TestId.ProductivityWidget)
+        .or(page.getByTestId(TestId.ProductivityWidgetError)),
     ).toBeVisible({ timeout: 15_000 })
-    await expect(productivityFrame(page).getByTestId('kpi-dot')).toBeVisible()
-    await expect(productivityFrame(page).getByTestId('productivity-metrics-grid')).toBeVisible()
+    await expect(productivityFrame(page).getByTestId(TestId.ProductivityKpiDot)).toBeVisible()
+    await expect(productivityFrame(page).getByTestId(TestId.ProductivityMetricsGrid)).toBeVisible()
 
     await snapshot(page, `widget-productivity-green${suffix}.png`)
   })
@@ -155,10 +159,12 @@ async function captureScenarios(page: Page, suffix: '' | '-dark') {
     await addWidget(page, 'productivity')
 
     await expect(
-      page.getByTestId('productivity-widget').or(page.getByTestId('productivity-widget-error')),
+      page
+        .getByTestId(TestId.ProductivityWidget)
+        .or(page.getByTestId(TestId.ProductivityWidgetError)),
     ).toBeVisible({ timeout: 15_000 })
-    await expect(productivityFrame(page).getByTestId('kpi-dot')).toBeVisible()
-    await expect(productivityFrame(page).getByTestId('productivity-metrics-grid')).toBeVisible()
+    await expect(productivityFrame(page).getByTestId(TestId.ProductivityKpiDot)).toBeVisible()
+    await expect(productivityFrame(page).getByTestId(TestId.ProductivityMetricsGrid)).toBeVisible()
 
     await snapshot(page, `widget-productivity-red${suffix}.png`)
   })
@@ -168,7 +174,7 @@ async function captureScenarios(page: Page, suffix: '' | '-dark') {
 
   await test.step(`Settings sheet${suffix}`, async () => {
     // Open the sheet via the settings gear button inside the widget
-    const settingsBtn = productivityFrame(page).locator('button[aria-label]').last()
+    const settingsBtn = productivityFrame(page).getByTestId(TestId.ProductivityOpenSettings)
     await settingsBtn.click()
 
     // The sheet is rendered in a portal; locate it by its heading text

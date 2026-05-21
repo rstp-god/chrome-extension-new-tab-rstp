@@ -15,6 +15,7 @@ import {
 } from '@/widgets/Productivity/store/useProductivityStore.ts'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import type { BaselineStats, ProductivityDaily } from '@/widgets/Productivity/types.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -96,7 +97,7 @@ describe('ProductivityWidget — loaded state', () => {
     expect(screen.getByText('title')).toBeDefined()
 
     // KPI light dot
-    expect(screen.getByTestId('kpi-dot')).toBeDefined()
+    expect(screen.getByTestId(TestId.ProductivityKpiDot)).toBeDefined()
 
     // 4 metric labels (mock t() returns keys)
     expect(screen.getByText('metrics.closed')).toBeDefined()
@@ -121,7 +122,7 @@ describe('ProductivityWidget — coldStart', () => {
 
     render(<ProductivityWidget />)
 
-    const coldStartEls = screen.getAllByTestId('delta-cold-start')
+    const coldStartEls = screen.getAllByTestId(TestId.ProductivityDeltaColdStart)
     // All visible metric cells should show cold-start
     expect(coldStartEls.length).toBeGreaterThan(0)
     expect(coldStartEls[0].textContent).toBe('coldStart')
@@ -138,7 +139,7 @@ describe('ProductivityWidget — coldStart', () => {
 
     render(<ProductivityWidget />)
 
-    const coldStartEls = screen.getAllByTestId('delta-cold-start')
+    const coldStartEls = screen.getAllByTestId(TestId.ProductivityDeltaColdStart)
     expect(coldStartEls.length).toBeGreaterThan(0)
   })
 
@@ -150,7 +151,7 @@ describe('ProductivityWidget — coldStart', () => {
 
     render(<ProductivityWidget />)
 
-    const dot = screen.getByTestId('kpi-dot')
+    const dot = screen.getByTestId(TestId.ProductivityKpiDot)
     expect(dot.className).toContain('bg-zinc-400')
   })
 })
@@ -203,9 +204,9 @@ describe('ProductivityWidget — loading state', () => {
     // today and baseline are null by default after beforeEach
     render(<ProductivityWidget />)
 
-    expect(screen.getByTestId('productivity-widget-skeleton')).toBeDefined()
+    expect(screen.getByTestId(TestId.ProductivityWidgetSkeleton)).toBeDefined()
     // Metric grid should NOT be present
-    expect(screen.queryByTestId('productivity-metrics-grid')).toBeNull()
+    expect(screen.queryByTestId(TestId.ProductivityMetricsGrid)).toBeNull()
   })
 
   it('shows skeleton when baseline is null even if today is set', () => {
@@ -213,7 +214,7 @@ describe('ProductivityWidget — loading state', () => {
 
     render(<ProductivityWidget />)
 
-    expect(screen.getByTestId('productivity-widget-skeleton')).toBeDefined()
+    expect(screen.getByTestId(TestId.ProductivityWidgetSkeleton)).toBeDefined()
   })
 
   it('does not show skeleton once data is loaded (background refresh does not flash)', () => {
@@ -226,8 +227,8 @@ describe('ProductivityWidget — loading state', () => {
 
     render(<ProductivityWidget />)
 
-    expect(screen.queryByTestId('productivity-widget-skeleton')).toBeNull()
-    expect(screen.getByTestId('productivity-widget')).toBeDefined()
+    expect(screen.queryByTestId(TestId.ProductivityWidgetSkeleton)).toBeNull()
+    expect(screen.getByTestId(TestId.ProductivityWidget)).toBeDefined()
   })
 })
 

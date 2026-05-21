@@ -19,6 +19,7 @@ import { isShowcaseMode } from '@/services/chrome/runtime.ts'
 import { rebuildDailyCache } from '@/widgets/Productivity/lib/dailyCache.ts'
 import { useProductivityStore } from '@/widgets/Productivity/store/useProductivityStore.ts'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 
 export function ProductivitySettings() {
   const { t } = useTranslation('productivityWidget')
@@ -45,7 +46,12 @@ export function ProductivitySettings() {
   return (
     <Sheet>
       <SheetTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={t('settings.openLabel')}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t('settings.openLabel')}
+          data-testid={TestId.ProductivityOpenSettings}
+        >
           <Settings />
         </Button>
       </SheetTrigger>

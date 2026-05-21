@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 
 export interface ProductivityNumberProps {
   /** Already-localized metric label, e.g. "CLOSED" */
@@ -38,7 +39,7 @@ export function ProductivityNumber({
 
   if (coldStart) {
     deltaNode = (
-      <span className="text-xs opacity-40" data-testid="delta-cold-start">
+      <span className="text-xs opacity-40" data-testid={TestId.ProductivityDeltaColdStart}>
         {t('coldStart')}
       </span>
     )
@@ -51,19 +52,19 @@ export function ProductivityNumber({
 
     if (delta > 0) {
       deltaNode = (
-        <span className="text-xs text-emerald-500" data-testid="delta-positive">
+        <span className="text-xs text-emerald-500" data-testid={TestId.ProductivityDeltaPositive}>
           +{magnitude} {comparisonLabel}
         </span>
       )
     } else if (delta < 0) {
       deltaNode = (
-        <span className="text-xs text-rose-500" data-testid="delta-negative">
+        <span className="text-xs text-rose-500" data-testid={TestId.ProductivityDeltaNegative}>
           {/* U+2212 MINUS SIGN */}−{magnitude} {comparisonLabel}
         </span>
       )
     } else {
       deltaNode = (
-        <span className="text-xs opacity-40" data-testid="delta-as-usual">
+        <span className="text-xs opacity-40" data-testid={TestId.ProductivityDeltaAsUsual}>
           {t('delta.asUsual')}
         </span>
       )
