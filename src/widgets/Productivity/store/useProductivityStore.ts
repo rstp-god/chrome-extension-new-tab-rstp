@@ -77,6 +77,13 @@ export const useProductivityStore = create<Synced<ProductivityStore>>()(
     // because callbacks run asynchronously after the store binding exists.
     const debouncedRefresh = debounce(() => {
       const { lastComputedAt } = useProductivityStore.getState()
+      // Intentional leading-edge DROP (not defer): if a refresh ran within the
+      // past THROTTLE_MS we silently skip this subscription-driven call.
+      // This is acceptable because: (a) metrics are daily counters so a missed
+      // mid-window update is cosmetically negligible, and (b) the widget always
+      // runs a direct refresh() on mount which picks up any missed changes.
+      // Do NOT change this to a defer/schedule — it would cause runaway queuing
+      // on busy task edits.
       if (lastComputedAt !== null && Date.now() - lastComputedAt < THROTTLE_MS) {
         return
       }
@@ -88,6 +95,29 @@ export const useProductivityStore = create<Synced<ProductivityStore>>()(
         debouncedRefresh()
       }
     })
+
+    // Serializes concurrent refresh() calls: each call is chained onto the
+    // previous one so they never overlap. Both the fulfilled and rejected
+    // handlers point at runRefresh so a prior rejection doesn't stall the chain.
+    let refreshChain: Promise<void> = Promise.resolve()
+
+    const runRefresh = async () => {
+      set({ isLoading: true, error: null })
+      try {
+        // Read tasks fresh at the moment this run actually executes, so a
+        // second queued call picks up the latest task list, not a stale capture.
+        const tasks = useTodoStore.getState().tasks
+        const today = await ensureTodayFresh(tasks)
+        const cache = await getDailyCache()
+        const baseline = computeBaseline(cache, new Date())
+        set({ today, baseline, isLoading: false, lastComputedAt: Date.now() })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        set({ isLoading: false, error: message })
+        // Never re-throw: keeps the chain alive and matches the public contract
+        // that refresh() resolves (never rejects).
+      }
+    }
 
     return {
       // derived data
@@ -102,18 +132,9 @@ export const useProductivityStore = create<Synced<ProductivityStore>>()(
       showPlanned: true,
       splitWeekdayWeekend: true,
 
-      refresh: async () => {
-        set({ isLoading: true, error: null })
-        try {
-          const tasks = useTodoStore.getState().tasks
-          const today = await ensureTodayFresh(tasks)
-          const cache = await getDailyCache()
-          const baseline = computeBaseline(cache, new Date())
-          set({ today, baseline, isLoading: false, lastComputedAt: Date.now() })
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          set({ isLoading: false, error: message })
-        }
+      refresh: () => {
+        refreshChain = refreshChain.then(runRefresh, runRefresh)
+        return refreshChain
       },
 
       setShowMetric: (key, value) => {

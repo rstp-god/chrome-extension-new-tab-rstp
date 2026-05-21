@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { setLocal } from '@/services/chrome/storage.ts'
 import { PRODUCTIVITY_DAILY_KEY } from '@/widgets/Productivity/lib/dailyCache.ts'
-import { useProductivityStore } from '@/widgets/Productivity/store/useProductivityStore.ts'
+import {
+  PRODUCTIVITY_SETTINGS_KEY,
+  useProductivityStore,
+} from '@/widgets/Productivity/store/useProductivityStore.ts'
 import { useTodoStore, type TodoTask } from '@/widgets/Todo/store/store.ts'
 
 // ---------------------------------------------------------------------------
@@ -57,6 +60,8 @@ beforeEach(async () => {
 
   // Reset in-memory storage (same pattern as dailyCache.test.ts)
   await setLocal(PRODUCTIVITY_DAILY_KEY, {})
+  // Reset persisted settings envelope so commit() calls do not leak across tests
+  await setLocal(PRODUCTIVITY_SETTINGS_KEY, null)
 })
 
 afterEach(() => {
@@ -115,6 +120,32 @@ describe('useProductivityStore — refresh()', () => {
     const state = useProductivityStore.getState()
     expect(state.isLoading).toBe(false)
     expect(state.error).toBe('storage failure')
+  })
+
+  it('concurrent refresh() calls leave the store in a consistent state', async () => {
+    // Seed tasks before the second call so the serialized run picks them up
+    const now = Date.now()
+    const task = makeTask({
+      createdAt: now,
+      status: 'completed',
+      statusChangedAt: now,
+      completedAt: now,
+    })
+    useTodoStore.setState({ tasks: [task] })
+
+    // Fire two calls in quick succession without awaiting the first.
+    // The second call should be queued and execute after the first completes.
+    void useProductivityStore.getState().refresh()
+    await useProductivityStore.getState().refresh()
+
+    // Flush any remaining async work
+    await vi.runAllTimersAsync()
+
+    const state = useProductivityStore.getState()
+    expect(state.isLoading).toBe(false)
+    expect(state.error).toBeNull()
+    expect(state.today).not.toBeNull()
+    expect(state.lastComputedAt).not.toBeNull()
   })
 })
 
