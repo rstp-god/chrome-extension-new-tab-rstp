@@ -71,7 +71,7 @@ export const useProductivityStore = create<Synced<ProductivityStore>>()(
       showPlanned: incoming.showPlanned,
       splitWeekdayWeekend: incoming.splitWeekdayWeekend,
     }),
-  })((set, get) => {
+  })((set) => {
     // Set up debounced refresh driven by Todo store subscription.
     // The callback references useProductivityStore.getState() which is fine
     // because callbacks run asynchronously after the store binding exists.
@@ -139,12 +139,12 @@ export const useProductivityStore = create<Synced<ProductivityStore>>()(
 
       setShowMetric: (key, value) => {
         set({ [key]: value })
-        void get().commit()
+        void useProductivityStore.getState().commit()
       },
 
       setSplitWeekdayWeekend: (value) => {
         set({ splitWeekdayWeekend: value })
-        void get().commit()
+        void useProductivityStore.getState().commit()
       },
     }
   }),
