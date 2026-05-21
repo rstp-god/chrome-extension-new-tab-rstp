@@ -10,6 +10,7 @@ import { setLocal } from '@/services/chrome/storage.ts'
 import { PRODUCTIVITY_DAILY_KEY } from '@/widgets/Productivity/lib/dailyCache.ts'
 import {
   PRODUCTIVITY_SETTINGS_KEY,
+  startProductivityAutoRefresh,
   useProductivityStore,
 } from '@/widgets/Productivity/store/useProductivityStore.ts'
 import { useTodoStore, type TodoTask } from '@/widgets/Todo/store/store.ts'
@@ -177,68 +178,198 @@ describe('useProductivityStore — settings actions', () => {
 
 describe('useProductivityStore — subscription-driven refresh', () => {
   it('triggers a debounced refresh when Todo tasks reference changes', async () => {
-    // First do a direct refresh so lastComputedAt is null initially (let subscription fire)
-    // We need lastComputedAt to be null so throttle does not block the first call.
+    // lastComputedAt starts null so throttle does not block the first call.
     expect(useProductivityStore.getState().lastComputedAt).toBeNull()
 
-    const now = Date.now()
-    const newTasks = [makeTask({ createdAt: now })]
+    const cleanup = startProductivityAutoRefresh()
+    try {
+      const now = Date.now()
+      const newTasks = [makeTask({ createdAt: now })]
 
-    // Trigger the subscription by replacing the tasks array reference
-    useTodoStore.setState({ tasks: newTasks })
+      // Trigger the subscription by replacing the tasks array reference
+      useTodoStore.setState({ tasks: newTasks })
 
-    // Debounce has not fired yet
-    expect(useProductivityStore.getState().lastComputedAt).toBeNull()
+      // Debounce has not fired yet
+      expect(useProductivityStore.getState().lastComputedAt).toBeNull()
 
-    // Advance fake timers past debounce window
-    vi.advanceTimersByTime(500)
+      // Advance fake timers past debounce window
+      vi.advanceTimersByTime(500)
 
-    // Flush microtasks/promises that refresh() awaits
-    await vi.runAllTimersAsync()
+      // Flush microtasks/promises that refresh() awaits
+      await vi.runAllTimersAsync()
 
-    const state = useProductivityStore.getState()
-    expect(state.lastComputedAt).not.toBeNull()
-    expect(state.today).not.toBeNull()
+      const state = useProductivityStore.getState()
+      expect(state.lastComputedAt).not.toBeNull()
+      expect(state.today).not.toBeNull()
+    } finally {
+      cleanup()
+    }
   })
 
-  it('throttle: second Todo mutation within 30s does not trigger another refresh', async () => {
-    // Perform first subscription-driven refresh
+  it('throttle: second Todo mutation within 30s does not trigger an immediate refresh', async () => {
+    const cleanup = startProductivityAutoRefresh()
+    try {
+      // Perform first subscription-driven refresh
+      useTodoStore.setState({ tasks: [makeTask({ createdAt: Date.now() })] })
+      vi.advanceTimersByTime(500)
+      await vi.runAllTimersAsync()
+
+      const firstComputedAt = useProductivityStore.getState().lastComputedAt
+      expect(firstComputedAt).not.toBeNull()
+
+      // Advance time by less than THROTTLE_MS (e.g. 5 seconds)
+      vi.advanceTimersByTime(5_000)
+
+      // Second mutation within throttle window
+      useTodoStore.setState({
+        tasks: [makeTask({ createdAt: Date.now() }), makeTask({ createdAt: Date.now() })],
+      })
+
+      // Advance past debounce only — the trailing timer (24_500ms) has not fired yet.
+      // Do NOT use runAllTimersAsync here, as it would fire the trailing timer too.
+      vi.advanceTimersByTime(500)
+      await Promise.resolve()
+
+      // No immediate refresh — still inside throttle window
+      expect(useProductivityStore.getState().lastComputedAt).toBe(firstComputedAt)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('P1 trailing-edge: refresh fires after throttle window expires', async () => {
+    const cleanup = startProductivityAutoRefresh()
+    try {
+      // First refresh — sets lastComputedAt
+      useTodoStore.setState({ tasks: [makeTask({ createdAt: Date.now() })] })
+      vi.advanceTimersByTime(500)
+      await vi.runAllTimersAsync()
+
+      const firstComputedAt = useProductivityStore.getState().lastComputedAt
+      expect(firstComputedAt).not.toBeNull()
+
+      // Advance 5 seconds (inside 30s throttle window)
+      vi.advanceTimersByTime(5_000)
+
+      // Todo change lands inside the throttle window
+      useTodoStore.setState({
+        tasks: [makeTask({ createdAt: Date.now() }), makeTask({ createdAt: Date.now() })],
+      })
+
+      // Advance past debounce only — trailing timer (~24_500ms) has not fired.
+      // Do NOT use runAllTimersAsync here or it fires the trailing timer.
+      vi.advanceTimersByTime(500)
+      await Promise.resolve()
+      expect(useProductivityStore.getState().lastComputedAt).toBe(firstComputedAt)
+
+      // Advance past the remaining throttle window (24_500ms elapsed since trailing was set)
+      vi.advanceTimersByTime(25_000)
+      await vi.runAllTimersAsync()
+
+      // Trailing refresh must have run
+      expect(useProductivityStore.getState().lastComputedAt).toBeGreaterThan(firstComputedAt!)
+      expect(useProductivityStore.getState().today).not.toBeNull()
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('P1 trailing-edge: only one trailing timer is scheduled for multiple in-window updates', async () => {
+    const cleanup = startProductivityAutoRefresh()
+    try {
+      // Perform first subscription-driven refresh
+      useTodoStore.setState({ tasks: [makeTask({ createdAt: Date.now() })] })
+      vi.advanceTimersByTime(500)
+      await vi.runAllTimersAsync()
+
+      const firstComputedAt = useProductivityStore.getState().lastComputedAt
+      expect(firstComputedAt).not.toBeNull()
+
+      vi.advanceTimersByTime(1_000)
+
+      // First in-window mutation → schedules trailing timer
+      useTodoStore.setState({
+        tasks: [makeTask({ createdAt: Date.now() }), makeTask({ createdAt: Date.now() })],
+      })
+      // Advance past debounce only — do NOT use runAllTimersAsync (fires trailing).
+      vi.advanceTimersByTime(500)
+      await Promise.resolve()
+
+      vi.advanceTimersByTime(1_000)
+
+      // Second in-window mutation → trailing timer already exists, should not stack
+      useTodoStore.setState({
+        tasks: [
+          makeTask({ createdAt: Date.now() }),
+          makeTask({ createdAt: Date.now() }),
+          makeTask({ createdAt: Date.now() }),
+        ],
+      })
+      vi.advanceTimersByTime(500)
+      await Promise.resolve()
+
+      // Still inside window — no refresh yet
+      expect(useProductivityStore.getState().lastComputedAt).toBe(firstComputedAt)
+
+      // Advance past the full throttle window so trailing timer fires
+      vi.advanceTimersByTime(30_000)
+      await vi.runAllTimersAsync()
+
+      // Exactly one trailing refresh ran
+      expect(useProductivityStore.getState().lastComputedAt).toBeGreaterThan(firstComputedAt!)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('cleanup unsubscribes: Todo change after cleanup does NOT trigger a refresh', async () => {
+    const cleanup = startProductivityAutoRefresh()
+
+    // First refresh to establish lastComputedAt
     useTodoStore.setState({ tasks: [makeTask({ createdAt: Date.now() })] })
     vi.advanceTimersByTime(500)
     await vi.runAllTimersAsync()
 
-    const firstComputedAt = useProductivityStore.getState().lastComputedAt
-    expect(firstComputedAt).not.toBeNull()
+    const computedAt = useProductivityStore.getState().lastComputedAt
+    expect(computedAt).not.toBeNull()
 
-    // Advance time by less than THROTTLE_MS (e.g. 5 seconds)
-    vi.advanceTimersByTime(5_000)
+    // Tear down the subscription
+    cleanup()
 
-    // Second mutation within throttle window
+    // Advance past throttle window so leading-edge would fire if subscribed
+    vi.advanceTimersByTime(31_000)
+
+    // Mutate tasks — should NOT trigger a refresh
     useTodoStore.setState({
       tasks: [makeTask({ createdAt: Date.now() }), makeTask({ createdAt: Date.now() })],
     })
     vi.advanceTimersByTime(500)
     await vi.runAllTimersAsync()
 
-    // lastComputedAt must NOT have changed (throttle blocked the second refresh)
-    expect(useProductivityStore.getState().lastComputedAt).toBe(firstComputedAt)
+    // lastComputedAt must remain unchanged
+    expect(useProductivityStore.getState().lastComputedAt).toBe(computedAt)
   })
 
   it('throttle does NOT block a direct refresh() call', async () => {
-    // Perform first subscription-driven refresh
-    useTodoStore.setState({ tasks: [makeTask({ createdAt: Date.now() })] })
-    vi.advanceTimersByTime(500)
-    await vi.runAllTimersAsync()
+    const cleanup = startProductivityAutoRefresh()
+    try {
+      // Perform first subscription-driven refresh
+      useTodoStore.setState({ tasks: [makeTask({ createdAt: Date.now() })] })
+      vi.advanceTimersByTime(500)
+      await vi.runAllTimersAsync()
 
-    const firstComputedAt = useProductivityStore.getState().lastComputedAt
-    expect(firstComputedAt).not.toBeNull()
+      const firstComputedAt = useProductivityStore.getState().lastComputedAt
+      expect(firstComputedAt).not.toBeNull()
 
-    // Advance time by less than THROTTLE_MS
-    vi.advanceTimersByTime(1_000)
+      // Advance time by less than THROTTLE_MS
+      vi.advanceTimersByTime(1_000)
 
-    // Direct call must always run
-    await useProductivityStore.getState().refresh()
+      // Direct call must always run
+      await useProductivityStore.getState().refresh()
 
-    expect(useProductivityStore.getState().lastComputedAt).toBeGreaterThan(firstComputedAt!)
+      expect(useProductivityStore.getState().lastComputedAt).toBeGreaterThan(firstComputedAt!)
+    } finally {
+      cleanup()
+    }
   })
 })

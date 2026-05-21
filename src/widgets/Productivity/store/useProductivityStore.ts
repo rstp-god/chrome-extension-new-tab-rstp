@@ -72,30 +72,6 @@ export const useProductivityStore = create<Synced<ProductivityStore>>()(
       splitWeekdayWeekend: incoming.splitWeekdayWeekend,
     }),
   })((set) => {
-    // Set up debounced refresh driven by Todo store subscription.
-    // The callback references useProductivityStore.getState() which is fine
-    // because callbacks run asynchronously after the store binding exists.
-    const debouncedRefresh = debounce(() => {
-      const { lastComputedAt } = useProductivityStore.getState()
-      // Intentional leading-edge DROP (not defer): if a refresh ran within the
-      // past THROTTLE_MS we silently skip this subscription-driven call.
-      // This is acceptable because: (a) metrics are daily counters so a missed
-      // mid-window update is cosmetically negligible, and (b) the widget always
-      // runs a direct refresh() on mount which picks up any missed changes.
-      // Do NOT change this to a defer/schedule — it would cause runaway queuing
-      // on busy task edits.
-      if (lastComputedAt !== null && Date.now() - lastComputedAt < THROTTLE_MS) {
-        return
-      }
-      void useProductivityStore.getState().refresh()
-    }, DEBOUNCE_MS)
-
-    useTodoStore.subscribe((state, prev) => {
-      if (state.tasks !== prev.tasks) {
-        debouncedRefresh()
-      }
-    })
-
     // Serializes concurrent refresh() calls: each call is chained onto the
     // previous one so they never overlap. Both the fulfilled and rejected
     // handlers point at runRefresh so a prior rejection doesn't stall the chain.
@@ -149,3 +125,55 @@ export const useProductivityStore = create<Synced<ProductivityStore>>()(
     }
   }),
 )
+
+/**
+ * Set up the Todo-store subscription that drives automatic refreshes of the
+ * Productivity widget. Must be called on widget mount and the returned cleanup
+ * called on unmount.
+ *
+ * Each invocation is fully independent (no shared module-level mutable state),
+ * so double-invoking under React StrictMode or across widget remounts is safe.
+ *
+ * Throttle behaviour (trailing-edge):
+ * - Leading edge: if outside the THROTTLE_MS window, refresh immediately.
+ * - Trailing edge: if inside the window, schedule ONE deferred refresh to run
+ *   when the window expires. If a trailing timer is already pending, additional
+ *   updates within the same window are ignored (no runaway queuing).
+ */
+export function startProductivityAutoRefresh(): () => void {
+  let trailingTimerId: ReturnType<typeof setTimeout> | null = null
+
+  const debouncedRefresh = debounce(() => {
+    const { lastComputedAt } = useProductivityStore.getState()
+    const elapsed = lastComputedAt !== null ? Date.now() - lastComputedAt : Infinity
+
+    if (elapsed >= THROTTLE_MS) {
+      // Leading edge: outside the window — refresh immediately.
+      void useProductivityStore.getState().refresh()
+    } else {
+      // Trailing edge: inside the window — schedule a single deferred refresh
+      // for when the window expires. Do not stack multiple trailing timers.
+      if (trailingTimerId !== null) return
+      const remaining = THROTTLE_MS - elapsed
+      trailingTimerId = setTimeout(() => {
+        trailingTimerId = null
+        void useProductivityStore.getState().refresh()
+      }, remaining)
+    }
+  }, DEBOUNCE_MS)
+
+  const unsubscribe = useTodoStore.subscribe((state, prev) => {
+    if (state.tasks !== prev.tasks) {
+      debouncedRefresh()
+    }
+  })
+
+  return () => {
+    unsubscribe()
+    debouncedRefresh.cancel()
+    if (trailingTimerId !== null) {
+      clearTimeout(trailingTimerId)
+      trailingTimerId = null
+    }
+  }
+}

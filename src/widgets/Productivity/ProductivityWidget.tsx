@@ -7,7 +7,10 @@ import { Skeleton } from '@/components/ui/skeleton.tsx'
 import { KpiLight } from '@/widgets/Productivity/components/KpiLight.tsx'
 import { ProductivityNumber } from '@/widgets/Productivity/components/ProductivityNumber.tsx'
 import { ProductivitySettings } from '@/widgets/Productivity/components/ProductivitySettings.tsx'
-import { useProductivityStore } from '@/widgets/Productivity/store/useProductivityStore.ts'
+import {
+  startProductivityAutoRefresh,
+  useProductivityStore,
+} from '@/widgets/Productivity/store/useProductivityStore.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 
 export function ProductivityWidget() {
@@ -24,7 +27,8 @@ export function ProductivityWidget() {
 
   useEffect(() => {
     void refresh()
-    // refresh is stable — only run on mount
+    // refresh is stable — run on mount, and start the Todo subscription
+    return startProductivityAutoRefresh()
   }, [])
 
   // ── Error state ────────────────────────────────────────────────────────────
