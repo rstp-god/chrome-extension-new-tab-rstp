@@ -17,7 +17,12 @@ export function ProductivityWidgetPreview() {
       <CardHeader>
         <CardTitle>{t('title')}</CardTitle>
         <CardAction>
-          <KpiLight today={PREVIEW_TODAY} baseline={PREVIEW_BASELINE} coldStart={coldStart} splitWeekdayWeekend={true} />
+          <KpiLight
+            today={PREVIEW_TODAY}
+            baseline={PREVIEW_BASELINE}
+            coldStart={coldStart}
+            splitWeekdayWeekend={true}
+          />
         </CardAction>
       </CardHeader>
 
