@@ -98,6 +98,46 @@ describe('getDailyCache', () => {
     const result = await getDailyCache()
     expect(result[isoDate]).toEqual(snapshot)
   })
+
+  it('returns {} when the stored value is a primitive (malformed)', async () => {
+    // Directly write a corrupt primitive to bypass setDailyCache validation.
+    await setLocal(PRODUCTIVITY_DAILY_KEY, 42 as unknown as Record<string, unknown>)
+    const result = await getDailyCache()
+    expect(result).toEqual({})
+  })
+
+  it('drops keys that do not match the ISO-date pattern', async () => {
+    const isoDate = isoDateDaysAgo(2)
+    const snapshot = makeSnapshot(isoDate)
+    // Directly write an object containing one valid key and two junk keys.
+    await setLocal(PRODUCTIVITY_DAILY_KEY, {
+      [isoDate]: snapshot,
+      'not-a-date': { date: 'bad', closed: 0, fullFlow: 0, planned: 0, wip: 0, weekday: 0 },
+      __proto__: { date: 'bad', closed: 0, fullFlow: 0, planned: 0, wip: 0, weekday: 0 },
+    } as unknown as Record<string, unknown>)
+
+    const result = await getDailyCache()
+    const keys = Object.keys(result)
+    expect(result[isoDate]).toEqual(snapshot)
+    expect(keys).not.toContain('not-a-date')
+    expect(keys).not.toContain('__proto__')
+    expect(keys).toEqual([isoDate])
+  })
+})
+
+describe('setDailyCache (malformed stored data)', () => {
+  it('succeeds when the stored value is corrupt (primitive)', async () => {
+    // Seed the store with a non-object value.
+    await setLocal(PRODUCTIVITY_DAILY_KEY, 'corrupt' as unknown as Record<string, unknown>)
+
+    const isoDate = isoDateDaysAgo(1)
+    const snapshot = makeSnapshot(isoDate)
+    // Should not throw despite corrupt stored value.
+    await expect(setDailyCache(isoDate, snapshot)).resolves.toBeUndefined()
+
+    const cache = await getDailyCache()
+    expect(cache[isoDate]).toEqual(snapshot)
+  })
 })
 
 describe('setDailyCache', () => {
@@ -257,15 +297,10 @@ describe('rebuildDailyCache', () => {
 // ---------------------------------------------------------------------------
 
 describe('showcase mode', () => {
-  // We use vi.mock (hoisted) to override runtime.ts for this describe block only.
-  // Because vi.mock is hoisted to the top of the file, we use a shared flag
-  // pattern: mock runtime.ts to read a variable, then set the variable before
-  // each test.
-  //
-  // However, since the module under test (dailyCache.ts) is already imported
-  // above, we need to re-import it with the mock active. The cleanest approach
-  // in Vitest is to use a separate vi.mock at the file level that defaults to
-  // the real implementation, then use vi.mocked() to reconfigure.
+  // Each test uses vi.doMock + vi.resetModules() + dynamic import() so that
+  // the showcase-mode stub for runtime.ts is in effect when dailyCache.ts is
+  // freshly resolved, without affecting the statically-imported copy used by
+  // all other describe blocks above.
 
   it('getDailyCache returns non-empty mock in showcase mode', async () => {
     // Use vi.doMock + resetModules to simulate showcase mode in isolation

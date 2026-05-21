@@ -33,6 +33,32 @@ function daysAgo(origin: Date, n: number): Date {
   return new Date(origin.getFullYear(), origin.getMonth(), origin.getDate() - n)
 }
 
+/** ISO-date key pattern — only "YYYY-MM-DD" keys are trusted. */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Normalise a raw value read from chrome.storage.local into a safe
+ * Record<string, ProductivityDaily>.  If the value is not a plain object,
+ * return {}.  Otherwise, strip any key that does not look like an ISO date
+ * ("YYYY-MM-DD") so a corrupt or adversarially crafted stored value cannot
+ * crash callers or leak unexpected keys into trim logic.
+ *
+ * Only the key shape is validated here; the numeric fields of each entry are
+ * intentionally left unchecked (self-healing via rebuildDailyCache).
+ */
+function normalizeStoredCache(raw: unknown): Record<string, ProductivityDaily> {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {}
+  }
+  const out: Record<string, ProductivityDaily> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (ISO_DATE_RE.test(key)) {
+      out[key] = value as ProductivityDaily
+    }
+  }
+  return out
+}
+
 /**
  * Build a deterministic showcase mock: ~16 days ending today, no Math.random.
  * Numbers are derived from the day-of-month so they vary plausibly.
@@ -73,7 +99,7 @@ export async function getDailyCache(): Promise<Record<string, ProductivityDaily>
   if (isShowcaseMode()) {
     return buildShowcaseMock()
   }
-  return (await getLocal<Record<string, ProductivityDaily>>(PRODUCTIVITY_DAILY_KEY)) ?? {}
+  return normalizeStoredCache(await getLocal<unknown>(PRODUCTIVITY_DAILY_KEY))
 }
 
 /**
@@ -86,7 +112,7 @@ export async function setDailyCache(date: string, snapshot: ProductivityDaily): 
     return
   }
 
-  const cache = (await getLocal<Record<string, ProductivityDaily>>(PRODUCTIVITY_DAILY_KEY)) ?? {}
+  const cache = normalizeStoredCache(await getLocal<unknown>(PRODUCTIVITY_DAILY_KEY))
   cache[date] = snapshot
 
   // Keep only the MAX_CACHE_DAYS most-recent dates.
