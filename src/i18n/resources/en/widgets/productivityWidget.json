@@ -1,0 +1,38 @@
+{
+  "title": "Productivity",
+  "description": "Daily task counters with a personal baseline",
+  "coldStart": "collecting data…",
+  "metrics": {
+    "closed": "Closed",
+    "fullFlow": "Full Flow",
+    "planned": "Planned",
+    "wip": "WIP"
+  },
+  "delta": {
+    "weekdayAverage": "to weekday avg",
+    "weekendAverage": "to weekend avg",
+    "average": "to your average",
+    "asUsual": "as usual"
+  },
+  "kpi": {
+    "green": "Productive day",
+    "yellow": "Mediocre",
+    "red": "Stuck?",
+    "cold": "Gathering data"
+  },
+  "error": {
+    "message": "Couldn't load productivity data",
+    "retry": "Retry"
+  },
+  "settings": {
+    "title": "Productivity settings",
+    "description": "Choose which metrics to show and how the baseline is calculated",
+    "openLabel": "Open productivity settings",
+    "showFullFlow": "Show Full Flow",
+    "showPlanned": "Show Planned",
+    "showWip": "Show WIP",
+    "splitWeekdayWeekend": "Separate weekday / weekend baseline",
+    "rebuildHistory": "Rebuild history",
+    "baselineHint": "Baseline: median over the last 14 days"
+  }
+}
