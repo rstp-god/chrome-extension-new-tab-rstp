@@ -7,10 +7,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { setLocal } from '@/services/chrome/storage.ts'
+import { startProductivityAutoRefresh } from '@/widgets/Productivity/lib/autoRefresh.ts'
 import { PRODUCTIVITY_DAILY_KEY } from '@/widgets/Productivity/lib/dailyCache.ts'
 import {
   PRODUCTIVITY_SETTINGS_KEY,
-  startProductivityAutoRefresh,
   useProductivityStore,
 } from '@/widgets/Productivity/store/useProductivityStore.ts'
 import { useTodoStore, type TodoTask } from '@/widgets/Todo/store/store.ts'

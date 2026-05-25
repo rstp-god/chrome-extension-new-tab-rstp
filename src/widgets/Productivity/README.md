@@ -46,7 +46,7 @@ rendered.
 
 ## KPI traffic-light
 
-Implemented in `components/KpiLight.tsx::computeKpi`.
+Implemented in `lib/kpi.ts::computeKpi` (rendered by `components/KpiLight.tsx`).
 
 1. If `coldStart` is `true` → **cold** (grey).
 2. Pick the baseline median: `computeKpi` receives `splitWeekdayWeekend` and mirrors the same logic used by the metric cards. When `splitWeekdayWeekend` is **ON**, weekend medians are used on Sat/Sun and weekday medians otherwise. When `splitWeekdayWeekend` is **OFF**, the weekday median is always used — even on a weekend day. This keeps the KPI traffic-light and the per-metric delta arrows in agreement. If either `closedBaseline` or `wipBaseline` is `null` → **cold**.
@@ -86,15 +86,21 @@ src/widgets/Productivity/
 ├── ProductivityWidgetPreview.tsx     # add-widget preview thumbnail
 ├── preview.fixture.ts                # fixture data for the preview
 ├── components/
-│   ├── KpiLight.tsx                  # traffic-light dot + computeKpi
+│   ├── KpiLight.tsx                  # traffic-light dot (render only)
+│   ├── KpiLight.styles.ts            # KPI dot color/halo classes
+│   ├── ProductivityError.tsx         # error-state card
 │   ├── ProductivityNumber.tsx        # single metric card with delta arrow
-│   └── ProductivitySettings.tsx     # settings dialog
+│   ├── ProductivitySettings.tsx      # settings dialog
+│   └── ProductivitySkeleton.tsx      # loading placeholder
 ├── lib/
 │   ├── aggregateDaily.ts             # pure: todo tasks → ProductivityDaily
+│   ├── autoRefresh.ts                # Todo-store subscription + throttled refresh
 │   ├── baseline.ts                   # pure: cache → BaselineStats (median)
-│   └── dailyCache.ts                 # chrome.storage.local I/O boundary
+│   ├── dailyCache.helpers.ts         # private helpers backing dailyCache
+│   ├── dailyCache.ts                 # chrome.storage.local I/O boundary
+│   └── kpi.ts                        # pure: KpiStatus + computeKpi
 ├── store/
-│   └── useProductivityStore.ts       # Zustand store; drives refresh pipeline
+│   └── useProductivityStore.ts       # Zustand store; refresh pipeline only
 ├── showcase/
 │   └── mocks.ts                      # showcase-mode fixtures
 └── test/                             # Vitest unit tests + Playwright scenario

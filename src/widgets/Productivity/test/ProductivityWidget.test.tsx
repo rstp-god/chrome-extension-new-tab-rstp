@@ -19,14 +19,9 @@ import { TestId } from '@tests/constants/testIds.ts'
 
 // Mock startProductivityAutoRefresh so widget tests don't set up a real
 // Todo subscription — the refresh() mock already handles mount behaviour.
-vi.mock('@/widgets/Productivity/store/useProductivityStore.ts', async (importOriginal) => {
-  const actual =
-    await importOriginal<typeof import('@/widgets/Productivity/store/useProductivityStore.ts')>()
-  return {
-    ...actual,
-    startProductivityAutoRefresh: vi.fn(() => vi.fn()),
-  }
-})
+vi.mock('@/widgets/Productivity/lib/autoRefresh.ts', () => ({
+  startProductivityAutoRefresh: vi.fn(() => vi.fn()),
+}))
 
 // ---------------------------------------------------------------------------
 // Helpers

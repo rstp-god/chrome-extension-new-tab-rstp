@@ -6,7 +6,8 @@ import { createI18nModuleMock } from '@tests/mocks/i18n.ts'
 
 vi.mock('react-i18next', () => createI18nModuleMock())
 
-import { KpiLight, computeKpi } from '@/widgets/Productivity/components/KpiLight.tsx'
+import { KpiLight } from '@/widgets/Productivity/components/KpiLight.tsx'
+import { computeKpi } from '@/widgets/Productivity/lib/kpi.ts'
 import type { BaselineStats, ProductivityDaily } from '@/widgets/Productivity/types.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 

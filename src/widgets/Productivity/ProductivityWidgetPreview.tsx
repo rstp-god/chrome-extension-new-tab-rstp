@@ -5,6 +5,9 @@ import { KpiLight } from '@/widgets/Productivity/components/KpiLight.tsx'
 import { ProductivityNumber } from '@/widgets/Productivity/components/ProductivityNumber.tsx'
 import { PREVIEW_BASELINE, PREVIEW_TODAY } from '@/widgets/Productivity/preview.fixture.ts'
 
+/** Превью всегда показывает все четыре метрики. */
+const PREVIEW_METRIC_KEYS = ['closed', 'fullFlow', 'planned', 'wip'] as const
+
 export function ProductivityWidgetPreview() {
   const { t } = useTranslation('productivityWidget')
 
@@ -28,34 +31,16 @@ export function ProductivityWidgetPreview() {
 
       <CardContent>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <ProductivityNumber
-            label={t('metrics.closed')}
-            value={PREVIEW_TODAY.closed}
-            baseline={PREVIEW_BASELINE.closed.weekdayMedian}
-            coldStart={coldStart}
-            comparisonLabel={comparisonLabel}
-          />
-          <ProductivityNumber
-            label={t('metrics.fullFlow')}
-            value={PREVIEW_TODAY.fullFlow}
-            baseline={PREVIEW_BASELINE.fullFlow.weekdayMedian}
-            coldStart={coldStart}
-            comparisonLabel={comparisonLabel}
-          />
-          <ProductivityNumber
-            label={t('metrics.planned')}
-            value={PREVIEW_TODAY.planned}
-            baseline={PREVIEW_BASELINE.planned.weekdayMedian}
-            coldStart={coldStart}
-            comparisonLabel={comparisonLabel}
-          />
-          <ProductivityNumber
-            label={t('metrics.wip')}
-            value={PREVIEW_TODAY.wip}
-            baseline={PREVIEW_BASELINE.wip.weekdayMedian}
-            coldStart={coldStart}
-            comparisonLabel={comparisonLabel}
-          />
+          {PREVIEW_METRIC_KEYS.map((key) => (
+            <ProductivityNumber
+              key={key}
+              label={t(`metrics.${key}`)}
+              value={PREVIEW_TODAY[key]}
+              baseline={PREVIEW_BASELINE[key].weekdayMedian}
+              coldStart={coldStart}
+              comparisonLabel={comparisonLabel}
+            />
+          ))}
         </div>
       </CardContent>
     </Card>

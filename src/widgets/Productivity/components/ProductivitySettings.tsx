@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useShallow } from 'zustand/react/shallow'
 
 import { Settings } from 'lucide-react'
 
@@ -25,13 +26,25 @@ export function ProductivitySettings() {
   const { t } = useTranslation('productivityWidget')
   const [isRebuilding, setIsRebuilding] = useState(false)
 
-  const showFullFlow = useProductivityStore((s) => s.showFullFlow)
-  const showPlanned = useProductivityStore((s) => s.showPlanned)
-  const showWip = useProductivityStore((s) => s.showWip)
-  const splitWeekdayWeekend = useProductivityStore((s) => s.splitWeekdayWeekend)
-  const setShowMetric = useProductivityStore((s) => s.setShowMetric)
-  const setSplitWeekdayWeekend = useProductivityStore((s) => s.setSplitWeekdayWeekend)
-  const refresh = useProductivityStore((s) => s.refresh)
+  const {
+    showFullFlow,
+    showPlanned,
+    showWip,
+    splitWeekdayWeekend,
+    setShowMetric,
+    setSplitWeekdayWeekend,
+    refresh,
+  } = useProductivityStore(
+    useShallow((s) => ({
+      showFullFlow: s.showFullFlow,
+      showPlanned: s.showPlanned,
+      showWip: s.showWip,
+      splitWeekdayWeekend: s.splitWeekdayWeekend,
+      setShowMetric: s.setShowMetric,
+      setSplitWeekdayWeekend: s.setSplitWeekdayWeekend,
+      refresh: s.refresh,
+    })),
+  )
 
   const handleRebuild = async () => {
     setIsRebuilding(true)

@@ -18,11 +18,39 @@ export interface ProductivityNumberProps {
 }
 
 /**
+ * Дискриминированная форма того, что должно показаться в строке-дельте.
+ * UI-слой просто разбирает по `kind` — никакой логики сравнения там нет.
+ */
+type DeltaPresentation =
+  | { kind: 'cold' }
+  | { kind: 'unknown' }
+  | { kind: 'asUsual' }
+  | { kind: 'positive'; magnitude: string }
+  | { kind: 'negative'; magnitude: string }
+
+/**
  * Formats a delta magnitude: strips trailing ".0" so integers show cleanly.
  * e.g. 3 → "3", 3.5 → "3.5", 3.0 → "3"
  */
 function formatMagnitude(n: number): string {
   return n.toFixed(1).replace(/\.0$/, '')
+}
+
+/**
+ * Pure: всё, что нужно знать UI, чтобы отрисовать строку-дельту, в одной
+ * функции. `value`/`baseline` сюда уже приходят как «сегодня» и «медиана».
+ */
+function describeDelta(
+  value: number,
+  baseline: number | null,
+  coldStart: boolean,
+): DeltaPresentation {
+  if (coldStart) return { kind: 'cold' }
+  if (baseline === null) return { kind: 'unknown' }
+  const delta = value - baseline
+  if (delta === 0) return { kind: 'asUsual' }
+  const magnitude = formatMagnitude(Math.abs(delta))
+  return delta > 0 ? { kind: 'positive', magnitude } : { kind: 'negative', magnitude }
 }
 
 export function ProductivityNumber({
@@ -34,48 +62,53 @@ export function ProductivityNumber({
   className,
 }: ProductivityNumberProps) {
   const { t } = useTranslation('productivityWidget')
-
-  let deltaNode: React.ReactNode
-
-  if (coldStart) {
-    deltaNode = (
-      <span className="text-xs opacity-40" data-testid={TestId.ProductivityDeltaColdStart}>
-        {t('coldStart')}
-      </span>
-    )
-  } else if (baseline === null) {
-    // Preserve card height with a non-breaking space
-    deltaNode = <span className="text-xs">&nbsp;</span>
-  } else {
-    const delta = value - baseline
-    const magnitude = formatMagnitude(Math.abs(delta))
-
-    if (delta > 0) {
-      deltaNode = (
-        <span className="text-xs text-emerald-500" data-testid={TestId.ProductivityDeltaPositive}>
-          +{magnitude} {comparisonLabel}
-        </span>
-      )
-    } else if (delta < 0) {
-      deltaNode = (
-        <span className="text-xs text-rose-500" data-testid={TestId.ProductivityDeltaNegative}>
-          {/* U+2212 MINUS SIGN */}−{magnitude} {comparisonLabel}
-        </span>
-      )
-    } else {
-      deltaNode = (
-        <span className="text-xs opacity-40" data-testid={TestId.ProductivityDeltaAsUsual}>
-          {t('delta.asUsual')}
-        </span>
-      )
-    }
-  }
+  const presentation = describeDelta(value, baseline, coldStart)
 
   return (
     <div className={cn('flex flex-col gap-0.5', className)}>
       <span className="text-xs uppercase tracking-wider opacity-60">{label}</span>
       <span className="tabular-nums text-4xl font-bold leading-none">{value}</span>
-      <div className="mt-0.5 min-h-[1rem]">{deltaNode}</div>
+      <div className="mt-0.5 min-h-[1rem]">
+        <DeltaLine presentation={presentation} comparisonLabel={comparisonLabel} t={t} />
+      </div>
     </div>
   )
+}
+
+interface DeltaLineProps {
+  presentation: DeltaPresentation
+  comparisonLabel: string
+  t: (key: string) => string
+}
+
+function DeltaLine({ presentation, comparisonLabel, t }: DeltaLineProps) {
+  switch (presentation.kind) {
+    case 'cold':
+      return (
+        <span className="text-xs opacity-40" data-testid={TestId.ProductivityDeltaColdStart}>
+          {t('coldStart')}
+        </span>
+      )
+    case 'unknown':
+      // Preserve card height with a non-breaking space
+      return <span className="text-xs">&nbsp;</span>
+    case 'positive':
+      return (
+        <span className="text-xs text-emerald-500" data-testid={TestId.ProductivityDeltaPositive}>
+          +{presentation.magnitude} {comparisonLabel}
+        </span>
+      )
+    case 'negative':
+      return (
+        <span className="text-xs text-rose-500" data-testid={TestId.ProductivityDeltaNegative}>
+          {/* U+2212 MINUS SIGN */}−{presentation.magnitude} {comparisonLabel}
+        </span>
+      )
+    case 'asUsual':
+      return (
+        <span className="text-xs opacity-40" data-testid={TestId.ProductivityDeltaAsUsual}>
+          {t('delta.asUsual')}
+        </span>
+      )
+  }
 }
