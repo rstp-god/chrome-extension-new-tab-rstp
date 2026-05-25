@@ -112,24 +112,9 @@ const screenTimeSettingsSchema = z.object({
   chartPalette: chartPaletteSchema,
 })
 
-const tabStatsSettingsSchema = z.object({
-  visibleMetrics: z.object({
-    openNow: z.boolean(),
-    created: z.boolean(),
-    closed: z.boolean(),
-    avgLifetime: z.boolean(),
-    activePct: z.boolean(),
-    peakOpen: z.boolean(),
-  }),
-  format: z.enum(['cards', 'list', 'radial']),
-  showSparkline: z.boolean(),
-  chartPalette: chartPaletteSchema,
-})
-
 export const activitySettingsSchema = z.object({
   paused: z.boolean(),
   screenTime: screenTimeSettingsSchema,
-  tabStats: tabStatsSettingsSchema,
 })
 
 export const lastHeartbeatSchema = z.number().int().nonnegative()

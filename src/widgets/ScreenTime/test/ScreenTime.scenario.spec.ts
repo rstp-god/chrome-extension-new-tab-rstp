@@ -87,19 +87,6 @@ async function captureScenarios(page: Page, suffix: '' | '-dark') {
           maxDomains: 5,
           chartPalette: DEFAULT_PALETTE,
         },
-        tabStats: {
-          visibleMetrics: {
-            openNow: true,
-            created: true,
-            closed: true,
-            avgLifetime: true,
-            activePct: true,
-            peakOpen: false,
-          },
-          format: 'cards',
-          showSparkline: true,
-          chartPalette: DEFAULT_PALETTE,
-        },
       },
     })
     await snapshot(page, `widget-screen-time-area-week${suffix}.png`)

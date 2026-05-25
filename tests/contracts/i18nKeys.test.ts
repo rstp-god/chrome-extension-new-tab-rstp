@@ -5,6 +5,8 @@ import enTodo from '@/i18n/resources/en/widgets/todoWidget.json'
 import ruTodo from '@/i18n/resources/ru/widgets/todoWidget.json'
 import enChromeLibrary from '@/i18n/resources/en/widgets/chromeLibraryWidget.json'
 import ruChromeLibrary from '@/i18n/resources/ru/widgets/chromeLibraryWidget.json'
+import enProductivity from '@/i18n/resources/en/widgets/productivityWidget.json'
+import ruProductivity from '@/i18n/resources/ru/widgets/productivityWidget.json'
 
 function keyset(value: Record<string, unknown>, prefix = ''): string[] {
   return Object.entries(value).flatMap(([key, nested]) => {
@@ -31,5 +33,9 @@ describe('i18n contract', () => {
     for (const key of enKeys) {
       expect(ruKeys.has(key)).toBe(true)
     }
+  })
+
+  it('keeps en and ru productivity widget keys in sync', () => {
+    expect(keyset(ruProductivity)).toEqual(keyset(enProductivity))
   })
 })

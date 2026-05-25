@@ -1,6 +1,6 @@
 # Activity tracking module
 
-Background service-worker module that feeds the **Screen Time** and **Tab Stats** widgets. Collects per-domain time spent and tab-management metrics, fully local, no cloud sync.
+Background service-worker module that feeds the **Screen Time** widget. Collects per-domain time spent, fully local, no cloud sync.
 
 ## Module layout
 
@@ -36,13 +36,13 @@ All writes go through `storage.ts`. Each key is a Zod-validated envelope:
 
 The same format `withChromeSync` uses on the UI side, so worker-written records round-trip cleanly.
 
-| Key                 | Purpose                                 | Cadence                                   |
-| ------------------- | --------------------------------------- | ----------------------------------------- |
-| `activity_raw`      | Source-of-truth event log               | Debounced (10s) append; 24h retention     |
-| `activity_day`      | Today's snapshot, hourly buckets        | Debounced (5s) after each event           |
-| `activity_week`     | Last 7 days, daily buckets              | On day rollover                           |
-| `activity_all`      | Up to 90 days, daily buckets            | On day rollover; capped by daily alarm    |
-| `activity_settings` | Pause, palette, widget prefs (UI-owned) | Written by UI; worker watches for changes |
+| Key                 | Purpose                                      | Cadence                                   |
+| ------------------- | -------------------------------------------- | ----------------------------------------- |
+| `activity_raw`      | Source-of-truth event log                    | Debounced (10s) append; 24h retention     |
+| `activity_day`      | Today's snapshot, hourly buckets             | Debounced (5s) after each event           |
+| `activity_week`     | Last 7 days, daily buckets                   | On day rollover                           |
+| `activity_all`      | Up to 90 days, daily buckets                 | On day rollover; capped by daily alarm    |
+| `activity_settings` | Pause, palette, Screen Time prefs (UI-owned) | Written by UI; worker watches for changes |
 
 ## Event flow
 
@@ -101,7 +101,7 @@ This module uses:
 
 - `rollup.test.ts` — thorough unit coverage of the pure aggregation logic.
 - `tracker.test.ts` — `extractDomain` edge cases + state-machine scenarios with a stubbed `chrome.*` global.
-- Full end-to-end scenarios live in `src/widgets/ScreenTime/test/*.scenario.spec.ts` and `src/widgets/TabStats/test/*.scenario.spec.ts` (added in Stages 5–6).
+- Full end-to-end scenarios live in `src/widgets/ScreenTime/test/*.scenario.spec.ts`.
 
 ## Why split this way
 
