@@ -148,6 +148,30 @@ async function captureTodoScenarios(page: Page, suffix: '' | '-dark') {
   })
 }
 
+test('long unbreakable text stays inside the card', async () => {
+  const context = await launchExtensionContext()
+  try {
+    const page = await context.newPage()
+    await prepareExtensionPage(page)
+    await setExtensionTheme(page, 'light')
+    await addWidget(page, 'todo')
+
+    const longTitle = 'a'.repeat(120) + 'B' + 'b'.repeat(80)
+    const longDescription = 'x'.repeat(200)
+    await addTodo(page, longTitle, longDescription)
+
+    const card = todoCard(page, longTitle.slice(0, 20))
+    const frame = todoFrame(page)
+    const cardBox = await card.boundingBox()
+    const frameBox = await frame.boundingBox()
+    if (!cardBox || !frameBox) throw new Error('expected bounding boxes')
+    // Allow 2px for sub-pixel rounding.
+    expect(cardBox.x + cardBox.width).toBeLessThanOrEqual(frameBox.x + frameBox.width + 2)
+  } finally {
+    await context.close()
+  }
+})
+
 test('todo widget interaction scenarios match snapshots', async () => {
   const context = await launchExtensionContext()
 

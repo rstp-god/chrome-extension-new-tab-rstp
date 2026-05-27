@@ -203,9 +203,11 @@ export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props)
 
             {linkedTab && (
               <div className="min-w-0 rounded-2xl border border-border bg-muted/40 px-3 py-2 text-sm">
-                <div className="flex items-center gap-2 font-medium">
-                  <GlobeIcon className="size-4" />
-                  <span className="truncate">{linkedTab.title ?? t('messages.untitledTab')}</span>
+                <div className="flex min-w-0 items-center gap-2 font-medium">
+                  <GlobeIcon className="size-4 shrink-0" />
+                  <span className="min-w-0 flex-1 truncate">
+                    {linkedTab.title ?? t('messages.untitledTab')}
+                  </span>
                 </div>
                 <div className="mt-1 truncate text-xs text-muted-foreground">{linkedTab.url}</div>
               </div>

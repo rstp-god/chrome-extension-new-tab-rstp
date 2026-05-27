@@ -123,7 +123,7 @@ export function TodoWidget() {
         </div>
       ) : (
         <ScrollArea className="min-h-0 flex-1">
-          <div className="grid gap-4 pr-2">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-4 pr-2">
             {sections.map((section) =>
               section.tasks.length === 0 ? null : (
                 <TodoSection
