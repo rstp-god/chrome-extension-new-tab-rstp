@@ -102,7 +102,7 @@ export function TodoTaskCard({
 
           <div
             className={clsx(
-              'text-base font-semibold leading-tight',
+              'text-base font-semibold leading-tight break-words [overflow-wrap:anywhere]',
               (isCompleted || isDeleted) && 'text-muted-foreground line-through decoration-1',
             )}
           >
@@ -110,7 +110,7 @@ export function TodoTaskCard({
           </div>
 
           {task.description && (
-            <p className="mt-2 whitespace-pre-wrap text-sm text-muted-foreground">
+            <p className="mt-2 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm text-muted-foreground">
               {task.description}
             </p>
           )}
