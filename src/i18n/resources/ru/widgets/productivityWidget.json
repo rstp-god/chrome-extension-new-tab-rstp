@@ -1,0 +1,38 @@
+{
+  "title": "Продуктивность",
+  "description": "Дневные счётчики задач с персональным baseline",
+  "coldStart": "собираем данные…",
+  "metrics": {
+    "closed": "Закрыл",
+    "fullFlow": "Full Flow",
+    "planned": "Запланировал",
+    "wip": "В работе"
+  },
+  "delta": {
+    "weekdayAverage": "к будням",
+    "weekendAverage": "к выходным",
+    "average": "к среднему",
+    "asUsual": "как обычно"
+  },
+  "kpi": {
+    "green": "Продуктивный день",
+    "yellow": "Так себе",
+    "red": "Залипаешь?",
+    "cold": "Собираем данные"
+  },
+  "error": {
+    "message": "Не удалось загрузить данные продуктивности",
+    "retry": "Повторить"
+  },
+  "settings": {
+    "title": "Настройки продуктивности",
+    "description": "Выберите, какие метрики показывать и как считается baseline",
+    "openLabel": "Открыть настройки продуктивности",
+    "showFullFlow": "Показывать Full Flow",
+    "showPlanned": "Показывать «Запланировал»",
+    "showWip": "Показывать «В работе»",
+    "splitWeekdayWeekend": "Раздельный baseline для будней и выходных",
+    "rebuildHistory": "Пересчитать историю",
+    "baselineHint": "Baseline: медиана за последние 14 дней"
+  }
+}

@@ -103,19 +103,6 @@ export type ScreenTimeChartType = (typeof SCREEN_TIME_CHART_TYPES)[number]
 
 export const SCREEN_TIME_PERIODS = ['day', 'week', 'all'] as const
 export type ScreenTimePeriod = (typeof SCREEN_TIME_PERIODS)[number]
-export const TAB_STATS_FORMATS = ['cards', 'list', 'radial'] as const
-export type TabStatsFormat = (typeof TAB_STATS_FORMATS)[number]
-
-export const TAB_STATS_METRIC_KEYS = [
-  'openNow',
-  'created',
-  'closed',
-  'avgLifetime',
-  'activePct',
-  'peakOpen',
-] as const
-export type TabStatsMetricKey = (typeof TAB_STATS_METRIC_KEYS)[number]
-
 export interface ScreenTimeSettings {
   chartType: ScreenTimeChartType
   /** User's last-selected period — persisted across sessions. */
@@ -125,22 +112,12 @@ export interface ScreenTimeSettings {
   showGrid: boolean
   showTooltips: boolean
   maxDomains: number
-  /** Per-widget palette — not shared with Tab Stats. */
-  chartPalette: ChartPalette
-}
-
-export interface TabStatsSettings {
-  visibleMetrics: Record<TabStatsMetricKey, boolean>
-  format: TabStatsFormat
-  showSparkline: boolean
-  /** Per-widget palette — not shared with Screen Time. */
   chartPalette: ChartPalette
 }
 
 export interface ActivitySettings {
   paused: boolean
   screenTime: ScreenTimeSettings
-  tabStats: TabStatsSettings
 }
 
 // Re-exports from constants so existing `from './types'` imports don't break.
