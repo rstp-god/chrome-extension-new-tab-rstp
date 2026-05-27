@@ -123,7 +123,7 @@ export function TodoTaskCard({
               onClick={() => onOpenLinkedTab(task.id)}
             >
               <ExternalLinkIcon className="size-3.5 shrink-0" />
-              <span className="truncate">
+              <span className="min-w-0 flex-1 truncate">
                 {task.linkedTab.title ?? getHostname(task.linkedTab.url)}
               </span>
             </button>
