@@ -35,6 +35,27 @@ export async function launchExtensionContext(): Promise<BrowserContext> {
   })
 }
 
+/**
+ * Clear BOTH storage areas between scenarios. Synced stores
+ * (appearance/header/widget/todo/productivity/chrome-library) persist to
+ * `chrome.storage.sync`, so clearing only `local` would leave their envelopes
+ * behind and leak state (tasks, layout, theme) across scenario runs.
+ */
+export async function clearExtensionStorage(page: Page) {
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        let pending = 2
+        const done = () => {
+          pending -= 1
+          if (pending === 0) resolve()
+        }
+        chrome.storage.local.clear(done)
+        chrome.storage.sync.clear(done)
+      }),
+  )
+}
+
 export async function installDeterministicPageState(page: Page) {
   await page.addInitScript((fixedTimeIso) => {
     const RealDate = Date

@@ -33,6 +33,7 @@ const widgetEnvelopeSchema = makeEnvelopeSchema(widgetStoreSchema)
 export const useWidgetStore = create<WidgetStore & ChromeSyncActions>()(
   withChromeSync<WidgetStore, Widgets>({
     key: WIDGET_LAYOUT_KEY,
+    area: 'sync',
     schema: widgetEnvelopeSchema,
     autoPersist: false,
     partialize: (s) => ({
