@@ -3,7 +3,7 @@ import {
   isShowcaseMode,
   getChromeObject,
 } from '@/services/chrome/runtime.ts'
-import { getArea, setArea, type StorageArea } from '@/services/chrome/storage.ts'
+import { getArea, removeArea, setArea, type StorageArea } from '@/services/chrome/storage.ts'
 import type { StateCreator, StoreApi } from 'zustand'
 import type { z } from 'zod'
 
@@ -27,7 +27,15 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
   autoPersist?: boolean
   debounceMs?: number
 }) {
-  const { key, area = 'local', partialize, schema, merge, debounceMs = 0, autoPersist = true } = opts
+  const {
+    key,
+    area = 'local',
+    partialize,
+    schema,
+    merge,
+    debounceMs = 0,
+    autoPersist = true,
+  } = opts
 
   return (config: StateCreator<TState>): StateCreator<Synced<TState>> =>
     (set, get, api) => {
@@ -59,11 +67,25 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
           meta: { originId: ORIGIN_ID, rev: ++lastRev, ts: Date.now() },
           state: persisted,
         }
-        // Only mark the slice as written if it actually landed. A swallowed
-        // sync-quota failure returns false → keep lastWrittenJson stale so the
-        // next write of the same payload isn't deduped away and retries.
-        const written = await setArea(resolveArea(), key, env)
-        if (written) lastWrittenJson = json
+
+        const resolved = resolveArea()
+        const written = await setArea(resolved, key, env)
+        if (written) {
+          lastWrittenJson = json
+          return
+        }
+
+        // A sync write can be rejected by the byte/rate quota (e.g. a large
+        // Todo list). Never silently drop data: fall back to device-local so
+        // the state survives a reload, and remove the now-stale sync copy so
+        // it can't win over the fresher local one on the next load.
+        if (resolved === 'sync') {
+          const localWritten = await setArea('local', key, env)
+          if (localWritten) {
+            lastWrittenJson = json
+            await removeArea('sync', key)
+          }
+        }
       }
 
       const scheduleWrite = () => {
@@ -130,13 +152,36 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
       })()
 
       const onChanged = (changes: StorageChanges, changedArea: string) => {
-        if (changedArea !== resolveArea()) return
         const ch = changes[key]
         if (!ch?.newValue) return
 
         const env = parseEnv(ch.newValue)
         if (!env) return
-        if (env.meta.originId === ORIGIN_ID || env.meta.rev <= lastRev) return
+        if (env.meta.originId === ORIGIN_ID) return
+
+        const currentArea = resolveArea()
+
+        // Dynamic-area transition INTO local: a sibling context on THIS device
+        // may activate an integration (e.g. connect Trello) and write a `local`
+        // envelope. A context still resolving to `sync` would otherwise ignore
+        // it, keep showing the pre-integration list, and write it back to sync.
+        // Accept the takeover. `local` events are same-device only
+        // (storage.local doesn't sync), so this can't be driven remotely; rev
+        // spaces differ across contexts, so we don't gate it on rev.
+        const incomingArea =
+          typeof area === 'function' ? area(env.state as unknown as TState) : currentArea
+        if (
+          typeof area === 'function' &&
+          changedArea === 'local' &&
+          incomingArea === 'local' &&
+          currentArea !== 'local'
+        ) {
+          applyEnv(env)
+          return
+        }
+
+        if (changedArea !== currentArea) return
+        if (env.meta.rev <= lastRev) return
 
         applyEnv(env)
       }

@@ -26,8 +26,10 @@ const headerEnvelopeSchema = makeEnvelopeSchema(headerStateSchema)
 export const useHeaderStore = create<Synced<HeaderStore>>()(
   withChromeSync<HeaderStore, HeaderSettingsV1>({
     key: HEADER_SETTINGS_KEY,
+    // Discrete toggles (theme/language/pinned/name) — no high-frequency writes,
+    // so no debounce: persist immediately (a delayed write could be lost if the
+    // tab is closed/reloaded right after a change). Dedup skips no-op writes.
     area: 'sync',
-    debounceMs: 800,
     schema: headerEnvelopeSchema,
     partialize: (s) => ({
       version: 1,

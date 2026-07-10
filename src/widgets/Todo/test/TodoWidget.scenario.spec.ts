@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { TestId, testIds } from '@tests/constants/testIds.ts'
 import {
   addWidget,
+  clearExtensionStorage,
   launchExtensionContext,
   prepareExtensionPage,
   setExtensionTheme,
@@ -59,12 +60,7 @@ async function resetWidgetState(page: Page, theme: 'light' | 'dark') {
   // pages, so the dark-theme run would inherit tasks (and a duplicated
   // widget) added during the light-theme run. Clear storage and reload so
   // each scenario starts from a clean slate.
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        chrome.storage.local.clear(() => resolve())
-      }),
-  )
+  await clearExtensionStorage(page)
   await page.reload({ waitUntil: 'domcontentloaded' })
   await stabilizeExtensionUi(page)
   // Clearing storage wipes the theme preference too; without re-applying it

@@ -8,6 +8,7 @@ import {
 import { TestId, testIds } from '@tests/constants/testIds.ts'
 import {
   addWidget,
+  clearExtensionStorage,
   launchExtensionContext,
   prepareExtensionPage,
   setExtensionTheme,
@@ -38,12 +39,7 @@ async function snapshot(page: Page, fileName: string) {
 }
 
 async function resetWidgetState(page: Page, theme: 'light' | 'dark') {
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        chrome.storage.local.clear(() => resolve())
-      }),
-  )
+  await clearExtensionStorage(page)
   await page.reload({ waitUntil: 'domcontentloaded' })
   await stabilizeExtensionUi(page)
   await setExtensionTheme(page, theme)
