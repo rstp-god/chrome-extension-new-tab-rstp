@@ -54,6 +54,9 @@ function installChromeMock(): void {
         },
       },
     },
+    runtime: {
+      getURL: (path: string) => `chrome-extension://test-id/${path}`,
+    },
     notifications: {
       create: (id: string) => {
         const tabId = Number(id.replace('cleanup-tab-', ''))

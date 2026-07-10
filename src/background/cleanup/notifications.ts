@@ -7,7 +7,7 @@ function createCleanupNotificationOptions(
 ): chrome.notifications.NotificationCreateOptions {
   return {
     type: 'basic',
-    iconUrl: 'public/logo.png',
+    iconUrl: chrome.runtime.getURL('logo.png'), // было 'public/logo.png' — 404 в рантайме
     title: 'Close inactive tab?',
     message: tabTitle,
     buttons: [{ title: 'Close' }, { title: 'Keep' }],
@@ -17,7 +17,12 @@ function createCleanupNotificationOptions(
 
 export function showCleanupNotification(tabId: number, tabTitle: string): void {
   const notificationId = `${NOTIFICATION_PREFIX}${tabId}`
-  chrome.notifications.create(notificationId, createCleanupNotificationOptions(tabTitle))
+  chrome.notifications.create(notificationId, createCleanupNotificationOptions(tabTitle), () => {
+    // Больше не молчим: если иконка/опции невалидны — увидим в логах воркера
+    if (chrome.runtime.lastError) {
+      console.warn('[cleanup] notification failed:', chrome.runtime.lastError.message)
+    }
+  })
 }
 
 export function setupNotificationHandlers(): void {
