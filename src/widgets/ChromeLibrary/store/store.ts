@@ -57,6 +57,8 @@ interface ChromeLibraryWidgetState {
 export const useChromeLibraryStore = create<ChromeLibraryWidgetState & ChromeSyncActions>()(
   withChromeSync<ChromeLibraryWidgetState, ChromeLibraryPersistedState>({
     key: CHROME_LIBRARY_WIDGET_STORAGE_KEY,
+    area: 'sync',
+    debounceMs: 800,
     schema: chromeLibraryEnvelopeSchema,
     autoPersist: true,
     partialize: (state) => ({

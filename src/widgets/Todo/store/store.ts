@@ -1,3 +1,4 @@
+import { removeArea } from '@/services/chrome/storage.ts'
 import { focusOrOpenTab, LinkableTab } from '@/services/chrome/tabs.ts'
 import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
 import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
@@ -183,6 +184,11 @@ function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): Tod
 export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
   withChromeSync<TodoWidgetState, TodoPersistedState>({
     key: TODO_STORAGE_KEY,
+    // Trello connected → the board itself is the cross-device sync, and the
+    // config holds apiKey/token, so we keep everything device-local: secrets
+    // never reach `storage.sync`. Local list (no integration) → sync the tasks.
+    area: (state) => (state.integration ? 'local' : 'sync'),
+    debounceMs: 800,
     schema: todoEnvelopeSchema,
     partialize: (state) => ({
       tasks: state.tasks,
@@ -365,6 +371,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           loading: false,
           errorKey: null,
         })
+
+        // We now persist to `local` (integration is set). Wipe the previous
+        // `sync` copy so the local task list doesn't linger in the cloud and
+        // no future write can ever leak the Trello secrets into `storage.sync`.
+        await removeArea('sync', TODO_STORAGE_KEY)
       },
 
       pickBoard: (boardId, boardName, lists, projects) => {
@@ -405,6 +416,16 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
             syncState: 'clean',
           })),
         })
+
+        // Back to a local list → tasks belong in `sync` again. Commit now so
+        // they propagate immediately instead of waiting for the next edit.
+        void useTodoStore.getState().commit()
+
+        // Wipe the device-local copy that still holds the Trello secrets.
+        // Otherwise the next load would see a local envelope with an active
+        // integration and resurrect the just-disconnected integration (and its
+        // apiKey/token) via loadInitialEnv's "local wins" rule.
+        void removeArea('local', TODO_STORAGE_KEY)
       },
 
       syncNow: async () => {

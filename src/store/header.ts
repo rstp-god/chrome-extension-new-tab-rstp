@@ -26,6 +26,8 @@ const headerEnvelopeSchema = makeEnvelopeSchema(headerStateSchema)
 export const useHeaderStore = create<Synced<HeaderStore>>()(
   withChromeSync<HeaderStore, HeaderSettingsV1>({
     key: HEADER_SETTINGS_KEY,
+    area: 'sync',
+    debounceMs: 800,
     schema: headerEnvelopeSchema,
     partialize: (s) => ({
       version: 1,
