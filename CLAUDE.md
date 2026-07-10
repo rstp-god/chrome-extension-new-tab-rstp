@@ -37,7 +37,7 @@ Husky `pre-commit` runs `yarn lint` and `yarn format`.
 
 ### Layout
 
-- `manifest.config.ts` — MV3 manifest (permissions: `contentSettings`, `storage`, `tabs`, `bookmarks`, `tabGroups`, `alarms`, `notifications`)
+- `manifest.config.ts` — MV3 manifest (permissions: `storage`, `tabs`, `bookmarks`, `tabGroups`, `alarms`, `notifications`, `idle`)
 - `src/newtab/` — new tab page entry (`index.html`, `App.tsx`, `main.tsx`, components for Header / Background / WidgetLayout)
 - `src/popup/` — Tab Rules Engine popup (rule management, sorting, cleanup settings)
 - `src/background/` — background service worker (rule execution, cleanup scheduler)

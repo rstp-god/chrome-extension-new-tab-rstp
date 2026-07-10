@@ -496,7 +496,6 @@ switch (integrationName) {
 - `bookmarks` — доступ к закладкам (виджет ChromeLibrary)
 - `alarms` — планировщик очистки неактивных табов
 - `notifications` — уведомления при закрытии табов (cleanup ask mode)
-- `contentSettings` — используется инфраструктурой проекта
 
 ### Правила для разработки новых виджетов
 
@@ -1024,7 +1023,6 @@ Current manifest permissions include:
 - `bookmarks` — bookmarks access (ChromeLibrary widget)
 - `alarms` — cleanup scheduler for inactive tabs
 - `notifications` — cleanup ask-mode notifications
-- `contentSettings` — project-level capabilities
 
 ### Permission rules for new widgets
 

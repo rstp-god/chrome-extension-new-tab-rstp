@@ -24,7 +24,6 @@ export default defineManifest({
     newtab: 'src/newtab/index.html',
   },
   permissions: [
-    'contentSettings',
     'storage',
     'tabs',
     'bookmarks',
