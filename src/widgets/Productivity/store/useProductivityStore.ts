@@ -52,6 +52,7 @@ const productivityEnvelopeSchema = makeEnvelopeSchema(productivityStateSchema)
 export const useProductivityStore = create<Synced<ProductivityStore>>()(
   withChromeSync<ProductivityStore, ProductivityPersistedState>({
     key: PRODUCTIVITY_SETTINGS_KEY,
+    area: 'sync',
     schema: productivityEnvelopeSchema,
     autoPersist: false,
     partialize: (s) => ({

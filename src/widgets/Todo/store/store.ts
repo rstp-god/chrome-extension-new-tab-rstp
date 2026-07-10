@@ -1,3 +1,4 @@
+import { removeArea } from '@/services/chrome/storage.ts'
 import { focusOrOpenTab, LinkableTab } from '@/services/chrome/tabs.ts'
 import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
 import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
@@ -183,6 +184,14 @@ function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): Tod
 export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
   withChromeSync<TodoWidgetState, TodoPersistedState>({
     key: TODO_STORAGE_KEY,
+    // Trello connected → the board itself is the cross-device sync, and the
+    // config holds apiKey/token, so we keep everything device-local: secrets
+    // never reach `storage.sync`. Local list (no integration) → sync the tasks.
+    area: (state) => (state.integration ? 'local' : 'sync'),
+    // No debounce: task actions are discrete (add/status/project), never
+    // slider-frequency, and dedup skips writes on non-persisted changes
+    // (loading/errorKey). Persisting immediately also avoids a pending write
+    // landing after an external clear/reload.
     schema: todoEnvelopeSchema,
     partialize: (state) => ({
       tasks: state.tasks,
@@ -365,6 +374,15 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           loading: false,
           errorKey: null,
         })
+
+        // Persist the connection to `local` FIRST (integration is set →
+        // commit writes local immediately), THEN wipe the previous `sync`
+        // copy. Doing it in this order means that if the context unloads
+        // mid-way, we never end up with the sync copy already deleted while the
+        // local copy (with the Trello config) was never written — which would
+        // lose the connection and tasks on the next load.
+        await useTodoStore.getState().commit()
+        await removeArea('sync', TODO_STORAGE_KEY)
       },
 
       pickBoard: (boardId, boardName, lists, projects) => {
@@ -405,6 +423,16 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
             syncState: 'clean',
           })),
         })
+
+        // Back to a local list → tasks belong in `sync` again. Commit now so
+        // they propagate immediately instead of waiting for the next edit.
+        void useTodoStore.getState().commit()
+
+        // Wipe the device-local copy that still holds the Trello secrets.
+        // Otherwise the next load would see a local envelope with an active
+        // integration and resurrect the just-disconnected integration (and its
+        // apiKey/token) via loadInitialEnv's "local wins" rule.
+        void removeArea('local', TODO_STORAGE_KEY)
       },
 
       syncNow: async () => {

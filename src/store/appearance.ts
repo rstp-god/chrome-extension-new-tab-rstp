@@ -51,6 +51,8 @@ async function rescaleWidgets(oldCols: number, newCols: number): Promise<void> {
 export const useAppearanceStore = create<Synced<AppearanceStore>>()(
   withChromeSync<AppearanceStore, AppearanceSettingsV1>({
     key: APPEARANCE_SETTINGS_KEY,
+    area: 'sync',
+    debounceMs: 800,
     schema: appearanceEnvelopeSchema,
     partialize: (s) => ({
       version: 1,

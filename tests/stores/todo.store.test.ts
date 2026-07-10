@@ -6,6 +6,19 @@ vi.mock('@/services/chrome/tabs.ts', () => ({
   focusOrOpenTab: focusOrOpenTabMock,
 }))
 
+const removeAreaMock = vi.hoisted(() => vi.fn(async () => {}))
+
+// Stub the storage layer so we can assert the area-cleanup calls that keep
+// Trello secrets out of storage.sync. getArea/setArea are used by the sync
+// engine on import — keep them inert.
+vi.mock('@/services/chrome/storage.ts', () => ({
+  getArea: vi.fn(async () => null),
+  setArea: vi.fn(async () => true),
+  removeArea: removeAreaMock,
+  getLocal: vi.fn(async () => null),
+  setLocal: vi.fn(async () => true),
+}))
+
 const fakeConnect = vi.hoisted(() => vi.fn())
 const fakeDisconnect = vi.hoisted(() => vi.fn())
 const fakeListBoards = vi.hoisted(() => vi.fn())
@@ -46,7 +59,12 @@ import type {
   RemoteTaskRef,
   StatusListMapping,
 } from '@/widgets/Todo/integrations/index.ts'
-import { useTodoStore, type IntegrationState, type TodoTask } from '@/widgets/Todo/store/store.ts'
+import {
+  TODO_STORAGE_KEY,
+  useTodoStore,
+  type IntegrationState,
+  type TodoTask,
+} from '@/widgets/Todo/store/store.ts'
 
 function makeTask(overrides: Partial<TodoTask> = {}): TodoTask {
   return {
@@ -119,6 +137,7 @@ beforeEach(() => {
   fakeListProjects.mockReset()
   fakePullTasks.mockReset()
   fakePushTask.mockReset()
+  removeAreaMock.mockClear()
   useTodoStore.setState({ tasks: [], integration: null, loading: false, errorKey: null })
 })
 
@@ -272,6 +291,16 @@ describe('todo store — integration: connect', () => {
     expect(state.errorKey).toBeNull()
   })
 
+  it('connectIntegration wipes the sync copy so tasks/secrets never linger in the cloud', async () => {
+    fakeConnect.mockResolvedValueOnce(ok({ userHandle: 'tester' }))
+    await useTodoStore.getState().connectIntegration('trello', {
+      apiKey: 'k',
+      token: 't',
+      boardId: null,
+    })
+    expect(removeAreaMock).toHaveBeenCalledWith('sync', TODO_STORAGE_KEY)
+  })
+
   it('connectIntegration failure sets errorKey and leaves integration null', async () => {
     fakeConnect.mockResolvedValueOnce({ ok: false, errorKey: 'authInvalid' })
     await useTodoStore.getState().connectIntegration('trello', {
@@ -370,6 +399,17 @@ describe('todo store — integration: clearIntegration', () => {
       expect(task.remoteRef).toBeNull()
       expect(task.syncState).toBe('clean')
     }
+  })
+
+  it('wipes the device-local secret copy so the integration cannot resurrect on reload', () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), tasks: [] })
+    removeAreaMock.mockClear()
+
+    useTodoStore.getState().clearIntegration()
+
+    // The local envelope still holds apiKey/token; it must be removed, else
+    // loadInitialEnv's "local wins" rule brings the integration back.
+    expect(removeAreaMock).toHaveBeenCalledWith('local', TODO_STORAGE_KEY)
   })
 })
 

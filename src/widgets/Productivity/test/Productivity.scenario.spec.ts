@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 import { TestId, testIds } from '@tests/constants/testIds.ts'
 import {
   addWidget,
+  clearExtensionStorage,
   launchExtensionContext,
   prepareExtensionPage,
   setExtensionTheme,
@@ -79,12 +80,7 @@ async function seedProductivityState(
  * Clear storage and reload to a known-empty state, then re-apply theme.
  */
 async function resetWidgetState(page: Page, theme: 'light' | 'dark') {
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) => {
-        chrome.storage.local.clear(() => resolve())
-      }),
-  )
+  await clearExtensionStorage(page)
   await page.reload({ waitUntil: 'domcontentloaded' })
   await stabilizeExtensionUi(page)
   await setExtensionTheme(page, theme)
