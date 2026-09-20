@@ -497,6 +497,12 @@ export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormP
 - `bookmarks` — доступ к закладкам (виджет ChromeLibrary)
 - `alarms` — планировщик очистки неактивных табов
 - `notifications` — уведомления при закрытии табов (cleanup ask mode)
+- `idle` — определение простоя для трекинга активности
+
+Хосты:
+
+- `host_permissions: https://api.trello.com/*` — выдаётся при установке; интеграция Todo с Trello ходит на фиксированный адрес API, известный на этапе сборки.
+- `optional_host_permissions: https://*/*` — **при установке не запрашивается ничего**. Vikunja разворачивается на своём сервере, его адрес на этапе сборки неизвестен, поэтому широкий паттерн объявлен как опциональный. Конкретный origin запрашивается в рантайме через `chrome.permissions.request` — только в момент, когда пользователь нажимает «Подключить» в форме Vikunja, и только для того хоста, который он сам ввёл. Воркер перед каждым запросом проверяет грант через `chrome.permissions.contains` и без него не делает ни одного сетевого вызова.
 
 ### Правила для разработки новых виджетов
 
@@ -1025,6 +1031,12 @@ Current manifest permissions include:
 - `bookmarks` — bookmarks access (ChromeLibrary widget)
 - `alarms` — cleanup scheduler for inactive tabs
 - `notifications` — cleanup ask-mode notifications
+- `idle` — idle detection for activity tracking
+
+Hosts:
+
+- `host_permissions: https://api.trello.com/*` — granted at install time; the Trello Todo integration talks to one fixed API address that is known at build time.
+- `optional_host_permissions: https://*/*` — **nothing is requested at install**. Vikunja is self-hosted and its address is unknown at build time, so the broad pattern is declared as optional only. The concrete origin is requested at runtime via `chrome.permissions.request`, exclusively when the user submits the Vikunja connect form, and exclusively for the host they typed. The service worker re-checks the grant with `chrome.permissions.contains` before every request and makes no network call without it.
 
 ### Permission rules for new widgets
 

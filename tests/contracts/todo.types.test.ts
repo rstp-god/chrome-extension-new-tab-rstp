@@ -7,6 +7,8 @@
 
 import { TrelloIntegration } from '@/widgets/Todo/integrations/trello/index.ts'
 import type { TrelloConfig } from '@/widgets/Todo/integrations/trello/types.ts'
+import { VikunjaIntegration } from '@/widgets/Todo/integrations/vikunja/index.ts'
+import type { VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 import {
   getIntegrationDescriptor,
   TODO_STATUSES,
@@ -32,6 +34,14 @@ describe('TodoIntegration contract', () => {
 
   it('TrelloIntegration constructor takes a TrelloConfig', () => {
     expectTypeOf(TrelloIntegration).constructorParameters.toEqualTypeOf<[TrelloConfig]>()
+  })
+
+  it('VikunjaIntegration is structurally assignable to TodoIntegration', () => {
+    expectTypeOf<VikunjaIntegration>().toMatchTypeOf<TodoIntegration>()
+  })
+
+  it('VikunjaIntegration constructor takes a VikunjaConfig', () => {
+    expectTypeOf(VikunjaIntegration).constructorParameters.toEqualTypeOf<[VikunjaConfig]>()
   })
 })
 

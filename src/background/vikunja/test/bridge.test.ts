@@ -12,9 +12,25 @@ type Listener = (
 
 const listeners: Listener[] = []
 
+const EXTENSION_ID = 'abcdefghijklmnopabcdefghijklmnop'
+const EXTENSION_ROOT = `chrome-extension://${EXTENSION_ID}/`
+
+/**
+ * A message from one of our own extension pages — the only sender the bridge
+ * answers. The New Tab page is a tab, so `tab` is present on purpose: the
+ * guard must key on the URL, not on the absence of a tab.
+ */
+const TRUSTED_SENDER = {
+  id: EXTENSION_ID,
+  url: `${EXTENSION_ROOT}src/newtab/index.html`,
+  tab: { id: 7 },
+}
+
 function installChromeMock(): void {
   ;(globalThis as unknown as { chrome: unknown }).chrome = {
     runtime: {
+      id: EXTENSION_ID,
+      getURL: (path: string) => `${EXTENSION_ROOT}${path}`,
       onMessage: {
         addListener: (listener: Listener) => {
           listeners.push(listener)
@@ -81,7 +97,7 @@ describe('setupVikunjaBridge', () => {
     const listener = attachBridge()
     const sendResponse = vi.fn()
 
-    const result = listener({ type: 'GET_STATUS' }, {}, sendResponse)
+    const result = listener({ type: 'GET_STATUS' }, TRUSTED_SENDER, sendResponse)
     await flush()
 
     expect(result).toBe(false)
@@ -92,8 +108,8 @@ describe('setupVikunjaBridge', () => {
     const listener = attachBridge()
     const sendResponse = vi.fn()
 
-    expect(listener('vikunja', {}, sendResponse)).toBe(false)
-    expect(listener(null, {}, sendResponse)).toBe(false)
+    expect(listener('vikunja', TRUSTED_SENDER, sendResponse)).toBe(false)
+    expect(listener(null, TRUSTED_SENDER, sendResponse)).toBe(false)
     await flush()
 
     expect(sendResponse).not.toHaveBeenCalled()
@@ -103,7 +119,37 @@ describe('setupVikunjaBridge', () => {
     const listener = attachBridge()
     const sendResponse = vi.fn()
 
-    const result = listener({ type: 'vikunja', op: 'teleport' }, {}, sendResponse)
+    const result = listener({ type: 'vikunja', op: 'teleport' }, TRUSTED_SENDER, sendResponse)
+    await flush()
+
+    expect(result).toBe(false)
+    expect(sendResponse).not.toHaveBeenCalled()
+  })
+
+  it('answers a message from one of our own extension pages', async () => {
+    const listener = attachBridge()
+    const sendResponse = vi.fn()
+
+    expect(listener({ type: 'vikunja', op: 'ping' }, TRUSTED_SENDER, sendResponse)).toBe(true)
+    await flush()
+
+    expect(sendResponse).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['a content script on a web page', { id: EXTENSION_ID, url: 'https://evil.example/page' }],
+    ['another extension', { id: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz', url: EXTENSION_ROOT }],
+    ['a sender with no url at all', { id: EXTENSION_ID }],
+    ['a sender with no id at all', { url: `${EXTENSION_ROOT}src/newtab/index.html` }],
+    [
+      'a url that only looks like ours',
+      { id: EXTENSION_ID, url: 'https://evil.example/chrome-extension://x/' },
+    ],
+  ])('stays silent for %s', async (_label, sender) => {
+    const listener = attachBridge()
+    const sendResponse = vi.fn()
+
+    const result = listener({ type: 'vikunja', op: 'ping' }, sender, sendResponse)
     await flush()
 
     expect(result).toBe(false)
@@ -114,7 +160,7 @@ describe('setupVikunjaBridge', () => {
     const listener = attachBridge()
     const sendResponse = vi.fn()
 
-    const result = listener({ type: 'vikunja', op: 'ping' }, {}, sendResponse)
+    const result = listener({ type: 'vikunja', op: 'ping' }, TRUSTED_SENDER, sendResponse)
 
     expect(result).toBe(true)
     expect(sendResponse).not.toHaveBeenCalled()
@@ -140,7 +186,7 @@ describe('setupVikunjaBridge', () => {
         throw new Error('Attempting to use a disconnected port object')
       })
 
-      expect(listener({ type: 'vikunja', op: 'ping' }, {}, sendResponse)).toBe(true)
+      expect(listener({ type: 'vikunja', op: 'ping' }, TRUSTED_SENDER, sendResponse)).toBe(true)
       await flush()
 
       expect(sendResponse).toHaveBeenCalledTimes(1)
@@ -165,7 +211,7 @@ describe('setupVikunjaBridge', () => {
         op: 'ping',
         cfg: { baseUrl: 'https://vikunja.example', token: 'super-secret' },
       },
-      {},
+      TRUSTED_SENDER,
       sendResponse,
     )
     await flush()

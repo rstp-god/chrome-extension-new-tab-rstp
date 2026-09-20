@@ -86,8 +86,10 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{getDialogTitle(step, t)}</DialogTitle>
-          <DialogDescription>{getDialogDescription(step, t)}</DialogDescription>
+          <DialogTitle>{getDialogTitle(step, t, pickedIntegrationName)}</DialogTitle>
+          <DialogDescription>
+            {getDialogDescription(step, t, pickedIntegrationName)}
+          </DialogDescription>
         </DialogHeader>
 
         {showcase ? (

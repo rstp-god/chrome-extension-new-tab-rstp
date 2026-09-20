@@ -13,6 +13,11 @@ import { describe, expect, it } from 'vitest'
 describe('todoIntegrationRegistry lookup', () => {
   it('resolves a registered integration', () => {
     expect(getIntegrationDescriptor('trello')?.name).toBe('trello')
+    expect(getIntegrationDescriptor('vikunja')?.name).toBe('vikunja')
+  })
+
+  it('picks up every bundled integration through the eager glob', () => {
+    expect(Object.keys(todoIntegrationRegistry).sort()).toEqual(['trello', 'vikunja'])
   })
 
   it('returns null for names that are not registered', () => {

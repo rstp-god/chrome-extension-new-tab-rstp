@@ -125,6 +125,14 @@ export interface VikunjaPing {
   at: number
 }
 
+/** Payload of a successful `connect`: who the token belongs to, on what instance. */
+export interface VikunjaConnectInfo {
+  /** Vikunja `username` of the token's owner. */
+  userHandle: string
+  /** `version` field of `GET /info`, e.g. `v2.6.0`. */
+  version: string
+}
+
 /**
  * The one failure the bridge itself can produce (as opposed to an op
  * reporting a backend error). Frozen because both sides share this single
@@ -156,4 +164,73 @@ export function isVikunjaRequest(msg: unknown): msg is VikunjaRequest {
   const candidate = msg as { type?: unknown; op?: unknown }
   if (candidate.type !== VIKUNJA_MSG || typeof candidate.op !== 'string') return false
   return (VIKUNJA_OPS as readonly string[]).includes(candidate.op)
+}
+
+const VIKUNJA_API_SUFFIX = '/api/v1'
+
+/**
+ * Canonical form of the instance root, shared by both sides of the bridge:
+ * the connect form stores what this returns, the worker re-derives it from
+ * whatever it is handed. One function, so a config written by the page and a
+ * config validated by the worker can never disagree about what "the same
+ * instance" means.
+ *
+ * Strips what users habitually paste around the root — a trailing slash and
+ * the `/api/v1` copied out of the API docs — and returns `null` for anything
+ * the client must not be pointed at:
+ *
+ * - a non-https scheme: the token rides on every request;
+ * - credentials in the URL: they would be persisted next to the token;
+ * - a query or a fragment: paths are concatenated onto this string, so
+ *   anything after them would be swallowed or would reorder the final URL.
+ *
+ * A sub-path install (`https://host/vikunja/api/v1`) keeps its sub-path.
+ */
+export function normalizeVikunjaBaseUrl(raw: string): string | null {
+  const trimmed = raw.trim()
+
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:') return null
+  if (url.username || url.password) return null
+  if (url.search || url.hash) return null
+  if (!url.hostname) return null
+
+  let value = trimmed
+  while (value.endsWith('/')) value = value.slice(0, -1)
+  if (value.endsWith(VIKUNJA_API_SUFFIX)) value = value.slice(0, -VIKUNJA_API_SUFFIX.length)
+  while (value.endsWith('/')) value = value.slice(0, -1)
+  return value
+}
+
+/**
+ * Chrome match pattern for the instance's host, as both sides must spell it:
+ * the New Tab page passes it to `chrome.permissions.request` inside the user
+ * gesture, the worker checks the very same string with
+ * `chrome.permissions.contains`. Sharing one function is what keeps a granted
+ * origin from reading as missing a moment later.
+ *
+ * Deliberately built from `hostname`, not `origin`: Chrome match patterns may
+ * not carry a port, so `https://tasks.example:8443` has to be requested as
+ * `https://tasks.example/*` or the call throws "Invalid value for origins".
+ * The grant is therefore per-host rather than per-port — which is all Chrome's
+ * permission model can express anyway.
+ *
+ * Returns `null` for anything unparseable or not https, so a caller can never
+ * turn a junk baseUrl into a broad pattern.
+ */
+export function vikunjaHostPattern(baseUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(baseUrl)
+  } catch {
+    return null
+  }
+  if (url.protocol !== 'https:') return null
+  if (!url.hostname) return null
+  return `https://${url.hostname}/*`
 }
