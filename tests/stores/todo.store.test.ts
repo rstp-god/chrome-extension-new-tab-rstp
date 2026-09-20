@@ -27,17 +27,18 @@ const fakeListProjects = vi.hoisted(() => vi.fn())
 const fakePullTasks = vi.hoisted(() => vi.fn())
 const fakePushTask = vi.hoisted(() => vi.fn())
 
+// Only the network-facing half is faked: `getScope` / `withScope` / `ownsRef`
+// come from the real Trello descriptor, so the store is tested against the
+// descriptor contract it will meet at runtime rather than a second copy of it.
 vi.mock('@/widgets/Todo/integrations/index.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/widgets/Todo/integrations/index.ts')>()
   return {
     ...actual,
     getIntegrationDescriptor: (name: string | null | undefined) => {
-      if (name !== 'trello') return null
+      const real = actual.getIntegrationDescriptor(name)
+      if (!real) return null
       return {
-        name: 'trello',
-        titleI18nKey: 'todoWidget:integrations.trello.title',
-        descriptionI18nKey: 'todoWidget:integrations.trello.description',
-        ConnectForm: () => null,
+        ...real,
         create: () => ({
           connect: fakeConnect,
           disconnect: fakeDisconnect,
@@ -47,17 +48,6 @@ vi.mock('@/widgets/Todo/integrations/index.ts', async (importOriginal) => {
           pullTasks: fakePullTasks,
           pushTask: fakePushTask,
         }),
-        // Same semantics as the real Trello descriptor — the store is what's
-        // under test here, not the adapter.
-        getScope: (config: unknown) => {
-          const { boardId } = config as { boardId: string | null }
-          return boardId ? { boardId } : null
-        },
-        withScope: (config: unknown, scope: Record<string, string | number>) => ({
-          ...(config as object),
-          boardId: String(scope.boardId),
-        }),
-        ownsRef: (ref: object) => 'cardId' in ref,
       }
     },
   }
@@ -405,6 +395,7 @@ describe('todo store — integration: pickScope', () => {
   it('caches scope fields AND resets mapping to null (scope-switch invalidation)', () => {
     useTodoStore.setState({
       integration: makeIntegrationState({ mapping: mappingFixture }),
+      errorKey: 'network',
     })
     useTodoStore
       .getState()
@@ -416,6 +407,8 @@ describe('todo store — integration: pickScope', () => {
     expect(integration?.lists).toEqual(listsFixture)
     expect(integration?.projects).toEqual(projectsFixture)
     expect(integration?.mapping).toBeNull()
+    // A stale error from the previous step must not survive a successful pick.
+    expect(useTodoStore.getState().errorKey).toBeNull()
   })
 
   it('pickScope writes the scope through the descriptor (store never touches the config shape)', () => {

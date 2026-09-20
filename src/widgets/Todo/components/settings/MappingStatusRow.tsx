@@ -19,7 +19,7 @@ export interface MappingStatusRowProps {
   statusLabel: string
   selectedListIds: string[]
   listNameById: Map<string, string>
-  /** All lists on the connected board (the row filters out unavailable). */
+  /** Every container in the connected scope (the row filters out unavailable). */
   availableLists: RemoteContainer[]
   /** Lookup whether a list is currently owned by a different status. Owned
    *  lists are hidden from the popover entirely so the user can't pick a

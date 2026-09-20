@@ -40,10 +40,10 @@ export function TodoSyncBadge() {
       return (
         <span
           className="inline-flex items-center gap-1.5 text-xs text-destructive"
-          title={t(`integrations.trello.errors.${errorKey}`)}
+          title={t(`integrations.errors.${errorKey}`)}
         >
           <AlertTriangleIcon className="size-3" />
-          {t(`integrations.trello.errors.${errorKey}`)}
+          {t(`integrations.errors.${errorKey}`)}
         </span>
       )
 

@@ -13,7 +13,7 @@ import {
   getDialogTitle,
   type DialogStep,
 } from '@/widgets/Todo/utils/dialogStep.ts'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 interface Props {
@@ -45,6 +45,7 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
 
   const [pickedIntegrationName, setPickedIntegrationName] = useState<string | null>(null)
   const [stepOverride, setStepOverride] = useState<DialogStep | null>(null)
+  const previousIntegration = useRef(integration)
 
   const computedStep: DialogStep = useMemo(() => {
     if (!integration) {
@@ -66,9 +67,17 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
     if (integration && pickedIntegrationName) {
       setPickedIntegrationName(null)
     }
-    if (stepOverride && stepOverride === computedStep) {
+    // An override also outlives its purpose the moment the user's action
+    // lands in the store: re-picking a scope from the summary overrides to
+    // 'board', but the computed step then jumps straight to 'mapping' and
+    // would never match the override — leaving the user stuck on the picker.
+    if (
+      stepOverride &&
+      (stepOverride === computedStep || previousIntegration.current !== integration)
+    ) {
       setStepOverride(null)
     }
+    previousIntegration.current = integration
   }, [open, integration, pickedIntegrationName, stepOverride, computedStep])
 
   const step: DialogStep = stepOverride ?? computedStep
@@ -91,14 +100,14 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
             pickedIntegrationName={pickedIntegrationName}
             onPickIntegration={setPickedIntegrationName}
             onCancelConnect={() => setPickedIntegrationName(null)}
-            onLeaveBoardPicker={() => {
+            onLeaveScopePicker={() => {
               // From the board picker, "back" disconnects the integration
               // entirely and lands the user on the picker step.
               useTodoStore.getState().clearIntegration()
             }}
             onLeaveMapping={() => setStepOverride('board')}
             onEditMapping={() => setStepOverride('mapping')}
-            onPickBoard={() => setStepOverride('board')}
+            onPickScope={() => setStepOverride('board')}
           />
         )}
       </DialogContent>

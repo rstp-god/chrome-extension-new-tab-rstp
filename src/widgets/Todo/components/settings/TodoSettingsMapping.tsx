@@ -106,7 +106,7 @@ export function TodoSettingsMapping({ onBack }: Props) {
 
       {errorKey && (
         <p className="rounded-2xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {t(`integrations.trello.errors.${errorKey}`)}
+          {t(`integrations.errors.${errorKey}`)}
         </p>
       )}
 

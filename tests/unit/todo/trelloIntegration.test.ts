@@ -143,6 +143,20 @@ describe('TrelloIntegration list helpers', () => {
     expect(fakeGetBoardLists).toHaveBeenCalledWith('42')
   })
 
+  it('refuses a scope without a usable board id instead of requesting "undefined"', async () => {
+    const integration = makeIntegration()
+    const notFound = { ok: false, errorKey: 'notFound' }
+
+    expect(await integration.listContainers({})).toEqual(notFound)
+    expect(await integration.listProjects({})).toEqual(notFound)
+    expect(await integration.listContainers({ boardId: '' })).toEqual(notFound)
+    expect(await integration.pullTasks({ ...pullCtx, scope: {} })).toEqual(notFound)
+
+    expect(fakeGetBoardLists).not.toHaveBeenCalled()
+    expect(fakeGetBoardLabels).not.toHaveBeenCalled()
+    expect(fakeGetBoardCards).not.toHaveBeenCalled()
+  })
+
   it('listProjects maps client.getBoardLabels via labelToProject', async () => {
     fakeGetBoardLabels.mockResolvedValueOnce(ok(trelloLabelsFixture))
     const out = await makeIntegration().listProjects(scopeFixture)
@@ -181,6 +195,14 @@ describe('trello descriptor scope + ref helpers', () => {
     expect(next).toEqual({ apiKey: 'k', token: 't', boardId: 'board-9' })
     // pure: the original config is untouched
     expect(config.boardId).toBeNull()
+  })
+
+  it('withScope writes null for a scope that names no board (user stays on the picker)', () => {
+    expect(descriptor.withScope({ apiKey: 'k', token: 't', boardId: 'old' }, {})).toEqual({
+      apiKey: 'k',
+      token: 't',
+      boardId: null,
+    })
   })
 
   it('withScope coerces a numeric scope value to a string boardId', () => {

@@ -10,6 +10,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton.tsx'
 import type {
   IntegrationErrorKey,
+  RemoteScope,
   RemoteScopeOption,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/index.ts'
@@ -22,17 +23,22 @@ interface Props {
   onBack: () => void
 }
 
+/** A `Select` needs a string value, and a scope is an opaque record. */
+function scopeKey(scope: RemoteScope): string {
+  return JSON.stringify(scope)
+}
+
 /**
  * Picks the remote scope (a Trello board, a Vikunja project+view, ...). The
- * scope itself is opaque here — only its label is shown — so the `Select`,
- * which needs a string value, keys options by their position in the list.
+ * scope itself is opaque here — only its label is shown — so options are
+ * keyed by their serialized scope, which survives a reordered list.
  */
 export function TodoSettingsScopePicker({ adapter, onBack }: Props) {
   const { t } = useTranslation('todoWidget')
   const pickScope = useTodoStore((state) => state.pickScope)
   const [options, setOptions] = useState<RemoteScopeOption[] | null>(null)
   const [errorKey, setErrorKey] = useState<IntegrationErrorKey | null>(null)
-  const [selectedIndex, setSelectedIndex] = useState<string | undefined>()
+  const [selectedKey, setSelectedKey] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -51,7 +57,7 @@ export function TodoSettingsScopePicker({ adapter, onBack }: Props) {
   }, [adapter])
 
   const handleContinue = async () => {
-    const option = selectedIndex === undefined ? undefined : options?.[Number(selectedIndex)]
+    const option = options?.find((candidate) => scopeKey(candidate.scope) === selectedKey)
     if (!option) return
 
     setBusy(true)
@@ -89,14 +95,14 @@ export function TodoSettingsScopePicker({ adapter, onBack }: Props) {
 
       {options !== null && options.length > 0 && (
         <Field>
-          <FieldLabel htmlFor="trello-board">{t('integrations.trello.board.pickLabel')}</FieldLabel>
-          <Select value={selectedIndex} onValueChange={setSelectedIndex}>
-            <SelectTrigger id="trello-board" className="w-full">
+          <FieldLabel htmlFor="todo-scope">{t('integrations.trello.board.pickLabel')}</FieldLabel>
+          <Select value={selectedKey} onValueChange={setSelectedKey}>
+            <SelectTrigger id="todo-scope" className="w-full">
               <SelectValue placeholder={t('integrations.trello.board.pickLabel')} />
             </SelectTrigger>
             <SelectContent>
-              {options.map((option, index) => (
-                <SelectItem key={String(index)} value={String(index)}>
+              {options.map((option) => (
+                <SelectItem key={scopeKey(option.scope)} value={scopeKey(option.scope)}>
                   {option.name}
                 </SelectItem>
               ))}
@@ -106,18 +112,14 @@ export function TodoSettingsScopePicker({ adapter, onBack }: Props) {
       )}
 
       {errorKey && (
-        <p className="text-sm text-destructive">{t(`integrations.trello.errors.${errorKey}`)}</p>
+        <p className="text-sm text-destructive">{t(`integrations.errors.${errorKey}`)}</p>
       )}
 
       <div className="flex items-center justify-between gap-2">
         <Button type="button" variant="outline" onClick={onBack} disabled={busy}>
           {t('integrations.trello.board.back')}
         </Button>
-        <Button
-          type="button"
-          onClick={handleContinue}
-          disabled={selectedIndex === undefined || busy}
-        >
+        <Button type="button" onClick={handleContinue} disabled={selectedKey === undefined || busy}>
           {t('integrations.trello.board.continue')}
         </Button>
       </div>

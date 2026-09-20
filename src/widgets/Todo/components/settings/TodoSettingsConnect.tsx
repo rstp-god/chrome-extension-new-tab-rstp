@@ -22,7 +22,7 @@ export function TodoSettingsConnect({ integrationName, onBack }: Props) {
   if (!descriptor) {
     return (
       <div className="grid gap-3">
-        <p className="text-sm text-destructive">{t('integrations.trello.errors.unknown')}</p>
+        <p className="text-sm text-destructive">{t('integrations.errors.unknown')}</p>
         <Button type="button" variant="outline" onClick={onBack}>
           <ChevronLeftIcon className="size-4" />
           {t('integrations.trello.board.back')}

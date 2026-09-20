@@ -27,12 +27,16 @@ import { TrelloConnectForm } from './TrelloConnectForm.tsx'
 import type { TrelloConfig } from './types.ts'
 
 /**
- * `RemoteScope` values are `string | number` because other backends address
- * themselves numerically; Trello ids are strings, so coerce once here rather
- * than at every call site.
+ * `RemoteScope` is an open record, so `boardId` may be missing, numeric (other
+ * backends address themselves that way) or empty. Total by construction: a
+ * scope that doesn't name a board yields `null` rather than the string
+ * `"undefined"` travelling into a request URL.
  */
-function boardIdOf(scope: RemoteScope): string {
-  return String(scope.boardId)
+function boardIdOf(scope: RemoteScope): string | null {
+  const raw: unknown = scope.boardId
+  if (typeof raw !== 'string' && typeof raw !== 'number') return null
+  const boardId = String(raw)
+  return boardId.length > 0 ? boardId : null
 }
 
 export class TrelloIntegration implements TodoIntegration {
@@ -60,7 +64,9 @@ export class TrelloIntegration implements TodoIntegration {
   }
 
   async listContainers(scope: RemoteScope): Promise<IntegrationOutcome<RemoteContainer[]>> {
-    const out = await this.client.getBoardLists(boardIdOf(scope))
+    const boardId = boardIdOf(scope)
+    if (!boardId) return { ok: false, errorKey: 'notFound' }
+    const out = await this.client.getBoardLists(boardId)
     if (!out.ok) return out
     // No `isTerminal`: Trello has no built-in "done" column — any list can
     // be mapped to any status.
@@ -71,13 +77,17 @@ export class TrelloIntegration implements TodoIntegration {
   }
 
   async listProjects(scope: RemoteScope): Promise<IntegrationOutcome<Project[]>> {
-    const out = await this.client.getBoardLabels(boardIdOf(scope))
+    const boardId = boardIdOf(scope)
+    if (!boardId) return { ok: false, errorKey: 'notFound' }
+    const out = await this.client.getBoardLabels(boardId)
     if (!out.ok) return out
     return { ok: true, value: out.value.map(labelToProject) }
   }
 
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
-    const out = await this.client.getBoardCards(boardIdOf(ctx.scope))
+    const boardId = boardIdOf(ctx.scope)
+    if (!boardId) return { ok: false, errorKey: 'notFound' }
+    const out = await this.client.getBoardCards(boardId)
     if (!out.ok) return out
 
     const existingByCardId = new Map<string, string>()
@@ -194,6 +204,8 @@ export const descriptor: IntegrationDescriptor = {
     const { boardId } = config as TrelloConfig
     return boardId ? { boardId } : null
   },
+  // A scope without a usable board id writes `null` — which the persisted
+  // schema accepts and which keeps the user on the picker step.
   withScope: (config, scope) => ({ ...(config as TrelloConfig), boardId: boardIdOf(scope) }),
   ownsRef: isTrelloRef,
 }

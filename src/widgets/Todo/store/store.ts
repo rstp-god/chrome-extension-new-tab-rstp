@@ -76,7 +76,7 @@ interface TodoWidgetState {
   connectIntegration: (name: string, config: unknown) => Promise<void>
   pickScope: (
     scope: RemoteScope,
-    name: string,
+    scopeName: string,
     containers: RemoteContainer[],
     projects: Project[],
   ) => void
@@ -107,15 +107,24 @@ function applyStatusTimestamps(
   }
 }
 
-function getActiveDescriptor(state: TodoWidgetState): IntegrationDescriptor | null {
-  if (!state.integration) return null
-  return getIntegrationDescriptor(state.integration.name)
+interface ActiveIntegration {
+  integration: IntegrationState
+  descriptor: IntegrationDescriptor
+  adapter: TodoIntegration
 }
 
-function getActiveAdapter(state: TodoWidgetState): TodoIntegration | null {
-  const descriptor = getActiveDescriptor(state)
-  if (!descriptor || !state.integration) return null
-  return descriptor.create(state.integration.config)
+/**
+ * The active integration resolved once: its persisted slice, the descriptor
+ * that owns it and a freshly built adapter. `null` when nothing is connected
+ * or the persisted `name` has no descriptor (an integration removed from the
+ * build, say). Adapter construction is cheap — a couple of strings.
+ */
+function getActive(state: TodoWidgetState): ActiveIntegration | null {
+  const integration = state.integration
+  if (!integration) return null
+  const descriptor = getIntegrationDescriptor(integration.name)
+  if (!descriptor) return null
+  return { integration, descriptor, adapter: descriptor.create(integration.config) }
 }
 
 function inferOpForTask(task: TodoTask): IntegrationPushOp {
@@ -150,10 +159,10 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
   })((set, get) => {
     const pushTaskAsync = async (taskId: string, op: IntegrationPushOp): Promise<void> => {
       const state = get()
-      const adapter = getActiveAdapter(state)
-      const integration = state.integration
-      const scope = resolveScope(integration)
-      if (!adapter || !integration?.mapping || !scope) {
+      const active = getActive(state)
+      const mapping = active?.integration.mapping ?? null
+      const scope = active ? active.descriptor.getScope(active.integration.config) : null
+      if (!active || !mapping || !scope) {
         // No active integration or mapping — clear the dirty flag, nothing to push.
         set({
           tasks: patchTask(get().tasks, taskId, { syncState: 'clean' }),
@@ -164,9 +173,9 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       const task = state.tasks.find((t) => t.id === taskId)
       if (!task) return
 
-      const out = await adapter.pushTask(task, op, {
+      const out = await active.adapter.pushTask(task, op, {
         scope,
-        mapping: integration.mapping,
+        mapping,
         knownRef: task.remoteRef,
       })
 
@@ -349,7 +358,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         await removeArea('sync', TODO_STORAGE_KEY)
       },
 
-      pickScope: (scope, name, containers, projects) => {
+      pickScope: (scope, scopeName, containers, projects) => {
         const integration = get().integration
         if (!integration) return
         const descriptor = getIntegrationDescriptor(integration.name)
@@ -364,7 +373,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         const parsed = integrationSchema.safeParse({
           ...integration,
           config: descriptor.withScope(integration.config, scope),
-          boardName: name,
+          boardName: scopeName,
           lists: containers,
           projects,
           // Picking a new scope invalidates the previous mapping.
@@ -375,7 +384,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           return
         }
 
-        set({ integration: parsed.data })
+        set({ integration: parsed.data, errorKey: null })
       },
 
       setMapping: async (mapping) => {
@@ -413,12 +422,13 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       },
 
       syncNow: async () => {
+        // Phase 1 deliberately iterates this snapshot, not `get()`: tasks
+        // added while the sync is in flight belong to the next run.
         const state = get()
-        const descriptor = getActiveDescriptor(state)
-        const adapter = getActiveAdapter(state)
-        const integration = state.integration
+        const active = getActive(state)
+        if (!active) return
+        const { adapter, descriptor, integration } = active
 
-        if (!adapter || !descriptor || !integration) return
         const scope = descriptor.getScope(integration.config)
         if (!scope || !integration.mapping) {
           set({ errorKey: 'mappingIncomplete' })

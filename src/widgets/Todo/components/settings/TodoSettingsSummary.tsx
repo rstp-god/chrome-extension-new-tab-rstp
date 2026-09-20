@@ -9,10 +9,10 @@ import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
   onEditMapping: () => void
-  onPickBoard: () => void
+  onPickScope: () => void
 }
 
-export function TodoSettingsSummary({ onEditMapping, onPickBoard }: Props) {
+export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
   const { t, i18n } = useTranslation('todoWidget')
   const { integration, loading, errorKey, syncNow, clearIntegration } = useTodoStore(
     useShallow((state) => ({
@@ -85,7 +85,7 @@ export function TodoSettingsSummary({ onEditMapping, onPickBoard }: Props) {
       )}
 
       {errorKey && (
-        <p className="text-sm text-destructive">{t(`integrations.trello.errors.${errorKey}`)}</p>
+        <p className="text-sm text-destructive">{t(`integrations.errors.${errorKey}`)}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -96,7 +96,7 @@ export function TodoSettingsSummary({ onEditMapping, onPickBoard }: Props) {
         <Button type="button" variant="outline" onClick={onEditMapping}>
           {t('integrations.trello.mapping.title')}
         </Button>
-        <Button type="button" variant="outline" onClick={onPickBoard}>
+        <Button type="button" variant="outline" onClick={onPickScope}>
           {t('integrations.trello.summary.rePickBoard')}
         </Button>
         <Button

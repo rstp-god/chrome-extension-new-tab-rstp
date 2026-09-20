@@ -351,9 +351,9 @@ export interface TodoIntegration {
   connect(): Promise<IntegrationOutcome<{ userHandle: string }>>
   disconnect(): void
 
-  listBoards(): Promise<IntegrationOutcome<RemoteBoard[]>>
-  listLists(boardId: string): Promise<IntegrationOutcome<RemoteList[]>>
-  listProjects(boardId: string): Promise<IntegrationOutcome<Project[]>>
+  listScopes(): Promise<IntegrationOutcome<RemoteScopeOption[]>>
+  listContainers(scope: RemoteScope): Promise<IntegrationOutcome<RemoteContainer[]>>
+  listProjects(scope: RemoteScope): Promise<IntegrationOutcome<Project[]>>
 
   pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>>
   pushTask(
@@ -364,7 +364,9 @@ export interface TodoIntegration {
 }
 ```
 
-Все методы возвращают `IntegrationOutcome<T>` — дискриминированный union `{ ok: true, value }` либо `{ ok: false, errorKey }`. Бросать исключения не нужно — клиент должен ловить сетевые ошибки и переводить их в `IntegrationErrorKey` (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `unknown`).
+`RemoteScope` — это `Record<string, string | number>`, непрозрачный для стора адрес вашего списка задач: у Trello `{ boardId }`, у Vikunja `{ projectId, viewId }`. `listScopes` возвращает `RemoteScopeOption[]` (`{ scope, name }`) для шага выбора, `listContainers` — `RemoteContainer[]` (`{ id, name, isTerminal? }`), колонки/корзины внутри scope; `isTerminal` помечает собственную «готово»-колонку сервиса (у Trello такой нет — флаг не ставится). Выбранный scope приезжает в адаптер в `PullContext.scope` / `PushContext.scope`.
+
+Все методы возвращают `IntegrationOutcome<T>` — дискриминированный union `{ ok: true, value }` либо `{ ok: false, errorKey }`. Бросать исключения не нужно — клиент должен ловить сетевые ошибки и переводить их в `IntegrationErrorKey` (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `conflict`, `permissionMissing`, `unknown`).
 
 Класс-имплементация (Trello как образец):
 
@@ -381,13 +383,13 @@ export class MyIntegration implements TodoIntegration {
   disconnect() {
     /* in-memory cleanup, без I/O */
   }
-  listBoards() {
-    /* список board'ов пользователя */
+  listScopes() {
+    /* адреса, доступные этим ключам: доски, проекты, пространства */
   }
-  listLists(boardId) {
-    /* колонок для выбранной доски */
+  listContainers(scope) {
+    /* колонки внутри выбранного scope */
   }
-  listProjects(boardId) {
+  listProjects(scope) {
     /* проектов = labels */
   }
   pullTasks(ctx) {
@@ -429,6 +431,19 @@ export const descriptor: IntegrationDescriptor = {
   descriptionI18nKey: 'todoWidget:integrations.myservice.description',
   ConnectForm: MyServiceConnectForm,
   create: (config) => new MyIntegration(config as MyServiceConfig),
+  // Где внутри конфига лежит адрес — знает только дескриптор; отдельного
+  // персистентного поля у scope нет.
+  getScope: (config) => {
+    const { spaceId } = config as MyServiceConfig
+    return spaceId ? { spaceId } : null
+  },
+  // Чистая пара к getScope: копия конфига с записанным адресом.
+  withScope: (config, scope) => ({
+    ...(config as MyServiceConfig),
+    spaceId: String(scope.spaceId),
+  }),
+  // Ваш ли это remoteRef: чужие стор не выбрасывает, а перепривязывает.
+  ownsRef: (ref) => 'myServiceId' in ref,
 }
 ```
 
@@ -450,26 +465,11 @@ export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormP
 
 ### Шаг 7. Добавьте i18n-ключи
 
-В оба файла `src/i18n/resources/{en,ru}/widgets/todoWidget.json` добавьте namespace `integrations.<name>.*` с теми же ключами, что есть у Trello (`title`, `description`, `connect.*`, `board.*`, `mapping.*`, `summary.*`, `errors.*`, `showcase.*`). Контракт-тест `tests/contracts/i18nKeys.test.ts` падает, если EN и RU расходятся.
+В оба файла `src/i18n/resources/{en,ru}/widgets/todoWidget.json` добавьте namespace `integrations.<name>.*` с теми же ключами, что есть у Trello (`title`, `description`, `connect.*`, `board.*`, `mapping.*`, `summary.*`, `showcase.*`). Тексты ошибок общие для всех интеграций и лежат в `integrations.errors.*` — по одному ключу на `IntegrationErrorKey`, дублировать их в своём namespace не нужно. Контракт-тест `tests/contracts/i18nKeys.test.ts` падает, если EN и RU расходятся.
 
-### Шаг 8. Подключите диспетчер в `TodoSettingsConnect`
+### Шаг 8. Ничего не подключайте руками
 
-Сейчас `TodoSettingsConnect.tsx` содержит `switch (integrationName)` и явный case для Trello:
-
-```ts
-switch (integrationName) {
-  case 'trello':
-    await connectIntegration('trello', config as TrelloConfig)
-    return
-  case 'myservice':
-    await connectIntegration('myservice', config as MyServiceConfig)
-    return
-  default:
-    console.warn(`...`)
-}
-```
-
-Это известная временная связка между диалогом и сторами — будет отрефакторено в типизированный реестр, как только появится вторая интеграция (пока в коде один путь — Trello).
+Диспетчера по имени интеграции больше нет: `TodoSettingsConnect.tsx` отдаёт конфиг как есть — `connectIntegration(integrationName, config)`. Стор сам находит дескриптор в реестре и валидирует кандидата той же zod-схемой, что охраняет `chrome.storage` (см. `store/schema.ts`), — невалидный конфиг не дойдёт ни до сети, ни до стора. Поэтому схема вашего конфига должна быть добавлена в union в `store/schema.ts`.
 
 ### Чеклист новой интеграции
 
@@ -482,7 +482,8 @@ switch (integrationName) {
 - [ ] Скрытые метаданные сохраняют `localId` (или эквивалент) для reconciliation
 - [ ] `descriptor.name` уникален
 - [ ] i18n-ключи добавлены в EN и RU, контракт-тест зелёный
-- [ ] Switch в `TodoSettingsConnect.tsx` дополнен новым case
+- [ ] Схема конфига добавлена в union `integrationSchema` в `store/schema.ts`
+- [ ] `getScope` / `withScope` / `ownsRef` реализованы в дескрипторе
 - [ ] Интеграция показывается в picker'е настроек после `yarn dev`
 - [ ] Ручной smoke-тест: connect → board → mapping → создать таску → переместить в сервисе → sync now
 
@@ -878,9 +879,9 @@ export interface TodoIntegration {
   connect(): Promise<IntegrationOutcome<{ userHandle: string }>>
   disconnect(): void
 
-  listBoards(): Promise<IntegrationOutcome<RemoteBoard[]>>
-  listLists(boardId: string): Promise<IntegrationOutcome<RemoteList[]>>
-  listProjects(boardId: string): Promise<IntegrationOutcome<Project[]>>
+  listScopes(): Promise<IntegrationOutcome<RemoteScopeOption[]>>
+  listContainers(scope: RemoteScope): Promise<IntegrationOutcome<RemoteContainer[]>>
+  listProjects(scope: RemoteScope): Promise<IntegrationOutcome<Project[]>>
 
   pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>>
   pushTask(
@@ -891,7 +892,9 @@ export interface TodoIntegration {
 }
 ```
 
-Every method returns `IntegrationOutcome<T>` — a discriminated union of `{ ok: true, value }` or `{ ok: false, errorKey }`. Don't throw — your client should catch network failures and translate them to one of the `IntegrationErrorKey` literals (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `unknown`).
+`RemoteScope` is a `Record<string, string | number>` — an address for your task list that the store treats as opaque: `{ boardId }` for Trello, `{ projectId, viewId }` for Vikunja. `listScopes` returns `RemoteScopeOption[]` (`{ scope, name }`) for the picker step, `listContainers` returns `RemoteContainer[]` (`{ id, name, isTerminal? }`) — the columns/buckets inside a scope, where `isTerminal` marks the backend's own "done" column (Trello has none, so it never sets the flag). The chosen scope reaches the adapter as `PullContext.scope` / `PushContext.scope`.
+
+Every method returns `IntegrationOutcome<T>` — a discriminated union of `{ ok: true, value }` or `{ ok: false, errorKey }`. Don't throw — your client should catch network failures and translate them to one of the `IntegrationErrorKey` literals (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `conflict`, `permissionMissing`, `unknown`).
 
 Class implementation (Trello as the reference):
 
@@ -908,13 +911,13 @@ export class MyIntegration implements TodoIntegration {
   disconnect() {
     /* in-memory cleanup, no I/O */
   }
-  listBoards() {
-    /* user's boards */
+  listScopes() {
+    /* addresses these credentials can reach: boards, projects, spaces */
   }
-  listLists(boardId) {
-    /* lists for the chosen board */
+  listContainers(scope) {
+    /* columns inside the chosen scope */
   }
-  listProjects(boardId) {
+  listProjects(scope) {
     /* projects = labels in Trello's case */
   }
   pullTasks(ctx) {
@@ -956,6 +959,19 @@ export const descriptor: IntegrationDescriptor = {
   descriptionI18nKey: 'todoWidget:integrations.myservice.description',
   ConnectForm: MyServiceConnectForm,
   create: (config) => new MyIntegration(config as MyServiceConfig),
+  // Only the descriptor knows where the address lives inside its config —
+  // the scope is not a separate persisted field.
+  getScope: (config) => {
+    const { spaceId } = config as MyServiceConfig
+    return spaceId ? { spaceId } : null
+  },
+  // Pure counterpart of getScope: a copy of the config with the scope written in.
+  withScope: (config, scope) => ({
+    ...(config as MyServiceConfig),
+    spaceId: String(scope.spaceId),
+  }),
+  // Is this remoteRef yours? Foreign refs are re-linked, never dropped.
+  ownsRef: (ref) => 'myServiceId' in ref,
 }
 ```
 
@@ -977,26 +993,11 @@ export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormP
 
 ### Step 7. Add i18n keys
 
-Add an `integrations.<name>.*` namespace to both `src/i18n/resources/en/widgets/todoWidget.json` and `.../ru/widgets/todoWidget.json`, mirroring the Trello shape (`title`, `description`, `connect.*`, `board.*`, `mapping.*`, `summary.*`, `errors.*`, `showcase.*`). The contract test `tests/contracts/i18nKeys.test.ts` fails on EN/RU drift.
+Add an `integrations.<name>.*` namespace to both `src/i18n/resources/en/widgets/todoWidget.json` and `.../ru/widgets/todoWidget.json`, mirroring the Trello shape (`title`, `description`, `connect.*`, `board.*`, `mapping.*`, `summary.*`, `showcase.*`). Error texts are shared across integrations and live in `integrations.errors.*` — one key per `IntegrationErrorKey`, so don't duplicate them in your own namespace. The contract test `tests/contracts/i18nKeys.test.ts` fails on EN/RU drift.
 
-### Step 8. Wire the dispatcher in `TodoSettingsConnect`
+### Step 8. Nothing to wire by hand
 
-`TodoSettingsConnect.tsx` currently has a `switch (integrationName)` with one explicit case:
-
-```ts
-switch (integrationName) {
-  case 'trello':
-    await connectIntegration('trello', config as TrelloConfig)
-    return
-  case 'myservice':
-    await connectIntegration('myservice', config as MyServiceConfig)
-    return
-  default:
-    console.warn(`...`)
-}
-```
-
-This is a known temporary coupling between the dialog and the store — it will be refactored into a typed registry once a second integration shows up (right now there's only one path: Trello).
+There is no per-integration dispatch any more: `TodoSettingsConnect.tsx` passes the config through as-is — `connectIntegration(integrationName, config)`. The store looks the descriptor up in the registry and validates the candidate with the very Zod schema that guards `chrome.storage` (see `store/schema.ts`), so an invalid config never reaches the network or the store. That does mean your config's schema has to join the union in `store/schema.ts`.
 
 ### New integration checklist
 
@@ -1009,7 +1010,8 @@ This is a known temporary coupling between the dialog and the store — it will 
 - [ ] Hidden metadata preserves `localId` (or equivalent) for reconciliation
 - [ ] `descriptor.name` is unique
 - [ ] i18n keys exist in EN and RU, contract test green
-- [ ] `TodoSettingsConnect.tsx` switch has a case for the new integration
+- [ ] The config schema joined the `integrationSchema` union in `store/schema.ts`
+- [ ] `getScope` / `withScope` / `ownsRef` implemented on the descriptor
 - [ ] Integration shows up in the settings picker after `yarn dev`
 - [ ] Manual smoke test: connect → board → mapping → create a task → move it on the remote → sync now
 

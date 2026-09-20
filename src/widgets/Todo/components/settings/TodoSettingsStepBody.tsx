@@ -16,10 +16,10 @@ interface Props {
   pickedIntegrationName: string | null
   onPickIntegration: (name: string) => void
   onCancelConnect: () => void
-  onLeaveBoardPicker: () => void
+  onLeaveScopePicker: () => void
   onLeaveMapping: () => void
   onEditMapping: () => void
-  onPickBoard: () => void
+  onPickScope: () => void
 }
 
 /**
@@ -36,10 +36,10 @@ export function TodoSettingsStepBody({
   pickedIntegrationName,
   onPickIntegration,
   onCancelConnect,
-  onLeaveBoardPicker,
+  onLeaveScopePicker,
   onLeaveMapping,
   onEditMapping,
-  onPickBoard,
+  onPickScope,
 }: Props) {
   const integration = useTodoStore((state) => state.integration)
 
@@ -64,12 +64,12 @@ export function TodoSettingsStepBody({
 
     case 'board':
       if (!adapter) return null
-      return <TodoSettingsScopePicker adapter={adapter} onBack={onLeaveBoardPicker} />
+      return <TodoSettingsScopePicker adapter={adapter} onBack={onLeaveScopePicker} />
 
     case 'mapping':
       return <TodoSettingsMapping onBack={onLeaveMapping} />
 
     case 'summary':
-      return <TodoSettingsSummary onEditMapping={onEditMapping} onPickBoard={onPickBoard} />
+      return <TodoSettingsSummary onEditMapping={onEditMapping} onPickScope={onPickScope} />
   }
 }

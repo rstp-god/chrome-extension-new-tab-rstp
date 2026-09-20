@@ -76,6 +76,18 @@
       "description": "Pick a service to sync your todos with.",
       "empty": "No integrations are bundled in this build."
     },
+    "errors": {
+      "authInvalid": "Invalid credentials. Re-check the fields.",
+      "network": "Network error. Check your connection and try again.",
+      "rateLimited": "Rate limit reached. Wait a moment and retry.",
+      "notFound": "The remote resource wasn't found.",
+      "mappingIncomplete": "Finish the list mapping before syncing.",
+      "pushFailed": "Failed to push the change to the remote service.",
+      "pullFailed": "Failed to pull updates from the remote service.",
+      "conflict": "Changed remotely — the local edit was rolled back.",
+      "permissionMissing": "The extension lost permission for this host. Reconnect to grant it again.",
+      "unknown": "Something went wrong. Try again."
+    },
     "trello": {
       "title": "Trello",
       "description": "Two-way sync with a Trello board.",
@@ -126,18 +138,6 @@
         "disconnect": "Disconnect",
         "disconnectConfirm": "Disconnect Trello? Local todos stay, but stop syncing.",
         "rePickBoard": "Change board"
-      },
-      "errors": {
-        "authInvalid": "Invalid API key or token. Re-check both fields.",
-        "network": "Network error. Check your connection and try again.",
-        "rateLimited": "Trello rate limit reached. Wait a moment and retry.",
-        "notFound": "The Trello resource wasn't found.",
-        "mappingIncomplete": "Finish the list mapping before syncing.",
-        "pushFailed": "Failed to push the change to Trello.",
-        "pullFailed": "Failed to pull updates from Trello.",
-        "conflict": "Changed remotely — the local edit was rolled back.",
-        "permissionMissing": "The extension lost permission for this host. Reconnect to grant it again.",
-        "unknown": "Something went wrong. Try again."
       }
     }
   }
