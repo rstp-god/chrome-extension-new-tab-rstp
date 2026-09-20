@@ -23,15 +23,7 @@ export default defineManifest({
   chrome_url_overrides: {
     newtab: 'src/newtab/index.html',
   },
-  permissions: [
-    'storage',
-    'tabs',
-    'bookmarks',
-    'tabGroups',
-    'alarms',
-    'notifications',
-    'idle',
-  ],
+  permissions: ['storage', 'tabs', 'bookmarks', 'tabGroups', 'alarms', 'notifications', 'idle'],
   background: {
     service_worker: 'src/background/index.ts',
     type: 'module' as const,
