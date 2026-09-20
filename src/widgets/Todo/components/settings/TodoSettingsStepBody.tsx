@@ -48,12 +48,9 @@ export function TodoSettingsStepBody({
     const descriptor = getIntegrationDescriptor(integration.name)
     if (!descriptor) return null
     return descriptor.create(integration.config)
-  }, [
-    integration?.name,
-    integration?.config.apiKey,
-    integration?.config.token,
-    integration?.config.boardId,
-  ])
+    // The config object is replaced wholesale on every change (connect,
+    // board pick), so its identity covers every field the adapter reads.
+  }, [integration?.name, integration?.config])
 
   switch (step) {
     case 'picker':

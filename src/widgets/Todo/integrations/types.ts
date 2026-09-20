@@ -39,14 +39,43 @@ export interface RemoteList {
   name: string
 }
 
-/** Pointer to the remote record for a local task. */
-export interface RemoteTaskRef {
+/** Pointer to the remote Trello card for a local task. */
+export interface TrelloRemoteRef {
   cardId: string
   shortLink: string | null
   /** Last observed remote list id — lets us detect drift on next pull. */
   listId: string
   /** Last-known `dateLastActivity`, used as a cheap etag. */
   etag: string | null
+}
+
+/** Pointer to the remote Vikunja task for a local task. */
+export interface VikunjaRemoteRef {
+  taskId: number
+  /** Human-facing id (`#42`, `PROJ-42`) — cheap to show, cheap to search. */
+  identifier: string
+  /** Last observed bucket (kanban column); `null` in flat mode. */
+  bucketId: number | null
+  /** Last-known `updated` timestamp, used as a cheap etag. */
+  updated: string
+}
+
+/**
+ * Pointer to the remote record for a local task.
+ *
+ * A plain union, not a discriminated one: refs persisted by the Trello-only
+ * build carry no discriminator field, and adding one would mean migrating
+ * stored data. The two shapes are disjoint by construction (`cardId` vs
+ * `taskId`), so the guards below are enough to tell them apart.
+ */
+export type RemoteTaskRef = TrelloRemoteRef | VikunjaRemoteRef
+
+export function isTrelloRef(ref: RemoteTaskRef): ref is TrelloRemoteRef {
+  return 'cardId' in ref
+}
+
+export function isVikunjaRef(ref: RemoteTaskRef): ref is VikunjaRemoteRef {
+  return 'taskId' in ref
 }
 
 export type IntegrationPushOp =

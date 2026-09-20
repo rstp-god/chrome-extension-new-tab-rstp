@@ -52,12 +52,13 @@ vi.mock('@/widgets/Todo/integrations/index.ts', async (importOriginal) => {
   }
 })
 
+import { isTrelloRef } from '@/widgets/Todo/integrations/index.ts'
 import type {
   IntegrationOutcome,
   Project,
   RemoteList,
-  RemoteTaskRef,
   StatusListMapping,
+  TrelloRemoteRef,
 } from '@/widgets/Todo/integrations/index.ts'
 import {
   TODO_STORAGE_KEY,
@@ -101,7 +102,12 @@ const listsFixture: RemoteList[] = [
   { id: 'list-inprogress', name: 'Doing' },
 ]
 
-function makeIntegrationState(overrides: Partial<IntegrationState> = {}): IntegrationState {
+/** These tests drive the Trello adapter, so they build the Trello branch. */
+type TrelloIntegrationState = Extract<IntegrationState, { name: 'trello' }>
+
+function makeIntegrationState(
+  overrides: Partial<TrelloIntegrationState> = {},
+): TrelloIntegrationState {
   return {
     name: 'trello',
     config: { apiKey: 'k', token: 't', boardId: 'board-1' },
@@ -118,7 +124,7 @@ function ok<T>(value: T): IntegrationOutcome<T> {
   return { ok: true, value }
 }
 
-function makeRemoteRef(overrides: Partial<RemoteTaskRef> = {}): RemoteTaskRef {
+function makeRemoteRef(overrides: Partial<TrelloRemoteRef> = {}): TrelloRemoteRef {
   return {
     cardId: 'card-1',
     shortLink: 'sl-1',
@@ -351,7 +357,8 @@ describe('todo store — integration: pickBoard', () => {
     })
     useTodoStore.getState().pickBoard('new-board', 'New Board', listsFixture, projectsFixture)
     const integration = useTodoStore.getState().integration
-    expect(integration?.config.boardId).toBe('new-board')
+    if (integration?.name !== 'trello') throw new Error('expected the trello integration')
+    expect(integration.config.boardId).toBe('new-board')
     expect(integration?.boardName).toBe('New Board')
     expect(integration?.lists).toEqual(listsFixture)
     expect(integration?.projects).toEqual(projectsFixture)
@@ -523,7 +530,9 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
     await useTodoStore.getState().syncNow()
     const task = useTodoStore.getState().tasks.find((t) => t.id === 'matched')!
     expect(task.linkedTab).toEqual(localLinkedTab)
-    expect(task.remoteRef?.etag).toBe('updated')
+    const ref = task.remoteRef
+    if (!ref || !isTrelloRef(ref)) throw new Error('expected a trello ref')
+    expect(ref.etag).toBe('updated')
   })
 
   it('keeps a locally-dirty task dirty even when matched by remote pull', async () => {

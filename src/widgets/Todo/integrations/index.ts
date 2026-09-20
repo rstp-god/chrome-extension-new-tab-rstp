@@ -31,6 +31,8 @@ export type {
   StatusListMapping,
   TodoIntegration,
   TodoStatus,
+  TrelloRemoteRef,
+  VikunjaRemoteRef,
 } from './types.ts'
 
-export { TODO_STATUSES } from './types.ts'
+export { isTrelloRef, isVikunjaRef, TODO_STATUSES } from './types.ts'

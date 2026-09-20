@@ -11,6 +11,7 @@ import type {
   RemoteTaskRef,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/types.ts'
+import { isTrelloRef } from '@/widgets/Todo/integrations/types.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 
 import { TrelloClient } from './client.ts'
@@ -69,6 +70,8 @@ export class TrelloIntegration implements TodoIntegration {
 
     const existingByCardId = new Map<string, string>()
     for (const [localId, ref] of Object.entries(ctx.knownRefs)) {
+      // Refs from another backend can't be matched against Trello cards.
+      if (!isTrelloRef(ref)) continue
       existingByCardId.set(ref.cardId, localId)
     }
 
@@ -129,7 +132,8 @@ export class TrelloIntegration implements TodoIntegration {
     op: IntegrationPushOp,
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
-    if (!task.remoteRef) {
+    const knownRef = task.remoteRef
+    if (!knownRef || !isTrelloRef(knownRef)) {
       return { ok: false, errorKey: 'pushFailed' }
     }
 
@@ -151,13 +155,13 @@ export class TrelloIntegration implements TodoIntegration {
       patch.idLabels = task.projectId ? [task.projectId] : []
     }
 
-    const out = await this.client.updateCard(task.remoteRef.cardId, patch)
+    const out = await this.client.updateCard(knownRef.cardId, patch)
     if (!out.ok) return out
     return {
       ok: true,
       value: {
         cardId: out.value.id,
-        shortLink: out.value.shortLink ?? task.remoteRef.shortLink,
+        shortLink: out.value.shortLink ?? knownRef.shortLink,
         listId: out.value.idList,
         etag: out.value.dateLastActivity ?? null,
       },

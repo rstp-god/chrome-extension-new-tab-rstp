@@ -25,12 +25,28 @@ const linkedTabSchema = z.object({
   title: z.string().nullable().optional(),
 })
 
-const remoteTaskRefSchema = z.object({
+const trelloRemoteRefSchema = z.object({
   cardId: z.string(),
   shortLink: z.string().nullable(),
   listId: z.string(),
   etag: z.string().nullable(),
 })
+
+const vikunjaRemoteRefSchema = z.object({
+  taskId: z.number(),
+  identifier: z.string(),
+  bucketId: z.number().nullable(),
+  updated: z.string(),
+})
+
+/**
+ * Plain `z.union`, deliberately not `z.discriminatedUnion`: refs written by
+ * the Trello-only build carry no discriminator field, so introducing one
+ * would mean migrating every stored record. The two shapes are disjoint
+ * (`cardId` vs `taskId`), so the first matching branch is always the right
+ * one.
+ */
+const remoteTaskRefSchema = z.union([trelloRemoteRefSchema, vikunjaRemoteRefSchema])
 
 const todoStatusSchema = z.enum(TODO_STATUSES)
 const syncStateSchema = z.enum(['clean', 'dirty', 'error'])
@@ -46,7 +62,10 @@ const todoTaskSchema = z.object({
   completedAt: z.number().nullable(),
   deletedAt: z.number().nullable(),
   linkedTab: linkedTabSchema.nullable(),
-  remoteRef: remoteTaskRefSchema.nullable(),
+  // A half-written or foreign ref must never cost the user a task: the
+  // envelope is parsed as a whole, and a single rejected task would drop the
+  // entire list. Degrade to `null` instead — the next sync re-links it.
+  remoteRef: remoteTaskRefSchema.nullable().catch(null),
   syncState: syncStateSchema,
 })
 
@@ -79,7 +98,7 @@ const remoteListSchema = z.object({
   name: z.string(),
 })
 
-const integrationSchema = z.object({
+const trelloIntegrationSchema = z.object({
   name: z.literal('trello'),
   config: trelloConfigSchema,
   /** Cached board name so the summary view stays zero-network. */
@@ -93,17 +112,55 @@ const integrationSchema = z.object({
   lastSyncAt: z.number().nullable(),
 })
 
-const todoPersistedStateSchema = z.object({
+const vikunjaConfigSchema = z.object({
+  baseUrl: z.url(),
+  token: z.string(),
+  projectId: z.number().nullable(),
+  viewId: z.number().nullable(),
+  /** `false` → flat mode: only done ↔ completed, buckets are ignored. */
+  kanbanMapping: z.boolean(),
+})
+
+const vikunjaIntegrationSchema = z.object({
+  name: z.literal('vikunja'),
+  config: vikunjaConfigSchema,
+  /** Cached project title — the Vikunja counterpart of a Trello board name. */
+  boardName: z.string().nullable(),
+  /** Cached buckets of the chosen view. */
+  lists: z.array(remoteListSchema),
+  /** Available projects (= Vikunja labels). */
+  projects: z.array(projectSchema),
+  /** `null` until the user finishes the mapping wizard. */
+  mapping: statusListMappingSchema.nullable(),
+  lastSyncAt: z.number().nullable(),
+})
+
+/**
+ * Discriminated on `name`, which records written by the Trello-only build
+ * already carry (`name: 'trello'`) — so this widening costs no migration
+ * either.
+ */
+const integrationSchema = z.discriminatedUnion('name', [
+  trelloIntegrationSchema,
+  vikunjaIntegrationSchema,
+])
+
+export const todoPersistedStateSchema = z.object({
   tasks: z.array(todoTaskSchema),
   integration: integrationSchema.nullable(),
 })
 
-const todoEnvelopeSchema = makeEnvelopeSchema(todoPersistedStateSchema)
+/**
+ * Exported so tests can parse realistic storage records with the very schema
+ * `withChromeSync` uses — a failed parse there drops the whole envelope.
+ */
+export const todoEnvelopeSchema = makeEnvelopeSchema(todoPersistedStateSchema)
 
 export type LinkedTab = z.infer<typeof linkedTabSchema>
 export type TodoTask = z.infer<typeof todoTaskSchema>
 export type TodoSyncState = z.infer<typeof syncStateSchema>
 export type TrelloConfig = z.infer<typeof trelloConfigSchema>
+export type VikunjaConfig = z.infer<typeof vikunjaConfigSchema>
 export type IntegrationState = z.infer<typeof integrationSchema>
 
 export type {
@@ -111,8 +168,20 @@ export type {
   StatusListMapping,
   Project,
   RemoteTaskRef,
+  TrelloRemoteRef,
+  VikunjaRemoteRef,
 } from '@/widgets/Todo/integrations/index.ts'
 export { TODO_STATUSES }
+
+/**
+ * Board id of the active integration, or `null` when there is none or the
+ * active integration has no board concept. Keeps the discriminator check in
+ * one place instead of at every call site.
+ */
+export function selectBoardId(integration: IntegrationState | null): string | null {
+  if (!integration) return null
+  return integration.name === 'trello' ? integration.config.boardId : null
+}
 
 interface AddTaskInput {
   title: string
@@ -206,7 +275,8 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       const state = get()
       const adapter = getActiveAdapter(state)
       const integration = state.integration
-      if (!adapter || !integration?.mapping || !integration.config.boardId) {
+      const boardId = selectBoardId(integration)
+      if (!adapter || !integration?.mapping || !boardId) {
         // No active integration or mapping — clear the dirty flag, nothing to push.
         set({
           tasks: patchTask(get().tasks, taskId, { syncState: 'clean' }),
@@ -218,7 +288,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       if (!task) return
 
       const out = await adapter.pushTask(task, op, {
-        boardId: integration.config.boardId,
+        boardId,
         mapping: integration.mapping,
         knownRef: task.remoteRef,
       })
@@ -387,7 +457,9 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
       pickBoard: (boardId, boardName, lists, projects) => {
         const integration = get().integration
-        if (!integration) return
+        // Board picking is Trello-shaped (the id lives in its config); other
+        // integrations get their own step in a later task.
+        if (integration?.name !== 'trello') return
         set({
           integration: {
             ...integration,
@@ -441,7 +513,8 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         const integration = state.integration
 
         if (!adapter || !integration) return
-        if (!integration.config.boardId || !integration.mapping) {
+        const boardId = selectBoardId(integration)
+        if (!boardId || !integration.mapping) {
           set({ errorKey: 'mappingIncomplete' })
           return
         }
@@ -462,7 +535,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
             task,
             inferOpForTask(task),
             {
-              boardId: integration.config.boardId,
+              boardId,
               mapping: integration.mapping,
               knownRef: task.remoteRef,
             },
@@ -487,7 +560,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         const pull = await adapter.pullTasks({
-          boardId: integration.config.boardId,
+          boardId,
           mapping: integration.mapping,
           knownRefs,
         })
