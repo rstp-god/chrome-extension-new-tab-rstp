@@ -65,31 +65,34 @@ function trelloTask(index: number): Record<string, unknown> {
   }
 }
 
-const trelloIntegration: Record<string, unknown> = {
-  name: 'trello',
-  config: { apiKey: 'api-key-abc', token: 'token-xyz', boardId: 'board-1' },
-  boardName: 'Personal board',
-  lists: [
-    { id: 'list-inbox', name: 'Inbox' },
-    { id: 'list-doing', name: 'Doing' },
-    { id: 'list-blocked', name: 'Blocked' },
-    { id: 'list-done', name: 'Done' },
-    { id: 'list-archive', name: 'Archive' },
-    { id: 'list-someday', name: 'Someday' },
-  ],
-  projects: [
-    { id: 'label-0', name: 'Home', pillClassName: 'bg-green-500/20 text-green-300' },
-    { id: 'label-1', name: 'Work', pillClassName: null },
-    { id: 'label-2', name: 'Side project', pillClassName: 'bg-sky-500/20 text-sky-300' },
-  ],
-  mapping: {
-    input: ['list-inbox', 'list-someday'],
-    inprogress: ['list-doing'],
-    struggle: ['list-blocked'],
-    completed: ['list-done'],
-    deleted: ['list-archive'],
-  },
-  lastSyncAt: BASE_TS + 3_600_000,
+/** Built per call so callers can mutate the returned envelope freely. */
+function trelloIntegration(): Record<string, unknown> {
+  return {
+    name: 'trello',
+    config: { apiKey: 'api-key-abc', token: 'token-xyz', boardId: 'board-1' },
+    boardName: 'Personal board',
+    lists: [
+      { id: 'list-inbox', name: 'Inbox' },
+      { id: 'list-doing', name: 'Doing' },
+      { id: 'list-blocked', name: 'Blocked' },
+      { id: 'list-done', name: 'Done' },
+      { id: 'list-archive', name: 'Archive' },
+      { id: 'list-someday', name: 'Someday' },
+    ],
+    projects: [
+      { id: 'label-0', name: 'Home', pillClassName: 'bg-green-500/20 text-green-300' },
+      { id: 'label-1', name: 'Work', pillClassName: null },
+      { id: 'label-2', name: 'Side project', pillClassName: 'bg-sky-500/20 text-sky-300' },
+    ],
+    mapping: {
+      input: ['list-inbox', 'list-someday'],
+      inprogress: ['list-doing'],
+      struggle: ['list-blocked'],
+      completed: ['list-done'],
+      deleted: ['list-archive'],
+    },
+    lastSyncAt: BASE_TS + 3_600_000,
+  }
 }
 
 /**
@@ -101,7 +104,7 @@ export function makeTrelloEnvelope(): RawTodoEnvelope {
     meta: { originId: 'origin-trello-device', rev: 17, ts: BASE_TS + 3_600_000 },
     state: {
       tasks: Array.from({ length: 22 }, (_, index) => trelloTask(index)),
-      integration: trelloIntegration,
+      integration: trelloIntegration(),
     },
   }
 }
