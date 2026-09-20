@@ -29,14 +29,30 @@ export interface Project {
   pillClassName: string | null
 }
 
-export interface RemoteBoard {
-  id: string
+/**
+ * Where a backend's task list lives, as an opaque address. The store never
+ * reads inside it — only the owning descriptor does (`getScope` / `withScope`)
+ * — so a backend addressed by one id (Trello: `{ boardId }`) and one
+ * addressed by a pair (Vikunja: `{ projectId, viewId }`) share the contract.
+ */
+export type RemoteScope = Record<string, string | number>
+
+/** One pickable scope plus its human label, as offered by `listScopes`. */
+export interface RemoteScopeOption {
+  scope: RemoteScope
   name: string
 }
 
-export interface RemoteList {
+/**
+ * A column/bucket inside a scope — what `StatusListMapping` maps statuses to.
+ * `isTerminal` marks the backend's own "done" container (Vikunja's done
+ * bucket), which has semantics the adapter must respect; Trello has no such
+ * notion and never sets it.
+ */
+export interface RemoteContainer {
   id: string
   name: string
+  isTerminal?: boolean
 }
 
 /** Pointer to the remote Trello card for a local task. */
@@ -93,6 +109,8 @@ export type IntegrationErrorKey =
   | 'mappingIncomplete'
   | 'pushFailed'
   | 'pullFailed'
+  | 'conflict'
+  | 'permissionMissing'
   | 'unknown'
 
 export type IntegrationOutcome<T> =
@@ -100,14 +118,14 @@ export type IntegrationOutcome<T> =
   | { ok: false; errorKey: IntegrationErrorKey }
 
 export interface PullContext {
-  boardId: string
+  scope: RemoteScope
   mapping: StatusListMapping
   /** Existing local refs keyed by local task id, used by `reconcile`. */
   knownRefs: Record<string, RemoteTaskRef>
 }
 
 export interface PushContext {
-  boardId: string
+  scope: RemoteScope
   mapping: StatusListMapping
   knownRef: RemoteTaskRef | null
 }
@@ -136,12 +154,13 @@ export interface TodoIntegration {
   /** In-memory cleanup; no I/O. */
   disconnect(): void
 
-  listBoards(): Promise<IntegrationOutcome<RemoteBoard[]>>
-  listLists(boardId: string): Promise<IntegrationOutcome<RemoteList[]>>
-  listProjects(boardId: string): Promise<IntegrationOutcome<Project[]>>
+  /** Every scope the credentials can reach, for the scope-picker step. */
+  listScopes(): Promise<IntegrationOutcome<RemoteScopeOption[]>>
+  listContainers(scope: RemoteScope): Promise<IntegrationOutcome<RemoteContainer[]>>
+  listProjects(scope: RemoteScope): Promise<IntegrationOutcome<Project[]>>
 
   /**
-   * Full pull of every visible card on the configured board. The adapter
+   * Full pull of every visible card in the configured scope. The adapter
    * is responsible for the listId → status reverse lookup (with fallback
    * to `'input'`). Used on widget mount and on manual `syncNow`.
    */
@@ -176,4 +195,20 @@ export interface IntegrationDescriptor {
   ConnectForm: ComponentType<ConnectFormProps>
   /** Pure factory: takes persisted config, returns a ready adapter. */
   create: (config: unknown) => TodoIntegration
+  /**
+   * Reads the scope out of a persisted config, or `null` while the user
+   * hasn't picked one. The scope is deliberately *not* a separate persisted
+   * field: it lives inside the config the adapter already owns, and only the
+   * descriptor knows which keys make it up.
+   */
+  getScope: (config: unknown) => RemoteScope | null
+  /** Pure counterpart of `getScope`: returns a copy of the config with the scope written in. */
+  withScope: (config: unknown, scope: RemoteScope) => unknown
+  /**
+   * Does this ref belong to this backend? `RemoteTaskRef` is a plain union,
+   * so a record hand-edited (or left behind by another integration) can carry
+   * a foreign ref — the store uses this to keep such tasks instead of
+   * mistaking them for cards deleted on the remote.
+   */
+  ownsRef: (ref: RemoteTaskRef) => boolean
 }

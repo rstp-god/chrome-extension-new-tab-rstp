@@ -7,7 +7,7 @@ import {
 } from '@/components/ui/dialog.tsx'
 import { isShowcaseMode } from '@/services/chrome/runtime.ts'
 import { TodoSettingsStepBody } from '@/widgets/Todo/components/settings/TodoSettingsStepBody.tsx'
-import { selectBoardId, useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { resolveScope, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import {
   getDialogDescription,
   getDialogTitle,
@@ -50,7 +50,7 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
     if (!integration) {
       return pickedIntegrationName ? 'connect' : 'picker'
     }
-    if (!selectBoardId(integration)) return 'board'
+    if (!resolveScope(integration)) return 'board'
     if (!integration.mapping) return 'mapping'
     return 'summary'
   }, [integration, pickedIntegrationName])

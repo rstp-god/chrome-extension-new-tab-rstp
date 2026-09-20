@@ -1,4 +1,4 @@
-import { TodoSettingsBoardPicker } from '@/widgets/Todo/components/settings/TodoSettingsBoardPicker.tsx'
+import { TodoSettingsScopePicker } from '@/widgets/Todo/components/settings/TodoSettingsScopePicker.tsx'
 import { TodoSettingsConnect } from '@/widgets/Todo/components/settings/TodoSettingsConnect.tsx'
 import { TodoSettingsMapping } from '@/widgets/Todo/components/settings/TodoSettingsMapping.tsx'
 import { TodoSettingsPicker } from '@/widgets/Todo/components/settings/TodoSettingsPicker.tsx'
@@ -27,7 +27,7 @@ interface Props {
  * of the dialog itself so the dialog stays a thin wrapper around the state
  * machine and a `<Dialog>` shell.
  *
- * The adapter is re-instantiated whenever credentials or boardId change.
+ * The adapter is re-instantiated whenever credentials or the scope change.
  * Construction is cheap (two strings), so we don't worry about caching it
  * beyond a single render pass.
  */
@@ -49,7 +49,7 @@ export function TodoSettingsStepBody({
     if (!descriptor) return null
     return descriptor.create(integration.config)
     // The config object is replaced wholesale on every change (connect,
-    // board pick), so its identity covers every field the adapter reads.
+    // scope pick), so its identity covers every field the adapter reads.
   }, [integration?.name, integration?.config])
 
   switch (step) {
@@ -64,7 +64,7 @@ export function TodoSettingsStepBody({
 
     case 'board':
       if (!adapter) return null
-      return <TodoSettingsBoardPicker adapter={adapter} onBack={onLeaveBoardPicker} />
+      return <TodoSettingsScopePicker adapter={adapter} onBack={onLeaveBoardPicker} />
 
     case 'mapping':
       return <TodoSettingsMapping onBack={onLeaveMapping} />

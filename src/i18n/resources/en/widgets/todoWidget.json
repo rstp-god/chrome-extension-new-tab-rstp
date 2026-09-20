@@ -135,6 +135,8 @@
         "mappingIncomplete": "Finish the list mapping before syncing.",
         "pushFailed": "Failed to push the change to Trello.",
         "pullFailed": "Failed to pull updates from Trello.",
+        "conflict": "Changed remotely — the local edit was rolled back.",
+        "permissionMissing": "The extension lost permission for this host. Reconnect to grant it again.",
         "unknown": "Something went wrong. Try again."
       }
     }

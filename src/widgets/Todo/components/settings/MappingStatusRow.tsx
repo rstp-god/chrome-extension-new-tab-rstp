@@ -8,16 +8,11 @@ import {
   CommandList,
 } from '@/components/ui/command.tsx'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
-import type { TodoStatus } from '@/widgets/Todo/integrations/index.ts'
+import type { RemoteContainer, TodoStatus } from '@/widgets/Todo/integrations/index.ts'
 import { STATUS_BORDER_CLASS, STATUS_PILL_CLASS } from '@/widgets/Todo/statusStyles.ts'
 import clsx from 'clsx'
 import { PlusIcon, StarIcon, XIcon } from 'lucide-react'
 import { useState } from 'react'
-
-interface RemoteListSummary {
-  id: string
-  name: string
-}
 
 export interface MappingStatusRowProps {
   status: TodoStatus
@@ -25,7 +20,7 @@ export interface MappingStatusRowProps {
   selectedListIds: string[]
   listNameById: Map<string, string>
   /** All lists on the connected board (the row filters out unavailable). */
-  availableLists: RemoteListSummary[]
+  availableLists: RemoteContainer[]
   /** Lookup whether a list is currently owned by a different status. Owned
    *  lists are hidden from the popover entirely so the user can't pick a
    *  list that's already mapped elsewhere. */

@@ -5,7 +5,7 @@ import { TodoSection } from '@/widgets/Todo/components/widget/TodoSection.tsx'
 import { TodoTaskCard } from '@/widgets/Todo/components/widget/TodoTaskCard.tsx'
 import { TodoSettingsDialog } from '@/widgets/Todo/components/settings/TodoSettingsDialog.tsx'
 import { type Project, type TodoStatus } from '@/widgets/Todo/integrations/index.ts'
-import { selectBoardId, useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { resolveScope, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import {
   groupTasksBySection,
   resolveVisibleStatuses,
@@ -35,7 +35,9 @@ export function TodoWidget() {
 
   const tasks = useTodoStore((state) => state.tasks)
   const integration = useTodoStore((state) => state.integration)
-  const boardId = selectBoardId(integration)
+  // Only the presence matters here, and a boolean keeps the mount-sync
+  // effect's dependency stable (a scope object is rebuilt on every render).
+  const hasScope = resolveScope(integration) !== null
   const addTask = useTodoStore((state) => state.addTask)
   const toggleTask = useTodoStore((state) => state.toggleTask)
   const removeTask = useTodoStore((state) => state.removeTask)
@@ -68,10 +70,10 @@ export function TodoWidget() {
   // an integration after the widget is already mounted also kicks off a sync.
   useEffect(() => {
     if (didMountSync.current) return
-    if (!boardId || !integration?.mapping) return
+    if (!hasScope || !integration?.mapping) return
     didMountSync.current = true
     void syncNow()
-  }, [boardId, integration?.mapping, syncNow])
+  }, [hasScope, integration?.mapping, syncNow])
 
   const effectiveVisibleStatuses = useMemo(
     () => resolveVisibleStatuses(visibleStatuses),

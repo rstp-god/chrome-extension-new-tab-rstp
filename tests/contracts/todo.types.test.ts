@@ -102,6 +102,8 @@ describe('IntegrationOutcome<T> narrowing', () => {
       | 'mappingIncomplete'
       | 'pushFailed'
       | 'pullFailed'
+      | 'conflict'
+      | 'permissionMissing'
       | 'unknown'
     >()
   })

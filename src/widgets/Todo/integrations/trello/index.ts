@@ -6,8 +6,9 @@ import type {
   PullContext,
   PullResult,
   PushContext,
-  RemoteBoard,
-  RemoteList,
+  RemoteContainer,
+  RemoteScope,
+  RemoteScopeOption,
   RemoteTaskRef,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/types.ts'
@@ -25,6 +26,15 @@ import {
 import { TrelloConnectForm } from './TrelloConnectForm.tsx'
 import type { TrelloConfig } from './types.ts'
 
+/**
+ * `RemoteScope` values are `string | number` because other backends address
+ * themselves numerically; Trello ids are strings, so coerce once here rather
+ * than at every call site.
+ */
+function boardIdOf(scope: RemoteScope): string {
+  return String(scope.boardId)
+}
+
 export class TrelloIntegration implements TodoIntegration {
   private readonly client: TrelloClient
 
@@ -40,32 +50,34 @@ export class TrelloIntegration implements TodoIntegration {
 
   disconnect(): void {}
 
-  async listBoards(): Promise<IntegrationOutcome<RemoteBoard[]>> {
+  async listScopes(): Promise<IntegrationOutcome<RemoteScopeOption[]>> {
     const out = await this.client.getMyBoards()
     if (!out.ok) return out
     return {
       ok: true,
-      value: out.value.map((board) => ({ id: board.id, name: board.name })),
+      value: out.value.map((board) => ({ scope: { boardId: board.id }, name: board.name })),
     }
   }
 
-  async listLists(boardId: string): Promise<IntegrationOutcome<RemoteList[]>> {
-    const out = await this.client.getBoardLists(boardId)
+  async listContainers(scope: RemoteScope): Promise<IntegrationOutcome<RemoteContainer[]>> {
+    const out = await this.client.getBoardLists(boardIdOf(scope))
     if (!out.ok) return out
+    // No `isTerminal`: Trello has no built-in "done" column — any list can
+    // be mapped to any status.
     return {
       ok: true,
       value: out.value.map((list) => ({ id: list.id, name: list.name })),
     }
   }
 
-  async listProjects(boardId: string): Promise<IntegrationOutcome<Project[]>> {
-    const out = await this.client.getBoardLabels(boardId)
+  async listProjects(scope: RemoteScope): Promise<IntegrationOutcome<Project[]>> {
+    const out = await this.client.getBoardLabels(boardIdOf(scope))
     if (!out.ok) return out
     return { ok: true, value: out.value.map(labelToProject) }
   }
 
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
-    const out = await this.client.getBoardCards(ctx.boardId)
+    const out = await this.client.getBoardCards(boardIdOf(ctx.scope))
     if (!out.ok) return out
 
     const existingByCardId = new Map<string, string>()
@@ -95,7 +107,10 @@ export class TrelloIntegration implements TodoIntegration {
     op: IntegrationPushOp,
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
-    if (op.kind === 'create' || !task.remoteRef) {
+    // A foreign ref (left over from another backend in a hand-edited record)
+    // can't address a Trello card — re-link the task by creating one instead
+    // of failing every push forever.
+    if (op.kind === 'create' || !task.remoteRef || !isTrelloRef(task.remoteRef)) {
       return this.createCard(task, ctx)
     }
     return this.updateCard(task, op, ctx)
@@ -175,6 +190,12 @@ export const descriptor: IntegrationDescriptor = {
   descriptionI18nKey: 'todoWidget:integrations.trello.description',
   ConnectForm: TrelloConnectForm,
   create: (config) => new TrelloIntegration(config as TrelloConfig),
+  getScope: (config) => {
+    const { boardId } = config as TrelloConfig
+    return boardId ? { boardId } : null
+  },
+  withScope: (config, scope) => ({ ...(config as TrelloConfig), boardId: boardIdOf(scope) }),
+  ownsRef: isTrelloRef,
 }
 
 export { parseHiddenMetadata }

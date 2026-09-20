@@ -10,7 +10,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton.tsx'
 import type {
   IntegrationErrorKey,
-  RemoteBoard,
+  RemoteScopeOption,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/index.ts'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
@@ -22,20 +22,25 @@ interface Props {
   onBack: () => void
 }
 
-export function TodoSettingsBoardPicker({ adapter, onBack }: Props) {
+/**
+ * Picks the remote scope (a Trello board, a Vikunja project+view, ...). The
+ * scope itself is opaque here — only its label is shown — so the `Select`,
+ * which needs a string value, keys options by their position in the list.
+ */
+export function TodoSettingsScopePicker({ adapter, onBack }: Props) {
   const { t } = useTranslation('todoWidget')
-  const pickBoard = useTodoStore((state) => state.pickBoard)
-  const [boards, setBoards] = useState<RemoteBoard[] | null>(null)
+  const pickScope = useTodoStore((state) => state.pickScope)
+  const [options, setOptions] = useState<RemoteScopeOption[] | null>(null)
   const [errorKey, setErrorKey] = useState<IntegrationErrorKey | null>(null)
-  const [selectedId, setSelectedId] = useState<string | undefined>()
+  const [selectedIndex, setSelectedIndex] = useState<string | undefined>()
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    void adapter.listBoards().then((out) => {
+    void adapter.listScopes().then((out) => {
       if (cancelled) return
       if (out.ok) {
-        setBoards(out.value)
+        setOptions(out.value)
       } else {
         setErrorKey(out.errorKey)
       }
@@ -46,17 +51,17 @@ export function TodoSettingsBoardPicker({ adapter, onBack }: Props) {
   }, [adapter])
 
   const handleContinue = async () => {
-    const board = boards?.find((candidate) => candidate.id === selectedId)
-    if (!board) return
+    const option = selectedIndex === undefined ? undefined : options?.[Number(selectedIndex)]
+    if (!option) return
 
     setBusy(true)
     setErrorKey(null)
-    const [listsOut, projectsOut] = await Promise.all([
-      adapter.listLists(board.id),
-      adapter.listProjects(board.id),
+    const [containersOut, projectsOut] = await Promise.all([
+      adapter.listContainers(option.scope),
+      adapter.listProjects(option.scope),
     ])
-    if (!listsOut.ok) {
-      setErrorKey(listsOut.errorKey)
+    if (!containersOut.ok) {
+      setErrorKey(containersOut.errorKey)
       setBusy(false)
       return
     }
@@ -65,34 +70,34 @@ export function TodoSettingsBoardPicker({ adapter, onBack }: Props) {
       setBusy(false)
       return
     }
-    pickBoard(board.id, board.name, listsOut.value, projectsOut.value)
+    pickScope(option.scope, option.name, containersOut.value, projectsOut.value)
     setBusy(false)
   }
 
   return (
     <div className="grid gap-4">
-      {boards === null && !errorKey && (
+      {options === null && !errorKey && (
         <div className="grid gap-2">
           <Skeleton className="h-9 w-full" />
           <Skeleton className="h-9 w-2/3" />
         </div>
       )}
 
-      {boards !== null && boards.length === 0 && !errorKey && (
+      {options !== null && options.length === 0 && !errorKey && (
         <p className="text-sm text-muted-foreground">{t('integrations.trello.board.empty')}</p>
       )}
 
-      {boards !== null && boards.length > 0 && (
+      {options !== null && options.length > 0 && (
         <Field>
           <FieldLabel htmlFor="trello-board">{t('integrations.trello.board.pickLabel')}</FieldLabel>
-          <Select value={selectedId} onValueChange={setSelectedId}>
+          <Select value={selectedIndex} onValueChange={setSelectedIndex}>
             <SelectTrigger id="trello-board" className="w-full">
               <SelectValue placeholder={t('integrations.trello.board.pickLabel')} />
             </SelectTrigger>
             <SelectContent>
-              {boards.map((board) => (
-                <SelectItem key={board.id} value={board.id}>
-                  {board.name}
+              {options.map((option, index) => (
+                <SelectItem key={String(index)} value={String(index)}>
+                  {option.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -108,7 +113,11 @@ export function TodoSettingsBoardPicker({ adapter, onBack }: Props) {
         <Button type="button" variant="outline" onClick={onBack} disabled={busy}>
           {t('integrations.trello.board.back')}
         </Button>
-        <Button type="button" onClick={handleContinue} disabled={!selectedId || busy}>
+        <Button
+          type="button"
+          onClick={handleContinue}
+          disabled={selectedIndex === undefined || busy}
+        >
           {t('integrations.trello.board.continue')}
         </Button>
       </div>

@@ -4,11 +4,13 @@ import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChro
 import {
   getIntegrationDescriptor,
   TODO_STATUSES,
+  type IntegrationDescriptor,
   type IntegrationErrorKey,
   type IntegrationOutcome,
   type IntegrationPushOp,
   type Project,
-  type RemoteList,
+  type RemoteContainer,
+  type RemoteScope,
   type RemoteTaskRef,
   type StatusListMapping,
   type TodoIntegration,
@@ -16,8 +18,8 @@ import {
 } from '@/widgets/Todo/integrations/index.ts'
 import { create } from 'zustand/react'
 
-import { todoEnvelopeSchema } from './schema.ts'
-import type { IntegrationState, TodoPersistedState, TodoTask, TrelloConfig } from './schema.ts'
+import { integrationSchema, todoEnvelopeSchema } from './schema.ts'
+import type { IntegrationState, TodoPersistedState, TodoTask } from './schema.ts'
 
 export const TODO_STORAGE_KEY = 'todo-widget:v1'
 
@@ -40,13 +42,15 @@ export type {
 export { TODO_STATUSES, todoEnvelopeSchema }
 
 /**
- * Board id of the active integration, or `null` when there is none or the
- * active integration has no board concept. Keeps the discriminator check in
- * one place instead of at every call site.
+ * The remote address of the active integration, or `null` when there is none
+ * or the user hasn't picked one yet. The shape of a scope is the descriptor's
+ * business — this is the single place the store (and the UI) asks for it.
  */
-export function selectBoardId(integration: IntegrationState | null): string | null {
+export function resolveScope(integration: IntegrationState | null): RemoteScope | null {
   if (!integration) return null
-  return integration.name === 'trello' ? integration.config.boardId : null
+  const descriptor = getIntegrationDescriptor(integration.name)
+  if (!descriptor) return null
+  return descriptor.getScope(integration.config)
 }
 
 interface AddTaskInput {
@@ -69,8 +73,13 @@ interface TodoWidgetState {
   removeTask: (id: string) => void
   openOrFocusLinkedTab: (id: string) => Promise<void>
 
-  connectIntegration: (name: 'trello', config: TrelloConfig) => Promise<void>
-  pickBoard: (boardId: string, boardName: string, lists: RemoteList[], projects: Project[]) => void
+  connectIntegration: (name: string, config: unknown) => Promise<void>
+  pickScope: (
+    scope: RemoteScope,
+    name: string,
+    containers: RemoteContainer[],
+    projects: Project[],
+  ) => void
   setMapping: (mapping: StatusListMapping) => Promise<void>
   clearIntegration: () => void
   syncNow: () => Promise<void>
@@ -98,10 +107,14 @@ function applyStatusTimestamps(
   }
 }
 
-function getActiveAdapter(state: TodoWidgetState): TodoIntegration | null {
+function getActiveDescriptor(state: TodoWidgetState): IntegrationDescriptor | null {
   if (!state.integration) return null
-  const descriptor = getIntegrationDescriptor(state.integration.name)
-  if (!descriptor) return null
+  return getIntegrationDescriptor(state.integration.name)
+}
+
+function getActiveAdapter(state: TodoWidgetState): TodoIntegration | null {
+  const descriptor = getActiveDescriptor(state)
+  if (!descriptor || !state.integration) return null
   return descriptor.create(state.integration.config)
 }
 
@@ -139,8 +152,8 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       const state = get()
       const adapter = getActiveAdapter(state)
       const integration = state.integration
-      const boardId = selectBoardId(integration)
-      if (!adapter || !integration?.mapping || !boardId) {
+      const scope = resolveScope(integration)
+      if (!adapter || !integration?.mapping || !scope) {
         // No active integration or mapping — clear the dirty flag, nothing to push.
         set({
           tasks: patchTask(get().tasks, taskId, { syncState: 'clean' }),
@@ -152,7 +165,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       if (!task) return
 
       const out = await adapter.pushTask(task, op, {
-        boardId,
+        scope,
         mapping: integration.mapping,
         knownRef: task.remoteRef,
       })
@@ -287,8 +300,25 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           return
         }
 
+        // The config arrives as `unknown` from the integration's own connect
+        // form, so validate the whole candidate slice against the very schema
+        // that guards storage — before spending a network round-trip on it.
+        const parsed = integrationSchema.safeParse({
+          name,
+          config,
+          boardName: null,
+          lists: [],
+          projects: [],
+          mapping: null,
+          lastSyncAt: null,
+        })
+        if (!parsed.success) {
+          set({ errorKey: 'unknown' })
+          return
+        }
+
         set({ loading: true, errorKey: null })
-        const adapter = descriptor.create(config)
+        const adapter = descriptor.create(parsed.data.config)
         const out = await adapter.connect()
         if (!out.ok) {
           set({ loading: false, errorKey: out.errorKey })
@@ -296,15 +326,15 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         set({
-          integration: {
-            name,
-            config,
-            boardName: null,
-            lists: [],
-            projects: [],
-            mapping: null,
-            lastSyncAt: null,
-          },
+          integration: parsed.data,
+          // Refs the freshly connected backend doesn't own can never be
+          // resolved against it — drop them so the first sync re-creates the
+          // tasks remotely instead of leaving them permanently unpushable.
+          tasks: get().tasks.map((task) =>
+            task.remoteRef && !descriptor.ownsRef(task.remoteRef)
+              ? { ...task, remoteRef: null, syncState: 'clean' }
+              : task,
+          ),
           loading: false,
           errorKey: null,
         })
@@ -319,22 +349,33 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         await removeArea('sync', TODO_STORAGE_KEY)
       },
 
-      pickBoard: (boardId, boardName, lists, projects) => {
+      pickScope: (scope, name, containers, projects) => {
         const integration = get().integration
-        // Board picking is Trello-shaped (the id lives in its config); other
-        // integrations get their own step in a later task.
-        if (integration?.name !== 'trello') return
-        set({
-          integration: {
-            ...integration,
-            config: { ...integration.config, boardId },
-            boardName,
-            lists,
-            projects,
-            // Picking a new board invalidates the previous mapping.
-            mapping: null,
-          },
+        if (!integration) return
+        const descriptor = getIntegrationDescriptor(integration.name)
+        if (!descriptor) {
+          set({ errorKey: 'unknown' })
+          return
+        }
+
+        // Only the descriptor knows where the scope lives inside its config,
+        // so the write goes through `withScope` and the result is re-checked
+        // against the persisted schema before it reaches the store.
+        const parsed = integrationSchema.safeParse({
+          ...integration,
+          config: descriptor.withScope(integration.config, scope),
+          boardName: name,
+          lists: containers,
+          projects,
+          // Picking a new scope invalidates the previous mapping.
+          mapping: null,
         })
+        if (!parsed.success) {
+          set({ errorKey: 'unknown' })
+          return
+        }
+
+        set({ integration: parsed.data })
       },
 
       setMapping: async (mapping) => {
@@ -373,12 +414,13 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
       syncNow: async () => {
         const state = get()
+        const descriptor = getActiveDescriptor(state)
         const adapter = getActiveAdapter(state)
         const integration = state.integration
 
-        if (!adapter || !integration) return
-        const boardId = selectBoardId(integration)
-        if (!boardId || !integration.mapping) {
+        if (!adapter || !descriptor || !integration) return
+        const scope = descriptor.getScope(integration.config)
+        if (!scope || !integration.mapping) {
           set({ errorKey: 'mappingIncomplete' })
           return
         }
@@ -399,7 +441,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
             task,
             inferOpForTask(task),
             {
-              boardId,
+              scope,
               mapping: integration.mapping,
               knownRef: task.remoteRef,
             },
@@ -424,7 +466,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         const pull = await adapter.pullTasks({
-          boardId,
+          scope,
           mapping: integration.mapping,
           knownRefs,
         })
@@ -445,10 +487,15 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           }
         })
 
-        // Keep purely-local tasks (no remoteRef) — they may be in-flight.
+        // Keep tasks the pull didn't mention when their ref can't have been
+        // part of it: purely-local ones (no ref — they may be in-flight) and
+        // ones carrying a ref from another backend. A task with a ref this
+        // descriptor *does* own and that the pull left out was deleted
+        // remotely, and still drops out.
         const remoteIds = new Set(pull.value.tasks.map((t) => t.id))
         for (const local of get().tasks) {
-          if (!remoteIds.has(local.id) && !local.remoteRef) {
+          if (remoteIds.has(local.id)) continue
+          if (!local.remoteRef || !descriptor.ownsRef(local.remoteRef)) {
             reconciled.push(local)
           }
         }

@@ -87,6 +87,15 @@ const remoteListSchema = z.object({
   name: z.string(),
 })
 
+/**
+ * A container that may be the backend's own terminal ("done") column. Only
+ * the Vikunja branch stores the flag — the Trello branch keeps the narrower
+ * shape it has always written, so old records stay byte-identical.
+ */
+const remoteContainerSchema = remoteListSchema.extend({
+  isTerminal: z.boolean().optional(),
+})
+
 const trelloIntegrationSchema = z.object({
   name: z.literal('trello'),
   config: trelloConfigSchema,
@@ -119,7 +128,7 @@ const vikunjaIntegrationSchema = z.object({
   /** Cached project title — the Vikunja counterpart of a Trello board name. */
   boardName: z.string().nullable(),
   /** Cached buckets of the chosen view. */
-  lists: z.array(remoteListSchema),
+  lists: z.array(remoteContainerSchema),
   /** Available projects (= Vikunja labels). */
   projects: z.array(projectSchema),
   /** `null` until the user finishes the mapping wizard. */
@@ -131,8 +140,12 @@ const vikunjaIntegrationSchema = z.object({
  * Discriminated on `name`, which records written by the Trello-only build
  * already carry (`name: 'trello'`) — so this widening costs no migration
  * either.
+ *
+ * Exported because the store re-validates every candidate integration slice
+ * against it *before* `set`: config writes go through descriptor hooks that
+ * take `unknown`, and this is the same schema that guards storage.
  */
-const integrationSchema = z.discriminatedUnion('name', [
+export const integrationSchema = z.discriminatedUnion('name', [
   trelloIntegrationSchema,
   vikunjaIntegrationSchema,
 ])

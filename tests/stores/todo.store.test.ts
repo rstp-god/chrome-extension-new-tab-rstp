@@ -21,8 +21,8 @@ vi.mock('@/services/chrome/storage.ts', () => ({
 
 const fakeConnect = vi.hoisted(() => vi.fn())
 const fakeDisconnect = vi.hoisted(() => vi.fn())
-const fakeListBoards = vi.hoisted(() => vi.fn())
-const fakeListLists = vi.hoisted(() => vi.fn())
+const fakeListScopes = vi.hoisted(() => vi.fn())
+const fakeListContainers = vi.hoisted(() => vi.fn())
 const fakeListProjects = vi.hoisted(() => vi.fn())
 const fakePullTasks = vi.hoisted(() => vi.fn())
 const fakePushTask = vi.hoisted(() => vi.fn())
@@ -41,12 +41,23 @@ vi.mock('@/widgets/Todo/integrations/index.ts', async (importOriginal) => {
         create: () => ({
           connect: fakeConnect,
           disconnect: fakeDisconnect,
-          listBoards: fakeListBoards,
-          listLists: fakeListLists,
+          listScopes: fakeListScopes,
+          listContainers: fakeListContainers,
           listProjects: fakeListProjects,
           pullTasks: fakePullTasks,
           pushTask: fakePushTask,
         }),
+        // Same semantics as the real Trello descriptor — the store is what's
+        // under test here, not the adapter.
+        getScope: (config: unknown) => {
+          const { boardId } = config as { boardId: string | null }
+          return boardId ? { boardId } : null
+        },
+        withScope: (config: unknown, scope: Record<string, string | number>) => ({
+          ...(config as object),
+          boardId: String(scope.boardId),
+        }),
+        ownsRef: (ref: object) => 'cardId' in ref,
       }
     },
   }
@@ -56,8 +67,9 @@ import { isTrelloRef } from '@/widgets/Todo/integrations/index.ts'
 import type {
   IntegrationOutcome,
   Project,
-  RemoteList,
+  RemoteContainer,
   StatusListMapping,
+  VikunjaRemoteRef,
   TrelloRemoteRef,
 } from '@/widgets/Todo/integrations/index.ts'
 import {
@@ -97,7 +109,7 @@ const projectsFixture: Project[] = [
   { id: 'label-1', name: 'Feature', pillClassName: 'pill-class-1' },
 ]
 
-const listsFixture: RemoteList[] = [
+const listsFixture: RemoteContainer[] = [
   { id: 'list-input', name: 'Inbox' },
   { id: 'list-inprogress', name: 'Doing' },
 ]
@@ -124,6 +136,17 @@ function ok<T>(value: T): IntegrationOutcome<T> {
   return { ok: true, value }
 }
 
+/** A ref from another backend — the Trello descriptor does not own it. */
+function makeForeignRef(overrides: Partial<VikunjaRemoteRef> = {}): VikunjaRemoteRef {
+  return {
+    taskId: 42,
+    identifier: '#42',
+    bucketId: null,
+    updated: '2024-01-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
 function makeRemoteRef(overrides: Partial<TrelloRemoteRef> = {}): TrelloRemoteRef {
   return {
     cardId: 'card-1',
@@ -138,8 +161,8 @@ beforeEach(() => {
   focusOrOpenTabMock.mockReset()
   fakeConnect.mockReset()
   fakeDisconnect.mockReset()
-  fakeListBoards.mockReset()
-  fakeListLists.mockReset()
+  fakeListScopes.mockReset()
+  fakeListContainers.mockReset()
   fakeListProjects.mockReset()
   fakePullTasks.mockReset()
   fakePushTask.mockReset()
@@ -321,13 +344,41 @@ describe('todo store — integration: connect', () => {
   })
 
   it('connectIntegration with unknown descriptor sets errorKey="unknown" without calling adapter', async () => {
-    await useTodoStore.getState().connectIntegration(
-      // @ts-expect-error — intentional invalid name to exercise the early-return branch
-      'notrello',
-      { apiKey: 'k', token: 't', boardId: null },
-    )
+    await useTodoStore
+      .getState()
+      .connectIntegration('notrello', { apiKey: 'k', token: 't', boardId: null })
     expect(useTodoStore.getState().errorKey).toBe('unknown')
     expect(fakeConnect).not.toHaveBeenCalled()
+  })
+
+  it('connectIntegration rejects a config the persisted schema refuses, without any network call', async () => {
+    // `token` is missing — the same parse that guards chrome.storage must
+    // refuse it here, before a round-trip is spent on it.
+    await useTodoStore.getState().connectIntegration('trello', { apiKey: 'k' })
+    const state = useTodoStore.getState()
+    expect(state.errorKey).toBe('unknown')
+    expect(state.integration).toBeNull()
+    expect(state.loading).toBe(false)
+    expect(fakeConnect).not.toHaveBeenCalled()
+  })
+
+  it('connectIntegration strips refs the new integration does not own', async () => {
+    useTodoStore.setState({
+      tasks: [
+        makeTask({ id: 'foreign', remoteRef: makeForeignRef(), syncState: 'dirty' }),
+        makeTask({ id: 'owned', remoteRef: makeRemoteRef(), syncState: 'clean' }),
+      ],
+    })
+    fakeConnect.mockResolvedValueOnce(ok({ userHandle: 'tester' }))
+    await useTodoStore
+      .getState()
+      .connectIntegration('trello', { apiKey: 'k', token: 't', boardId: null })
+    const tasks = useTodoStore.getState().tasks
+    const foreign = tasks.find((t) => t.id === 'foreign')!
+    expect(foreign.remoteRef).toBeNull()
+    expect(foreign.syncState).toBe('clean')
+    // Trello-owned refs survive untouched.
+    expect(tasks.find((t) => t.id === 'owned')!.remoteRef).toEqual(makeRemoteRef())
   })
 
   it('connectIntegration toggles loading=true mid-call', async () => {
@@ -350,12 +401,14 @@ describe('todo store — integration: connect', () => {
   })
 })
 
-describe('todo store — integration: pickBoard', () => {
-  it('caches board fields AND resets mapping to null (board-switch invalidation)', () => {
+describe('todo store — integration: pickScope', () => {
+  it('caches scope fields AND resets mapping to null (scope-switch invalidation)', () => {
     useTodoStore.setState({
       integration: makeIntegrationState({ mapping: mappingFixture }),
     })
-    useTodoStore.getState().pickBoard('new-board', 'New Board', listsFixture, projectsFixture)
+    useTodoStore
+      .getState()
+      .pickScope({ boardId: 'new-board' }, 'New Board', listsFixture, projectsFixture)
     const integration = useTodoStore.getState().integration
     if (integration?.name !== 'trello') throw new Error('expected the trello integration')
     expect(integration.config.boardId).toBe('new-board')
@@ -365,8 +418,30 @@ describe('todo store — integration: pickBoard', () => {
     expect(integration?.mapping).toBeNull()
   })
 
-  it('pickBoard with no active integration is a no-op', () => {
-    useTodoStore.getState().pickBoard('b', 'B', [], [])
+  it('pickScope writes the scope through the descriptor (store never touches the config shape)', () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+    useTodoStore.getState().pickScope({ boardId: 42 }, 'Numeric', [], [])
+    const integration = useTodoStore.getState().integration
+    if (integration?.name !== 'trello') throw new Error('expected the trello integration')
+    // `withScope` coerced the numeric scope value; credentials are preserved.
+    expect(integration.config).toEqual({ apiKey: 'k', token: 't', boardId: '42' })
+  })
+
+  it('pickScope re-validates against the persisted schema and refuses an invalid slice', () => {
+    const broken = {
+      ...makeIntegrationState(),
+      config: { apiKey: 'k' },
+    } as unknown as IntegrationState
+    useTodoStore.setState({ integration: broken })
+    useTodoStore.getState().pickScope({ boardId: 'b' }, 'B', [], [])
+    const state = useTodoStore.getState()
+    expect(state.errorKey).toBe('unknown')
+    // no partial write: the slice is left exactly as it was
+    expect(state.integration).toBe(broken)
+  })
+
+  it('pickScope with no active integration is a no-op', () => {
+    useTodoStore.getState().pickScope({ boardId: 'b' }, 'B', [], [])
     expect(useTodoStore.getState().integration).toBeNull()
   })
 })
@@ -421,7 +496,7 @@ describe('todo store — integration: clearIntegration', () => {
 })
 
 describe('todo store — integration: syncNow guards', () => {
-  it('syncNow without boardId sets mappingIncomplete and never calls adapter', async () => {
+  it('syncNow without a scope sets mappingIncomplete and never calls adapter', async () => {
     useTodoStore.setState({
       integration: makeIntegrationState({
         config: { apiKey: 'k', token: 't', boardId: null },
@@ -643,6 +718,26 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
       .sort()
     expect(ids).toContain('in-flight-local')
     expect(ids).toContain('remote')
+  })
+
+  it('keeps a task whose ref belongs to another backend, but drops an owned one that vanished', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [
+        // Not addressable by this descriptor, so the pull could never have
+        // mentioned it — dropping it would be data loss.
+        makeTask({ id: 'foreign-ref', remoteRef: makeForeignRef(), syncState: 'clean' }),
+        // Owned ref + absent from the pull = deleted on the remote.
+        makeTask({ id: 'owned-gone', remoteRef: makeRemoteRef(), syncState: 'clean' }),
+      ],
+    })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    const ids = useTodoStore.getState().tasks.map((t) => t.id)
+    expect(ids).toEqual(['foreign-ref'])
+    expect(fakePushTask).not.toHaveBeenCalled()
   })
 
   it('on pull failure sets errorKey and clears loading', async () => {
