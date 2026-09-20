@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { VikunjaRequest } from '@/background/vikunja/messages.ts'
-
 import { handleVikunjaRequest, setupVikunjaBridge } from '@/background/vikunja/index.ts'
+
+import type { VikunjaPing, VikunjaRequest } from '@/background/vikunja/messages.ts'
 
 type Listener = (
   message: unknown,
@@ -36,6 +36,7 @@ function attachBridge(): Listener {
 async function flush(): Promise<void> {
   await Promise.resolve()
   await Promise.resolve()
+  await new Promise((resolve) => setTimeout(resolve, 0))
 }
 
 beforeEach(() => {
@@ -53,8 +54,9 @@ describe('handleVikunjaRequest', () => {
 
     expect(response.ok).toBe(true)
     if (!response.ok) return
-    expect(response.value).toMatchObject({ pong: true })
-    expect(typeof (response.value as { at: unknown }).at).toBe('number')
+    const value = response.value as VikunjaPing
+    expect(value.pong).toBe(true)
+    expect(typeof value.at).toBe('number')
   })
 
   it('answers a known but not-yet-implemented op with unknown', async () => {
@@ -67,7 +69,7 @@ describe('handleVikunjaRequest', () => {
     expect(response).toEqual({ ok: false, errorKey: 'unknown' })
   })
 
-  it('answers an op outside the union with unknown', async () => {
+  it('keeps a default branch for an op outside the union', async () => {
     const bogus = { type: 'vikunja', op: 'teleport' } as unknown as VikunjaRequest
 
     await expect(handleVikunjaRequest(bogus)).resolves.toEqual({ ok: false, errorKey: 'unknown' })
@@ -97,6 +99,17 @@ describe('setupVikunjaBridge', () => {
     expect(sendResponse).not.toHaveBeenCalled()
   })
 
+  it('ignores a vikunja message carrying an op outside the allowlist', async () => {
+    const listener = attachBridge()
+    const sendResponse = vi.fn()
+
+    const result = listener({ type: 'vikunja', op: 'teleport' }, {}, sendResponse)
+    await flush()
+
+    expect(result).toBe(false)
+    expect(sendResponse).not.toHaveBeenCalled()
+  })
+
   it('keeps the channel open and responds to ping asynchronously', async () => {
     const listener = attachBridge()
     const sendResponse = vi.fn()
@@ -109,15 +122,38 @@ describe('setupVikunjaBridge', () => {
     await flush()
 
     expect(sendResponse).toHaveBeenCalledTimes(1)
-    const [response] = sendResponse.mock.calls[0] as [{ ok: boolean; value: { pong: boolean } }]
+    const [response] = sendResponse.mock.calls[0] as [{ ok: boolean; value: VikunjaPing }]
     expect(response.ok).toBe(true)
     expect(response.value.pong).toBe(true)
+  })
+
+  it('swallows a sendResponse that throws because the port is gone', async () => {
+    const rejections: unknown[] = []
+    const onRejection = (reason: unknown) => {
+      rejections.push(reason)
+    }
+    process.on('unhandledRejection', onRejection)
+
+    try {
+      const listener = attachBridge()
+      const sendResponse = vi.fn(() => {
+        throw new Error('Attempting to use a disconnected port object')
+      })
+
+      expect(listener({ type: 'vikunja', op: 'ping' }, {}, sendResponse)).toBe(true)
+      await flush()
+
+      expect(sendResponse).toHaveBeenCalledTimes(1)
+      expect(rejections).toEqual([])
+    } finally {
+      process.off('unhandledRejection', onRejection)
+    }
   })
 
   it('turns a thrown dispatch into unknown and never logs the token', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     vi.spyOn(Date, 'now').mockImplementation(() => {
-      throw new Error('clock exploded')
+      throw new Error('clock exploded at https://vikunja.example')
     })
 
     const listener = attachBridge()
@@ -139,7 +175,8 @@ describe('setupVikunjaBridge', () => {
 
     const logged = JSON.stringify(consoleError.mock.calls)
     expect(logged).toContain('[vikunja]')
+    expect(logged).toContain('Error')
     expect(logged).not.toContain('super-secret')
-    expect(logged).not.toContain('baseUrl')
+    expect(logged).not.toContain('vikunja.example')
   })
 })

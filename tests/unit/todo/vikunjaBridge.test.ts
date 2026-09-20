@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { VikunjaRequest } from '@/background/vikunja/messages.ts'
-
 import { sendVikunjaMessage } from '@/widgets/Todo/integrations/vikunja/bridge.ts'
+
+import type { VikunjaRequest } from '@/background/vikunja/messages.ts'
 
 /**
  * `isShowcaseMode` reads `import.meta.env` at call time; mocking it directly

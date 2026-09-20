@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
-import type { VikunjaRequest, VikunjaResponse } from '@/background/vikunja/messages.ts'
-
-import { VIKUNJA_ERROR_KEYS } from '@/background/vikunja/messages.ts'
+import { VIKUNJA_ERROR_KEYS, VIKUNJA_UNKNOWN_FAILURE } from '@/background/vikunja/messages.ts'
 import { getChromeObject, isShowcaseMode } from '@/services/chrome/runtime.ts'
+
+import type { VikunjaRequest, VikunjaResponse } from '@/background/vikunja/messages.ts'
 
 /**
  * Only the *envelope* is validated here. `value` stays `unknown` all the way
@@ -16,8 +16,8 @@ const responseSchema = z.union([
   z.object({ ok: z.literal(false), errorKey: z.enum(VIKUNJA_ERROR_KEYS) }),
 ])
 
+/** Client-side only: the worker never reports `network`, the transport does. */
 const NETWORK_FAILURE = { ok: false, errorKey: 'network' } as const
-const UNKNOWN_FAILURE = { ok: false, errorKey: 'unknown' } as const
 
 /**
  * Sends one op to the service worker and resolves with its answer.
@@ -58,7 +58,7 @@ export function sendVikunjaMessage<T>(req: VikunjaRequest): Promise<VikunjaRespo
 
         const parsed = responseSchema.safeParse(raw)
         if (!parsed.success) {
-          settle(UNKNOWN_FAILURE)
+          settle(VIKUNJA_UNKNOWN_FAILURE)
           return
         }
 

@@ -6,8 +6,11 @@
  * keys must stay a subset of the widget's.
  */
 
+import { describe, expectTypeOf, it } from 'vitest'
+
 import type {
   TaskPayload,
+  VIKUNJA_OPS,
   VikunjaErrorKey,
   VikunjaOp,
   VikunjaRequest,
@@ -15,7 +18,6 @@ import type {
   VikunjaWire,
 } from '@/background/vikunja/messages.ts'
 import type { IntegrationErrorKey } from '@/widgets/Todo/integrations/index.ts'
-import { describe, expectTypeOf, it } from 'vitest'
 
 describe('VikunjaErrorKey contract', () => {
   it('is assignable to the widget-side IntegrationErrorKey', () => {
@@ -36,6 +38,10 @@ describe('VikunjaErrorKey contract', () => {
 })
 
 describe('VikunjaRequest union', () => {
+  it('the VIKUNJA_OPS runtime allowlist matches the op union exactly', () => {
+    expectTypeOf<VikunjaOp>().toEqualTypeOf<(typeof VIKUNJA_OPS)[number]>()
+  })
+
   it('VikunjaOp is the op field of the union', () => {
     expectTypeOf<VikunjaOp>().toEqualTypeOf<
       | 'ping'

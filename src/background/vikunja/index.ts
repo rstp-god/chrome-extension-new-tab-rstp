@@ -1,14 +1,11 @@
-import type { VikunjaOp, VikunjaRequest, VikunjaResponse } from '@/background/vikunja/messages.ts'
+import { isVikunjaRequest, VIKUNJA_UNKNOWN_FAILURE } from '@/background/vikunja/messages.ts'
 
-import { isVikunjaRequest } from '@/background/vikunja/messages.ts'
-
-/** Payload of a successful `ping` — the bridge's own liveness probe. */
-export interface VikunjaPing {
-  pong: true
-  at: number
-}
-
-const UNKNOWN_FAILURE: VikunjaResponse<never> = { ok: false, errorKey: 'unknown' }
+import type {
+  VikunjaOp,
+  VikunjaPing,
+  VikunjaRequest,
+  VikunjaResponse,
+} from '@/background/vikunja/messages.ts'
 
 /**
  * Pure dispatcher — no `chrome.*`, so it unit-tests without a mock.
@@ -24,16 +21,36 @@ export async function handleVikunjaRequest(req: VikunjaRequest): Promise<Vikunja
     }
 
     default:
-      return UNKNOWN_FAILURE
+      return VIKUNJA_UNKNOWN_FAILURE
   }
 }
 
 /**
- * Never log `cfg`: it carries the user's API token. Only the op name and a
- * stringified error are safe to surface.
+ * Never log `cfg`: it carries the user's API token. `op` is safe because the
+ * guard allowlists it, and only the error's *name* is logged — a message can
+ * embed the instance URL the request was aimed at.
  */
 function logFailure(op: VikunjaOp, err: unknown): void {
-  console.error('[vikunja] request dispatch failed', { op, error: String(err) })
+  console.error('[vikunja] request dispatch failed', {
+    op,
+    error: err instanceof Error ? err.name : 'unknown',
+  })
+}
+
+/**
+ * `sendResponse` throws once the message port is gone — the tab navigated
+ * away or closed while the op was in flight. There is nobody left to tell,
+ * so swallow it rather than let it escape as an unhandled rejection.
+ */
+function respond(
+  sendResponse: (response: VikunjaResponse<unknown>) => void,
+  response: VikunjaResponse<unknown>,
+): void {
+  try {
+    sendResponse(response)
+  } catch {
+    // Port already closed; the caller is gone.
+  }
 }
 
 /**
@@ -46,18 +63,20 @@ export function setupVikunjaBridge(): void {
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     if (!isVikunjaRequest(message)) return false
 
-    try {
-      handleVikunjaRequest(message).then(
-        (response) => sendResponse(response),
+    // `handleVikunjaRequest` is async, so a throw inside it surfaces as a
+    // rejection below rather than synchronously here.
+    handleVikunjaRequest(message)
+      .then(
+        (response) => respond(sendResponse, response),
         (err: unknown) => {
           logFailure(message.op, err)
-          sendResponse(UNKNOWN_FAILURE)
+          respond(sendResponse, VIKUNJA_UNKNOWN_FAILURE)
         },
       )
-    } catch (err) {
-      logFailure(message.op, err)
-      sendResponse(UNKNOWN_FAILURE)
-    }
+      .catch(() => {
+        // Terminal guard: `respond` and `logFailure` are already defensive,
+        // but a bridge message must never reject into the void.
+      })
 
     return true
   })

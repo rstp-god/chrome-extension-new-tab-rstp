@@ -94,9 +94,46 @@ export type VikunjaRequest =
       remove: number[]
     }
 
+/**
+ * Runtime allowlist of the ops above. `isVikunjaRequest` checks against it,
+ * so an `op` that reaches the dispatcher (and the failure log) is always one
+ * of ours. `tests/contracts/vikunja.types.test.ts` pins it to the union so
+ * the two cannot drift.
+ */
+export const VIKUNJA_OPS = [
+  'ping',
+  'connect',
+  'listProjects',
+  'listBuckets',
+  'createBucket',
+  'listLabels',
+  'pull',
+  'create',
+  'update',
+  'moveToBucket',
+  'delete',
+  'setLabels',
+] as const satisfies readonly VikunjaRequest['op'][]
+
 export type VikunjaOp = VikunjaRequest['op']
 
 export type VikunjaResponse<T> = { ok: true; value: T } | { ok: false; errorKey: VikunjaErrorKey }
+
+/** Payload of a successful `ping` — the bridge's own liveness probe. */
+export interface VikunjaPing {
+  pong: true
+  at: number
+}
+
+/**
+ * The one failure the bridge itself can produce (as opposed to an op
+ * reporting a backend error). Frozen because both sides share this single
+ * instance: the worker sends it, the client resolves with it.
+ */
+export const VIKUNJA_UNKNOWN_FAILURE: VikunjaResponse<never> = Object.freeze({
+  ok: false,
+  errorKey: 'unknown',
+})
 
 export type VikunjaBroadcast = {
   type: 'vikunja/pulled'
@@ -106,14 +143,17 @@ export type VikunjaBroadcast = {
 }
 
 /**
- * Cheap discriminator for the worker's `onMessage` listener: it only has to
- * tell "ours" from "someone else's" so the other listener keeps its chance
- * to answer. It deliberately does NOT validate `op` against the known set or
- * check `cfg` — the dispatcher rejects unknown ops, and payload validation
- * belongs to the op handlers (tasks 4–7).
+ * Discriminator for the worker's `onMessage` listener: tells "ours" from
+ * "someone else's" so the other listener keeps its chance to answer, and
+ * pins `op` to the allowlist so nothing attacker-chosen flows on into the
+ * dispatcher or the failure log.
+ *
+ * It deliberately does NOT check `cfg` or the per-op fields — payload
+ * validation belongs to the op handlers (tasks 4–7).
  */
 export function isVikunjaRequest(msg: unknown): msg is VikunjaRequest {
   if (typeof msg !== 'object' || msg === null) return false
   const candidate = msg as { type?: unknown; op?: unknown }
-  return candidate.type === VIKUNJA_MSG && typeof candidate.op === 'string'
+  if (candidate.type !== VIKUNJA_MSG || typeof candidate.op !== 'string') return false
+  return (VIKUNJA_OPS as readonly string[]).includes(candidate.op)
 }

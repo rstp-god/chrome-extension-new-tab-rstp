@@ -102,4 +102,19 @@ describe('vikunja bridge import boundary', () => {
       ),
     ).toEqual([])
   })
+
+  /**
+   * Widen the previous case to the whole widget tree: a new integration (or a
+   * stray import from a component) must not reach into the bridge either.
+   * Scoped to `src/background/vikunja/**` on purpose — `@/background` at
+   * large is fair game, e.g. ScreenTime reads `@/background/activity/types.ts`.
+   */
+  it('no widget anywhere reaches into the bridge except through messages.ts', () => {
+    expect(
+      violations(
+        WIDGETS_ROOT,
+        (target) => isInside(target, BACKGROUND_VIKUNJA) && target !== SHARED_MODULE,
+      ),
+    ).toEqual([])
+  })
 })

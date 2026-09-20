@@ -66,7 +66,6 @@ async function hydratePersistedState(): Promise<void> {
  */
 function attachListeners(): void {
   setupMessageHandler(getSettings)
-  setupVikunjaBridge()
   setupEventListeners(getSettings)
   setupActivityTracking()
   setupCleanupScheduler(getSettings)
@@ -79,6 +78,17 @@ async function bootstrap(): Promise<void> {
   await hydratePersistedState()
   attachListeners()
 }
+
+/**
+ * Registered at module top level, NOT from `attachListeners`. MV3 dispatches
+ * the event that woke a cold worker as soon as the script finishes
+ * evaluating — long before `hydratePersistedState()` resolves. A listener
+ * attached after that await would miss the very message that started the
+ * worker, and the sender would see `lastError` and read it as a network
+ * failure. The bridge holds no state, so it needs no readiness gate; ops
+ * that need persisted data read storage themselves.
+ */
+setupVikunjaBridge()
 
 bootstrap().catch((err: unknown) => {
   console.error('[background] bootstrap failed', err)
