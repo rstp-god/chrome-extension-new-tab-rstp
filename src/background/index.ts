@@ -11,6 +11,7 @@ import { setupCleanupScheduler } from '@/background/cleanup/scheduler.ts'
 import { setupEventListeners } from '@/background/eventListeners.ts'
 import { setupMessageHandler } from '@/background/messageHandler.ts'
 import { executePipelineAndApply } from '@/background/pipelineExecutor.ts'
+import { setupVikunjaBridge } from '@/background/vikunja/index.ts'
 
 let currentSettings: TabRulesSettings = DEFAULT_TAB_RULES_SETTINGS
 
@@ -65,6 +66,7 @@ async function hydratePersistedState(): Promise<void> {
  */
 function attachListeners(): void {
   setupMessageHandler(getSettings)
+  setupVikunjaBridge()
   setupEventListeners(getSettings)
   setupActivityTracking()
   setupCleanupScheduler(getSettings)
