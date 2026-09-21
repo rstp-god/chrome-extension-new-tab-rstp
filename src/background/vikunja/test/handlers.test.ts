@@ -836,6 +836,9 @@ describe('update', () => {
     ['a fractional task id', { taskId: 4.5 }],
     ['a non-boolean done', { payload: { done: 'yes' } }],
     ['an empty title', { payload: { title: '  ' } }],
+    // An empty patch would rewrite the record exactly as it was and bump
+    // `updated`, invalidating every other client's etag for nothing.
+    ['an empty patch', { payload: {} }],
   ])('refuses %s without fetching', async (_label, patch) => {
     stubPermissions(true)
     const fetchMock = stubMethodFetch(() => jsonResponse(200, taskBody()))

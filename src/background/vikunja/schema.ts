@@ -175,6 +175,12 @@ const vikunjaTaskShape = z.looseObject({
  * POSTs back is built from the untouched JSON, not from the parsed task — and
  * that copy has to be stripped by the very same rule, or the guard would
  * cover only the half of the flow that never reaches a request body.
+ *
+ * **Top level only.** A nested `__proto__` (inside `assignees[0]`, say) is
+ * left alone, and that is enough: the danger is the spread in `updateTask`,
+ * which copies this object's *own* keys and no deeper. Nothing in the worker
+ * spreads or merges a nested value, and a recursive walk over an arbitrary
+ * payload would cost more than the risk it removes.
  */
 export function withoutUnsafeKeys(value: unknown): unknown {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return value

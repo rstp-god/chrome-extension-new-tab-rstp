@@ -109,3 +109,48 @@ describe('enqueue', () => {
     expect(pendingMutationChains()).toBe(0)
   })
 })
+
+describe('enqueue keys', () => {
+  it('serialises string keys just like numeric ones', async () => {
+    const first = deferred<string>()
+    const started: string[] = []
+
+    const firstDone = enqueue('project:1', async () => {
+      started.push('first')
+      return first.promise
+    })
+    const secondDone = enqueue('project:1', async () => {
+      started.push('second')
+      return 'b'
+    })
+
+    await flush()
+    expect(started).toEqual(['first'])
+
+    first.resolve('a')
+    await Promise.all([firstDone, secondDone])
+    expect(started).toEqual(['first', 'second'])
+  })
+
+  it('keeps a task id and a namespaced key apart', async () => {
+    // `project:1` and task 1 are different chains: a create in a project must
+    // not wait behind an edit of the task that happens to share the number.
+    const blocked = deferred<string>()
+    const started: string[] = []
+
+    const blockedDone = enqueue(1, async () => {
+      started.push('task-1')
+      return blocked.promise
+    })
+    await expect(
+      enqueue('project:1', async () => {
+        started.push('project-1')
+        return 'b'
+      }),
+    ).resolves.toBe('b')
+
+    expect(started).toEqual(['task-1', 'project-1'])
+    blocked.resolve('a')
+    await blockedDone
+  })
+})

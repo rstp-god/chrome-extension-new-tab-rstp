@@ -16,10 +16,11 @@ import {
   type TodoIntegration,
   type TodoStatus,
 } from '@/widgets/Todo/integrations/index.ts'
-import { mapWithConcurrency } from '@/widgets/Todo/utils/concurrency.ts'
 import { create } from 'zustand/react'
 
 import { integrationSchema, todoEnvelopeSchema } from './schema.ts'
+import { pushPhase, reconcile } from './sync.ts'
+
 import type { IntegrationState, TodoPersistedState, TodoTask } from './schema.ts'
 
 export const TODO_STORAGE_KEY = 'todo-widget:v1'
@@ -143,11 +144,6 @@ function getActive(state: TodoWidgetState): ActiveIntegration | null {
   return { integration, descriptor, adapter: descriptor.create(integration.config) }
 }
 
-function inferOpForTask(task: TodoTask): IntegrationPushOp {
-  if (!task.remoteRef) return { kind: 'create' }
-  return { kind: 'update' }
-}
-
 function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): TodoTask[] {
   return tasks.map((t) => (t.id === id ? { ...t, ...patch } : t))
 }
@@ -186,6 +182,53 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       integration: incoming.integration,
     }),
   })((set, get) => {
+    /**
+     * Writes one settled push into the store.
+     *
+     * Shared by the optimistic single-task path and by the sync's push phase,
+     * because the three outcomes mean the same thing in both and drifting
+     * apart is how a task ends up with a `remoteRef` in one flow and without
+     * it in the other.
+     *
+     * The failure branches keep `out.ref` when the adapter reported one: a
+     * multi-request push (Vikunja's create → label → place) can fail after the
+     * remote record already exists, and a store that forgot the ref would have
+     * the next sync create the very same task again.
+     *
+     * The global `errorKey` is deliberately not touched here — `pushTaskAsync`
+     * raises it for a single user action, while a sync raises it once for the
+     * whole phase.
+     */
+    const applyPushOutcome = (task: TodoTask, out: IntegrationOutcome<RemoteTaskRef>): void => {
+      if (out.ok) {
+        set((current) => ({
+          tasks: patchTask(current.tasks, task.id, { remoteRef: out.value, syncState: 'clean' }),
+          // A push that landed settles whatever conflict the task was in.
+          conflictTaskIds: withoutConflict(current.conflictTaskIds, task.id),
+        }))
+        return
+      }
+
+      const patch: Partial<TodoTask> = {
+        remoteRef: out.ref ?? task.remoteRef,
+        syncState: 'error',
+      }
+
+      if (out.errorKey === 'conflict') {
+        // Not a global error: the push was refused because the remote moved
+        // on, the local edit is already rolled back on the remote's terms,
+        // and the next pull brings the winning version. The task is flagged
+        // so the user finds out *which* of their edits was dropped.
+        set((current) => ({
+          tasks: patchTask(current.tasks, task.id, patch),
+          conflictTaskIds: withConflict(current.conflictTaskIds, task.id),
+        }))
+        return
+      }
+
+      set((current) => ({ tasks: patchTask(current.tasks, task.id, patch) }))
+    }
+
     const pushTaskAsync = async (taskId: string, op: IntegrationPushOp): Promise<void> => {
       const state = get()
       const active = getActive(state)
@@ -208,30 +251,10 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         knownRef: task.remoteRef,
       })
 
-      if (out.ok) {
-        set((current) => ({
-          tasks: patchTask(current.tasks, taskId, {
-            remoteRef: out.value,
-            syncState: 'clean',
-          }),
-          // A push that landed settles whatever conflict the task was in.
-          conflictTaskIds: withoutConflict(current.conflictTaskIds, taskId),
-        }))
-      } else if (out.errorKey === 'conflict') {
-        // Not a global error: the push was refused because the remote moved
-        // on, the local edit is already rolled back on the remote's terms,
-        // and the next pull brings the winning version. The task is flagged
-        // so the user finds out *which* of their edits was dropped.
-        set((current) => ({
-          tasks: patchTask(current.tasks, taskId, { syncState: 'error' }),
-          conflictTaskIds: withConflict(current.conflictTaskIds, taskId),
-        }))
-      } else {
-        set((current) => ({
-          tasks: patchTask(current.tasks, taskId, { syncState: 'error' }),
-          errorKey: out.errorKey,
-        }))
-      }
+      applyPushOutcome(task, out)
+      // One deliberate action of the user's failed; unlike a conflict, that is
+      // worth a banner.
+      if (!out.ok && out.errorKey !== 'conflict') set({ errorKey: out.errorKey })
     }
 
     return {
@@ -573,130 +596,64 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
         set({ loading: true, errorKey: null })
 
-        // Phase 1: push everything that hasn't reached the remote yet.
-        // - `syncState !== 'clean'` covers normal dirty/error retries.
-        // - `remoteRef === null` catches tasks that were created before the
-        //   integration was set up (they were 'clean' because there was
-        //   nowhere to sync them at the time). Without this we'd end up with
-        //   local tasks coexisting with the pulled set forever and the user
-        //   would see them as duplicates after the first sync.
-        const pending = state.tasks.filter((t) => t.syncState !== 'clean' || t.remoteRef === null)
+        // `finally`, not a `set` per exit: the body has half a dozen early
+        // returns and an adapter that may throw despite the contract, and a
+        // `loading` left `true` freezes the widget's spinner until the next
+        // sync — with no way for the user to start one.
+        try {
+          // Push everything that hasn't reached the remote yet.
+          // - `syncState !== 'clean'` covers normal dirty/error retries.
+          // - `remoteRef === null` catches tasks that were created before the
+          //   integration was set up (they were 'clean' because there was
+          //   nowhere to sync them at the time). Without this we'd end up with
+          //   local tasks coexisting with the pulled set forever and the user
+          //   would see them as duplicates after the first sync.
+          const pending = state.tasks.filter((t) => t.syncState !== 'clean' || t.remoteRef === null)
 
-        // The first hard failure ends the phase. With `pushConcurrency` at its
-        // default of 1 that is literally the sequential loop this used to be;
-        // with a pool it means "start nothing new", since the calls already in
-        // flight cannot be recalled.
-        let failure: IntegrationErrorKey | null = null
-
-        await mapWithConcurrency(pending, descriptor.pushConcurrency ?? 1, async (task) => {
-          if (failure !== null) return
-
-          const out: IntegrationOutcome<RemoteTaskRef> = await adapter.pushTask(
-            task,
-            inferOpForTask(task),
-            { scope, mapping, knownRef: task.remoteRef },
-          )
-
-          if (out.ok) {
-            set((current) => ({
-              tasks: patchTask(current.tasks, task.id, {
-                remoteRef: out.value,
-                syncState: 'clean',
-              }),
-              conflictTaskIds: withoutConflict(current.conflictTaskIds, task.id),
-            }))
+          const failure = await pushPhase(pending, {
+            adapter,
+            descriptor,
+            scope,
+            mapping,
+            onOutcome: applyPushOutcome,
+          })
+          if (failure !== null) {
+            set({ errorKey: failure })
             return
           }
 
-          if (out.errorKey === 'conflict') {
-            // A conflict is this one task's business: the rest of the sync
-            // carries on, and phase 2 below settles it by letting the remote
-            // version win.
-            set((current) => ({
-              tasks: patchTask(current.tasks, task.id, { syncState: 'error' }),
-              conflictTaskIds: withConflict(current.conflictTaskIds, task.id),
-            }))
+          // Phase 2: pull authoritative state and reconcile.
+          const knownRefs: Record<string, RemoteTaskRef> = {}
+          // Statuses go along for backends that cannot store every status
+          // remotely (Vikunja in flat mode) — see `PullContext.knownStatuses`.
+          const knownStatuses: Record<string, TodoStatus> = {}
+          for (const task of get().tasks) {
+            if (task.remoteRef) knownRefs[task.id] = task.remoteRef
+            knownStatuses[task.id] = task.status
+          }
+
+          const pull = await adapter.pullTasks({ scope, mapping, knownRefs, knownStatuses })
+          if (!pull.ok) {
+            set({ errorKey: pull.errorKey })
             return
           }
 
-          failure ??= out.errorKey
-        })
+          const merged = reconcile(pull.value.tasks, get().tasks, get().conflictTaskIds, descriptor)
 
-        if (failure !== null) {
-          set({ loading: false, errorKey: failure })
-          return
+          // Functional update over the *current* slice, not over the snapshot
+          // this run started from: `refreshContainers` (the mapping wizard
+          // creating columns) can land while the pull is in flight, and
+          // spreading the stale `integration` would silently revert its
+          // freshly-read containers.
+          const lastSyncAt = Date.now()
+          set((current) => ({
+            tasks: merged.tasks,
+            integration: current.integration ? { ...current.integration, lastSyncAt } : null,
+            conflictTaskIds: merged.conflictTaskIds,
+          }))
+        } finally {
+          set({ loading: false })
         }
-
-        // Phase 2: pull authoritative state and reconcile.
-        const knownRefs: Record<string, RemoteTaskRef> = {}
-        // Statuses go along for backends that cannot store every status
-        // remotely (Vikunja in flat mode) — see `PullContext.knownStatuses`.
-        const knownStatuses: Record<string, TodoStatus> = {}
-        for (const task of get().tasks) {
-          if (task.remoteRef) knownRefs[task.id] = task.remoteRef
-          knownStatuses[task.id] = task.status
-        }
-
-        const pull = await adapter.pullTasks({
-          scope,
-          mapping,
-          knownRefs,
-          knownStatuses,
-        })
-        if (!pull.ok) {
-          set({ loading: false, errorKey: pull.errorKey })
-          return
-        }
-
-        // Conflicts the pull can settle: the whole point of a conflict is that
-        // the remote version is the surviving one, so a conflicted task the
-        // pull mentions is replaced by it wholesale and stops being flagged.
-        // One it does *not* mention stays flagged — nothing has resolved it.
-        const unresolved = new Set(get().conflictTaskIds)
-
-        const localById = new Map(get().tasks.map((t) => [t.id, t]))
-        const reconciled: TodoTask[] = pull.value.tasks.map((remote) => {
-          const local = localById.get(remote.id)
-          if (!local) return remote
-          if (unresolved.has(remote.id)) {
-            unresolved.delete(remote.id)
-            // Remote wins: its `syncState` (clean, by construction) is kept
-            // rather than the local 'error' the refused push left behind.
-            return { ...remote, linkedTab: local.linkedTab }
-          }
-          // Local-only fields win (linkedTab, syncState if dirty).
-          return {
-            ...remote,
-            linkedTab: local.linkedTab,
-            syncState: local.syncState === 'clean' ? 'clean' : local.syncState,
-          }
-        })
-
-        // Keep tasks the pull didn't mention when their ref can't have been
-        // part of it: purely-local ones (no ref — they may be in-flight) and
-        // ones carrying a ref from another backend. A task with a ref this
-        // descriptor *does* own and that the pull left out was deleted
-        // remotely, and still drops out.
-        const remoteIds = new Set(pull.value.tasks.map((t) => t.id))
-        for (const local of get().tasks) {
-          if (remoteIds.has(local.id)) continue
-          if (!local.remoteRef || !descriptor.ownsRef(local.remoteRef)) {
-            reconciled.push(local)
-          }
-        }
-
-        // Functional update over the *current* slice, not over the snapshot
-        // this run started from: `refreshContainers` (the mapping wizard
-        // creating columns) can land while the pull is in flight, and
-        // spreading the stale `integration` would silently revert its
-        // freshly-read containers.
-        const lastSyncAt = Date.now()
-        set((current) => ({
-          tasks: reconciled,
-          integration: current.integration ? { ...current.integration, lastSyncAt } : null,
-          loading: false,
-          conflictTaskIds: [...unresolved],
-        }))
       },
     }
   }),

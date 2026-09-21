@@ -18,7 +18,11 @@ import {
 } from '@/components/ui/select.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 import { LinkableTab, listLinkableTabs } from '@/services/chrome/tabs.ts'
-import { NO_PROJECT_VALUE } from '@/widgets/Todo/constants.ts'
+import {
+  NO_PROJECT_VALUE,
+  TODO_DESCRIPTION_MAX_LENGTH,
+  TODO_TITLE_MAX_LENGTH,
+} from '@/widgets/Todo/constants.ts'
 import type { Project } from '@/widgets/Todo/integrations/index.ts'
 import { LinkedTab } from '@/widgets/Todo/store/store.ts'
 import { TestId } from '@tests/constants/testIds.ts'
@@ -122,6 +126,7 @@ export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props)
               data-testid={TestId.TodoTitleInput}
               id="todo-title"
               className="min-w-0 max-w-full"
+              maxLength={TODO_TITLE_MAX_LENGTH}
               value={title}
               onChange={(event) => setTitle(event.target.value)}
               placeholder={t('form.titlePlaceholder')}
@@ -134,6 +139,7 @@ export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props)
               data-testid={TestId.TodoDescriptionInput}
               id="todo-description"
               className="min-w-0 max-w-full"
+              maxLength={TODO_DESCRIPTION_MAX_LENGTH}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
               placeholder={t('form.descriptionPlaceholder')}

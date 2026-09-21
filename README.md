@@ -384,7 +384,7 @@ export interface PullContext {
 
 `knownStatuses` нужен только бэкендам, которые физически не умеют хранить все пять статусов (Vikunja в плоском режиме знает лишь `done` / не `done`): адаптер сохраняет локальный промежуточный статус вместо того, чтобы сбрасывать задачу в `input` на каждом пулле. Если ваши колонки сами несут статус — поле можно игнорировать, как это делает Trello.
 
-Все методы возвращают `IntegrationOutcome<T>` — дискриминированный union `{ ok: true, value }` либо `{ ok: false, errorKey }`. Бросать исключения не нужно — клиент должен ловить сетевые ошибки и переводить их в `IntegrationErrorKey` (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `conflict`, `permissionMissing`, `unknown`).
+Все методы возвращают `IntegrationOutcome<T>` — дискриминированный union `{ ok: true, value }` либо `{ ok: false, errorKey, ref? }`. Необязательный `ref` в ветке ошибки нужен для push'ей длиной в несколько запросов: если задача на бэкенде уже создана, а следующий запрос упал, верните её `RemoteTaskRef` вместе с ошибкой — стор запомнит ссылку и следующая синхронизация не создаст дубль. Бросать исключения не нужно — клиент должен ловить сетевые ошибки и переводить их в `IntegrationErrorKey` (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `conflict`, `permissionMissing`, `unknown`).
 
 Класс-имплементация (Trello как образец):
 
@@ -945,7 +945,7 @@ export interface PullContext {
 
 `knownStatuses` only matters for backends that cannot store all five statuses remotely (Vikunja in flat mode knows `done` / not done and nothing else): the adapter keeps the local intermediate status instead of resetting the task to `input` on every pull. If your columns carry the status themselves, ignore the field — Trello does.
 
-Every method returns `IntegrationOutcome<T>` — a discriminated union of `{ ok: true, value }` or `{ ok: false, errorKey }`. Don't throw — your client should catch network failures and translate them to one of the `IntegrationErrorKey` literals (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `conflict`, `permissionMissing`, `unknown`).
+Every method returns `IntegrationOutcome<T>` — a discriminated union of `{ ok: true, value }` or `{ ok: false, errorKey, ref? }`. The optional `ref` on the failure branch is for pushes that take several requests: if the remote record was already created and a later request failed, return its `RemoteTaskRef` alongside the error — the store remembers it, so the next sync won't create a duplicate. Don't throw — your client should catch network failures and translate them to one of the `IntegrationErrorKey` literals (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `conflict`, `permissionMissing`, `unknown`).
 
 Class implementation (Trello as the reference):
 

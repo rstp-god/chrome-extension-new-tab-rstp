@@ -34,10 +34,16 @@ export function statusForContainerId(id: string, mapping: StatusListMapping): To
 /**
  * Where a task moves when it enters `status`: the first container in the
  * row, by the contract of `StatusListMapping`.
+ *
+ * `undefined` when the row is empty. The persisted schema requires at least
+ * one container per status, so that should not happen — but a mapping can also
+ * arrive from a hand-edited record or a half-finished wizard draft, and the
+ * type saying `string` while the value is `undefined` is how an adapter ends
+ * up interpolating "undefined" into a request path.
  */
 export function primaryContainerIdForStatus(
   status: TodoStatus,
   mapping: StatusListMapping,
-): string {
-  return mapping[status][0]
+): string | undefined {
+  return mapping[status]?.[0]
 }

@@ -62,6 +62,7 @@ import { isTrelloRef } from '@/widgets/Todo/integrations/index.ts'
 import type {
   IntegrationOutcome,
   Project,
+  RemoteTaskRef,
   RemoteContainer,
   StatusListMapping,
   VikunjaRemoteRef,
@@ -111,6 +112,30 @@ const listsFixture: RemoteContainer[] = [
 
 /** These tests drive the Trello adapter, so they build the Trello branch. */
 type TrelloIntegrationState = Extract<IntegrationState, { name: 'trello' }>
+
+/**
+ * The Vikunja branch, for the one thing that is specific to it: its
+ * descriptor is the one that opts into a parallel push phase, and the test
+ * that proves the pool works should read the real number rather than a
+ * fixture's idea of it.
+ */
+function makeVikunjaIntegrationState(): Extract<IntegrationState, { name: 'vikunja' }> {
+  return {
+    name: 'vikunja',
+    config: {
+      baseUrl: 'https://vikunja.example',
+      token: 'tk',
+      projectId: 1,
+      viewId: 4,
+      kanbanMapping: true,
+    },
+    boardName: 'Inbox',
+    lists: [{ id: '1', name: 'To-Do' }],
+    projects: projectsFixture,
+    mapping: mappingFixture,
+    lastSyncAt: null,
+  }
+}
 
 function makeIntegrationState(
   overrides: Partial<TrelloIntegrationState> = {},
@@ -1106,18 +1131,37 @@ describe('todo store — conflict handling', () => {
     expect(task.linkedTab).toEqual({ url: 'https://local-tab.example', title: 'Local' })
   })
 
-  it('keeps the flag when the pull has nothing to say about the task', async () => {
+  it('keeps the flag on a surviving task the pull says nothing about', async () => {
+    // A task with a foreign ref cannot be part of this backend's pull, so the
+    // reconcile keeps it — and nothing has resolved its conflict either.
     useTodoStore.setState({
       integration: makeIntegrationState(),
-      tasks: [makeTask({ id: 'loser', syncState: 'dirty', remoteRef: null })],
-      conflictTaskIds: ['absent'],
+      tasks: [makeTask({ id: 'foreign', syncState: 'error', remoteRef: makeForeignRef() })],
+      conflictTaskIds: ['foreign'],
     })
-    fakePushTask.mockResolvedValueOnce(ok(makeRemoteRef()))
+    fakePushTask.mockResolvedValueOnce({ ok: false, errorKey: 'conflict' })
     fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
 
     await useTodoStore.getState().syncNow()
 
-    expect(useTodoStore.getState().conflictTaskIds).toEqual(['absent'])
+    expect(useTodoStore.getState().conflictTaskIds).toEqual(['foreign'])
+  })
+
+  it('drops a flag whose task no longer exists', async () => {
+    // Otherwise the list grows forever with ids that badge nothing: a task
+    // deleted on the remote leaves the local list during the reconcile.
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'gone', syncState: 'error', remoteRef: makeRemoteRef() })],
+      conflictTaskIds: ['gone', 'never-existed'],
+    })
+    fakePushTask.mockResolvedValueOnce({ ok: false, errorKey: 'conflict' })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    expect(useTodoStore.getState().tasks).toEqual([])
+    expect(useTodoStore.getState().conflictTaskIds).toEqual([])
   })
 
   it('clearIntegration drops the whole list', () => {
@@ -1198,5 +1242,133 @@ describe('todo store — push phase concurrency', () => {
     expect(fakePullTasks).not.toHaveBeenCalled()
     expect(useTodoStore.getState().errorKey).toBe('rateLimited')
     expect(useTodoStore.getState().loading).toBe(false)
+  })
+})
+
+describe('todo store — a failed push that created something', () => {
+  /** What a Vikunja create-then-fail hands back: the error plus the new ref. */
+  function partialCreate(ref: TrelloRemoteRef): IntegrationOutcome<RemoteTaskRef> {
+    return { ok: false, errorKey: 'rateLimited', ref }
+  }
+
+  it('persists the ref the adapter reported, and keeps the task in error', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', remoteRef: null, syncState: 'dirty' })],
+    })
+    const created = makeRemoteRef({ cardId: 'created-before-the-failure' })
+    fakePushTask.mockResolvedValueOnce(partialCreate(created))
+
+    useTodoStore.getState().setStatus('x', 'inprogress')
+
+    await vi.waitFor(() => {
+      const task = useTodoStore.getState().tasks.find((t) => t.id === 'x')!
+      expect(task.remoteRef).toEqual(created)
+      expect(task.syncState).toBe('error')
+    })
+    expect(useTodoStore.getState().errorKey).toBe('rateLimited')
+  })
+
+  it('keeps the previous ref when the failure reports none', async () => {
+    const known = makeRemoteRef({ cardId: 'known' })
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', remoteRef: known })],
+    })
+    fakePushTask.mockResolvedValueOnce({ ok: false, errorKey: 'network' })
+
+    useTodoStore.getState().setStatus('x', 'inprogress')
+
+    await vi.waitFor(() => {
+      expect(useTodoStore.getState().tasks.find((t) => t.id === 'x')?.syncState).toBe('error')
+    })
+    expect(useTodoStore.getState().tasks.find((t) => t.id === 'x')?.remoteRef).toEqual(known)
+  })
+
+  it('does not create the task a second time on the next sync', async () => {
+    // The whole point of carrying the ref: a retry must resync the record that
+    // exists, not make another one.
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', remoteRef: null, syncState: 'dirty' })],
+    })
+    const created = makeRemoteRef({ cardId: 'created-before-the-failure' })
+    fakePushTask.mockResolvedValueOnce(partialCreate(created))
+    fakePullTasks.mockResolvedValue(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+    expect(fakePushTask.mock.calls[0][1]).toEqual({ kind: 'create' })
+
+    fakePushTask.mockResolvedValueOnce(ok(created))
+    await useTodoStore.getState().syncNow()
+
+    expect(fakePushTask).toHaveBeenCalledTimes(2)
+    expect(fakePushTask.mock.calls[1][1]).toEqual({ kind: 'resync' })
+  })
+
+  it('retries a pushed task as a resync, never as a title/description update', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', remoteRef: makeRemoteRef(), syncState: 'error' })],
+    })
+    fakePushTask.mockResolvedValueOnce(ok(makeRemoteRef()))
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    expect(fakePushTask.mock.calls[0][1]).toEqual({ kind: 'resync' })
+  })
+})
+
+describe('todo store — syncNow robustness', () => {
+  it('clears loading even when the adapter throws', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', syncState: 'dirty', remoteRef: makeRemoteRef() })],
+    })
+    fakePushTask.mockRejectedValueOnce(new Error('adapter broke its contract'))
+
+    await expect(useTodoStore.getState().syncNow()).rejects.toThrow('adapter broke')
+
+    // A spinner stuck on `true` would leave the user no way to start another
+    // sync at all.
+    expect(useTodoStore.getState().loading).toBe(false)
+  })
+
+  it('clears loading on the pull failure path too', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), tasks: [] })
+    fakePullTasks.mockResolvedValueOnce({ ok: false, errorKey: 'pullFailed' })
+
+    await useTodoStore.getState().syncNow()
+
+    expect(useTodoStore.getState().loading).toBe(false)
+    expect(useTodoStore.getState().errorKey).toBe('pullFailed')
+  })
+
+  it('runs pushes in parallel for a descriptor that opts in', async () => {
+    // The real Vikunja descriptor asks for 4.
+    useTodoStore.setState({
+      integration: makeVikunjaIntegrationState(),
+      tasks: [1, 2, 3, 4, 5].map((n) =>
+        makeTask({ id: `t-${n}`, syncState: 'dirty', remoteRef: makeForeignRef({ taskId: n }) }),
+      ),
+    })
+
+    let live = 0
+    let peak = 0
+    fakePushTask.mockImplementation(async () => {
+      live += 1
+      peak = Math.max(peak, live)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      live -= 1
+      return ok(makeForeignRef())
+    })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    expect(fakePushTask).toHaveBeenCalledTimes(5)
+    expect(peak).toBeGreaterThan(1)
+    expect(peak).toBeLessThanOrEqual(4)
   })
 })

@@ -323,6 +323,13 @@ export class VikunjaClient {
    * read it. The local edit loses — reporting `conflict` **without** sending
    * anything is the whole point of holding the etag.
    *
+   * The check is only as sharp as the timestamp: `updated` has one-second
+   * resolution on a read (recon Q16), so a remote edit landing in the same
+   * second as ours is invisible to it and the later write still wins. There is
+   * nothing better available — Vikunja offers no version counter and reports
+   * `concurrent_writes: true` — and the queue above at least removes the races
+   * this extension could cause itself.
+   *
    * Runs inside `enqueue`, so a second edit of the same task cannot read the
    * record between this method's own read and write.
    */
@@ -356,12 +363,20 @@ export class VikunjaClient {
    *
    * Only `title` and `description` are sent: there is no existing record to
    * preserve, so this is the one write that needs no read first.
+   *
+   * Enqueued under the **project**, not a task id — there is no task id yet,
+   * and every create in a project competes for the same per-project `index`
+   * (and the `identifier` derived from it, recon Q19). Serialising them keeps
+   * a sync that creates several tasks at once from handing two of them the
+   * same number.
    */
   createTask(projectId: number, payload: TaskPayload): Promise<VikunjaResponse<VikunjaTask>> {
-    return this.put(`/projects/${projectId}/tasks`, vikunjaTaskSchema, {
-      title: payload.title,
-      description: payload.description ?? '',
-    })
+    return enqueue(`project:${projectId}`, () =>
+      this.put(`/projects/${projectId}/tasks`, vikunjaTaskSchema, {
+        title: payload.title,
+        description: payload.description ?? '',
+      }),
+    )
   }
 
   /**

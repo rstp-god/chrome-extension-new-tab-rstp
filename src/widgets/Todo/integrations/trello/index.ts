@@ -32,6 +32,9 @@ import type { TrelloConfig } from './types.ts'
  * scope that doesn't name a board yields `null` rather than the string
  * `"undefined"` travelling into a request URL.
  */
+/** A mapping row that names no list cannot address a destination. */
+const NO_DESTINATION: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
+
 function boardIdOf(scope: RemoteScope): string | null {
   const raw: unknown = scope.boardId
   if (typeof raw !== 'string' && typeof raw !== 'number') return null
@@ -133,6 +136,10 @@ export class TrelloIntegration implements TodoIntegration {
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
     const idList = primaryListIdForStatus(task.status, ctx.mapping)
+    // A mapping row with no list names no destination. The persisted schema
+    // forbids one, so this only fires on a hand-edited record — where saying
+    // so beats POSTing `idList=undefined`.
+    if (idList === undefined) return NO_DESTINATION
     const desc = buildCardDescription(task, task.description ?? '')
     const out = await this.client.createCard({
       name: task.title,
@@ -172,11 +179,16 @@ export class TrelloIntegration implements TodoIntegration {
       desc: buildCardDescription(task, task.description ?? ''),
     }
 
-    if (op.kind === 'status' || op.kind === 'delete') {
-      patch.idList = primaryListIdForStatus(task.status, ctx.mapping)
+    // `resync` re-asserts everything the widget owns in one PUT: Trello takes
+    // name, desc, list and labels in a single request, so the superset of the
+    // three narrower patches costs exactly what any one of them costs.
+    if (op.kind === 'status' || op.kind === 'delete' || op.kind === 'resync') {
+      const idList = primaryListIdForStatus(task.status, ctx.mapping)
+      if (idList === undefined) return NO_DESTINATION
+      patch.idList = idList
     }
 
-    if (op.kind === 'project') {
+    if (op.kind === 'project' || op.kind === 'resync') {
       patch.idLabels = task.projectId ? [task.projectId] : []
     }
 

@@ -162,7 +162,12 @@ const vikunjaTaskTitleSchema = z
 
 const vikunjaDescriptionSchema = z.string().max(VIKUNJA_MAX_DESCRIPTION_LENGTH)
 
-const vikunjaCreatePayloadSchema = z.object({
+/**
+ * Exported so the sender side can be tested against the real contract:
+ * `tests/unit/todo/vikunjaPush.test.ts` runs its clamped payloads through
+ * these, rather than re-stating the ceilings and drifting from them.
+ */
+export const vikunjaCreatePayloadSchema = z.object({
   title: vikunjaTaskTitleSchema,
   description: vikunjaDescriptionSchema.optional(),
 })
@@ -172,11 +177,16 @@ const vikunjaCreatePayloadSchema = z.object({
  * send only what changed — but each one validated the same way as on create,
  * because the merge writes it into the task either way.
  */
-const vikunjaUpdatePayloadSchema = z.object({
-  title: vikunjaTaskTitleSchema.optional(),
-  description: vikunjaDescriptionSchema.optional(),
-  done: z.boolean().optional(),
-})
+export const vikunjaUpdatePayloadSchema = z
+  .object({
+    title: vikunjaTaskTitleSchema.optional(),
+    description: vikunjaDescriptionSchema.optional(),
+    done: z.boolean().optional(),
+  })
+  // An empty patch would spend a read-modify-write on writing the record back
+  // exactly as it was — and bump `updated`, invalidating every other client's
+  // etag for nothing. A caller with no fields to send should not be calling.
+  .refine((patch) => Object.keys(patch).length > 0)
 
 /**
  * The etag the widget claims to have read the task at. Bounded and non-empty:
@@ -457,6 +467,17 @@ export function handleDelete(
  * renderer that asks for one is refused rather than trusted. Ids the task does
  * not carry are dropped too: Vikunja answers 404 for those, and one stale id
  * in the list would otherwise abort the whole operation.
+ *
+ * Only `remove` is screened. Attaching a reserved label is not destructive —
+ * it is a label the user already has, on a task they chose — and the widget
+ * never offers one as a project anyway, so there is nothing to protect there.
+ *
+ * Partial application is intentional. There is no transaction to be had:
+ * Vikunja has one endpoint per label, so a failure half-way leaves the changes
+ * made so far in place and the result reports exactly those. That is safe to
+ * retry — the same call runs again, the labels already applied are skipped as
+ * "already attached" / "not attached", and the outcome is the same as if it
+ * had succeeded the first time.
  */
 export function handleSetLabels(
   req: Extract<VikunjaRequest, { op: 'setLabels' }>,

@@ -104,6 +104,20 @@ export type IntegrationPushOp =
   | { kind: 'status'; previous: TodoStatus }
   | { kind: 'project'; previous: string | null }
   | { kind: 'delete' } // semantically = move to status 'deleted'
+  /**
+   * "Make the remote match this task again", used when a sync retries a task
+   * whose earlier push failed and the store no longer knows *what* changed.
+   *
+   * It is not `update`: the widget has no title/description editing UI, so a
+   * retry that sent those two fields would push the local (plain-text) copy
+   * over whatever the user has since written in the backend's own editor — and
+   * for Vikunja that also means flattening rich text on a retry nobody asked
+   * for. An adapter implements it as the smallest set of writes that restores
+   * the fields the widget actually owns: status/container and project.
+   *
+   * `update` stays in the union for the editing UI that will need it.
+   */
+  | { kind: 'resync' }
 
 export type IntegrationErrorKey =
   | 'authInvalid'
@@ -119,7 +133,24 @@ export type IntegrationErrorKey =
 
 export type IntegrationOutcome<T> =
   | { ok: true; value: T }
-  | { ok: false; errorKey: IntegrationErrorKey }
+  | {
+      ok: false
+      errorKey: IntegrationErrorKey
+      /**
+       * A ref the failed operation nevertheless established, for the push
+       * paths that are several writes long.
+       *
+       * Creating a task in Vikunja takes up to three requests (create, label,
+       * place). If the second one fails, the record *exists* — and an outcome
+       * that only said "failed" would leave the store with no ref, so the next
+       * sync would create the task a second time. Reporting the ref alongside
+       * the failure lets the caller remember what was created while still
+       * marking the task as not fully pushed.
+       *
+       * Callers must treat it as "this much is true", never as success.
+       */
+      ref?: RemoteTaskRef
+    }
 
 export interface PullContext {
   scope: RemoteScope

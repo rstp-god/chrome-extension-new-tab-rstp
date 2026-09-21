@@ -9,7 +9,12 @@
  * here (`created`, `done_at`) or follows from the task id.
  */
 
-import { isReservedVikunjaLabel, normalizeVikunjaTimestamp } from '@/background/vikunja/messages.ts'
+import {
+  isReservedVikunjaLabel,
+  normalizeVikunjaTimestamp,
+  VIKUNJA_MAX_DESCRIPTION_LENGTH,
+  VIKUNJA_MAX_TITLE_LENGTH,
+} from '@/background/vikunja/messages.ts'
 import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.ts'
 
 import { getVikunjaProjectPillClass } from './projectStyles.ts'
@@ -117,6 +122,71 @@ export function textToHtml(text: string): string {
     .split(/\n{2,}/)
     .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, '<br>')}</p>`)
     .join('')
+}
+
+/**
+ * A prefix of `text` that never ends in half of a surrogate pair.
+ *
+ * Cutting between the two halves of an emoji leaves a lone surrogate, which
+ * `JSON.stringify` happily encodes and the instance then stores as a broken
+ * character — so the last code unit goes too when it is a leading surrogate.
+ */
+function slicePreservingCodePoints(text: string, limit: number): string {
+  if (text.length <= limit) return text
+  const cut = text.slice(0, limit)
+  const last = cut.charCodeAt(cut.length - 1)
+  return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut
+}
+
+/**
+ * The description as HTML, shortened until the **HTML** fits the API ceiling.
+ *
+ * The plain text cannot simply be cut to the limit: escaping expands it (one
+ * `&` becomes five characters) and `textToHtml` adds a `<p>` per paragraph, so
+ * a text that measures under the ceiling can produce markup well over it. Nor
+ * can the HTML be cut instead — that would end a payload mid-entity or
+ * mid-tag. So the *text* is shortened and re-rendered, and the largest prefix
+ * that fits is found by bisection (the rendered length never shrinks as the
+ * prefix grows, which is what makes that valid).
+ */
+function clampDescriptionHtml(text: string): string {
+  const full = textToHtml(text)
+  if (full.length <= VIKUNJA_MAX_DESCRIPTION_LENGTH) return full
+
+  // `low` is always a length that fits (the empty prefix renders to '').
+  let low = 0
+  let high = text.length
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2)
+    const fits =
+      textToHtml(slicePreservingCodePoints(text, mid)).length <= VIKUNJA_MAX_DESCRIPTION_LENGTH
+    if (fits) low = mid
+    else high = mid - 1
+  }
+
+  return textToHtml(slicePreservingCodePoints(text, low))
+}
+
+/**
+ * The two free-text fields of a payload, bounded before they leave the widget.
+ *
+ * The worker refuses an over-long title or description (its Zod schemas are
+ * the last line, and rightly so), but a refusal there surfaces to the user as
+ * `unknown` on a task they cannot fix — they never typed a limit. Clamping at
+ * the sender means a pathological paste still syncs, just shortened.
+ *
+ * `title` is trimmed to the raw character ceiling; the description is measured
+ * as the HTML it will become. Both are the shared ceilings from `messages.ts`,
+ * so the two sides cannot disagree about what "too long" means.
+ */
+export function clampForVikunja(
+  title: string,
+  descriptionText: string,
+): { title: string; description: string } {
+  return {
+    title: slicePreservingCodePoints(title, VIKUNJA_MAX_TITLE_LENGTH),
+    description: clampDescriptionHtml(descriptionText),
+  }
 }
 
 /**

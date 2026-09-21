@@ -877,3 +877,79 @@ describe('getTaskRaw', () => {
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
   })
 })
+
+describe('create serialisation', () => {
+  it('runs two creates in one project one after the other', async () => {
+    // Every task in a project competes for the same `index` (and the
+    // `identifier` derived from it, recon Q19), and the create endpoint has no
+    // task id to serialise on — so the project is the key.
+    const firstSeen = deferred<void>()
+    const releaseFirst = deferred<void>()
+
+    const fetchMock = stubFetch(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        firstSeen.resolve()
+        await releaseFirst.promise
+      }
+      return jsonResponse(201, task(7))
+    })
+
+    const first = client().createTask(1, { title: 'a' })
+    const second = client().createTask(1, { title: 'b' })
+
+    await firstSeen.promise
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    releaseFirst.resolve()
+    await Promise.all([first, second])
+    expect(trace(fetchMock)).toEqual(['PUT /projects/1/tasks', 'PUT /projects/1/tasks'])
+  })
+
+  it('lets creates in different projects overlap', async () => {
+    const blockedSeen = deferred<void>()
+    const releaseBlocked = deferred<void>()
+
+    const fetchMock = stubFetch(async (url) => {
+      if (String(url).includes('/projects/1/')) {
+        blockedSeen.resolve()
+        await releaseBlocked.promise
+      }
+      return jsonResponse(201, task(7))
+    })
+
+    const blocked = client().createTask(1, { title: 'a' })
+    await blockedSeen.promise
+
+    // A per-project key must not turn into a global one.
+    await expect(client().createTask(2, { title: 'b' })).resolves.toMatchObject({ ok: true })
+
+    releaseBlocked.resolve()
+    await expect(blocked).resolves.toMatchObject({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not serialise a create against an edit of an unrelated task', async () => {
+    const createSeen = deferred<void>()
+    const releaseCreate = deferred<void>()
+
+    const fetchMock = stubFetch(async (url, init) => {
+      if (init.method === 'PUT') {
+        createSeen.resolve()
+        await releaseCreate.promise
+        return jsonResponse(201, task(7))
+      }
+      return jsonResponse(200, RICH_TASK)
+    })
+
+    const create = client().createTask(1, { title: 'a' })
+    await createSeen.promise
+
+    await expect(client().updateTask(4, { title: 'x' }, RICH_ETAG)).resolves.toMatchObject({
+      ok: true,
+    })
+
+    releaseCreate.resolve()
+    await create
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+})

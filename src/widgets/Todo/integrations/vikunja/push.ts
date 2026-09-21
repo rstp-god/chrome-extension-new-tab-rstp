@@ -17,7 +17,10 @@
  * - `delete` is a move into the trash column, or nothing. Vikunja's own
  *   `DELETE /tasks/:id` is deliberately unreachable from here: the widget's
  *   "delete" is a status, and destroying someone's task because they pressed a
- *   bin icon in a new-tab page is not a trade we make.
+ *   bin icon in a new-tab page is not a trade we make;
+ * - `resync` — the retry a sync uses when it no longer knows what changed —
+ *   re-asserts the bucket and the project, and deliberately never the title or
+ *   the description.
  *
  * Everything here goes through the bridge — the worker owns the HTTP, the
  * read-modify-write and the etag check (see `VikunjaClient.updateTask`).
@@ -26,7 +29,7 @@
 import { primaryContainerIdForStatus } from '@/widgets/Todo/integrations/statusMapping.ts'
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 
-import { textToHtml } from './mapping.ts'
+import { clampForVikunja } from './mapping.ts'
 import { vikunjaSetLabelsResultSchema, vikunjaTaskWriteSchema } from './schema.ts'
 
 import type {
@@ -75,6 +78,21 @@ export interface VikunjaPushInput {
 
 /** A mapping row that names no usable bucket cannot address a destination. */
 const NO_DESTINATION: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
+
+/**
+ * Carries a ref that an earlier write already established through a later
+ * failure (see `IntegrationOutcome.ref`).
+ *
+ * Creating a task is up to three requests. If the second one fails, the task
+ * exists: an outcome that reported only the error would leave the store with
+ * no ref, and the next sync would create the task all over again. The most
+ * recent ref wins — a move rewrites `updated`, and remembering the pre-move
+ * etag would cost the user a spurious conflict on their next edit.
+ */
+function keepingRef<T>(out: IntegrationOutcome<T>, ref: VikunjaRemoteRef): IntegrationOutcome<T> {
+  if (out.ok) return out
+  return { ok: false, errorKey: out.errorKey, ref: out.ref ?? ref }
+}
 
 /**
  * The bucket a task enters when it takes on `status`, or `null` when the
@@ -145,6 +163,8 @@ export async function pushVikunjaTask(
       return applyStatus(deps, input, ref, null)
     case 'project':
       return applyProject(deps, input, ref, op.previous)
+    case 'resync':
+      return resync(deps, input, ref)
   }
 }
 
@@ -153,25 +173,37 @@ export async function pushVikunjaTask(
  *
  * Three ops at most, in this order: the task has to exist before a label can
  * be attached to it, and it has to carry its label before a move makes the
- * board look right. A failure at any step is reported as-is — the ref of a
- * half-placed task is not returned, because a caller that stored it would
- * believe the placement happened.
+ * board look right.
+ *
+ * Two rules keep a failure half-way through from costing the user a duplicate:
+ *
+ * - the destination bucket is resolved **before** the create, so a mapping
+ *   that names no bucket is refused while nothing has happened yet. Deciding
+ *   that afterwards would leave a real task behind an outcome that says the
+ *   push never started;
+ * - every failure after the create carries the ref of what was created (see
+ *   `keepingRef`), so the store can remember the task exists even though it is
+ *   not fully placed.
  */
 async function createTask(
   deps: VikunjaPushDeps,
   { task, ctx, scope }: VikunjaPushInput,
 ): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
+  const bucketId = deps.flat ? null : bucketIdForStatus(task.status, ctx.mapping)
+  if (!deps.flat && bucketId === null) return NO_DESTINATION
+
   const created = await deps.send(
     {
       type: 'vikunja',
       op: 'create',
       cfg: deps.cfg,
       projectId: scope.projectId,
-      payload: { title: task.title, description: textToHtml(task.description ?? '') },
+      payload: clampForVikunja(task.title, task.description ?? ''),
     },
     vikunjaTaskWriteSchema,
   )
   if (!created.ok) return created
+  const ref = refFromWrite(created.value)
 
   const labelId = labelIdOf(task.projectId)
   if (labelId !== null) {
@@ -186,25 +218,84 @@ async function createTask(
       },
       vikunjaSetLabelsResultSchema,
     )
-    if (!labelled.ok) return labelled
+    if (!labelled.ok) return keepingRef(labelled, ref)
   }
 
-  // Vikunja drops a new task into the view's default bucket, which is the
-  // right place for an `input` task and the wrong one for every other status.
-  if (!deps.flat) {
-    const bucketId = bucketIdForStatus(task.status, ctx.mapping)
-    if (bucketId === null) return NO_DESTINATION
-    if (bucketId === created.value.bucketId) return { ok: true, value: refFromWrite(created.value) }
-    return move(deps, scope, created.value.id, bucketId, refFromWrite(created.value))
+  // Vikunja drops a new task into the view's default bucket, and the create
+  // response cannot say which one that was (`bucket_id` is only filled inside
+  // a view response — recon Q3), so kanban mode always moves.
+  if (bucketId !== null) {
+    return keepingRef(await move(deps, scope, created.value.id, bucketId, ref), ref)
   }
 
   // Flat mode has one remote bit to set, and only when it is set: a new task
   // that is already completed. Everything else stays local.
   if (task.status === 'completed') {
-    return setDone(deps, created.value.id, created.value.updated, true, refFromWrite(created.value))
+    return keepingRef(await setDone(deps, created.value.id, ref.updated, true, ref), ref)
   }
 
-  return { ok: true, value: refFromWrite(created.value) }
+  return { ok: true, value: ref }
+}
+
+/**
+ * "Make the remote match this task again" — the retry a sync uses when the
+ * store no longer knows which edit failed.
+ *
+ * Deliberately **not** title and description. The widget has no editing UI for
+ * either, so its copy is only ever what a pull gave it, flattened to plain
+ * text; pushing that back on a retry would overwrite whatever the user has
+ * since written in Vikunja's own editor and strip its formatting. What the
+ * widget genuinely owns is where the task sits and which project it belongs
+ * to, so that is what gets re-asserted.
+ *
+ * The move is skipped when the ref already names the destination. A ref that
+ * never learned its bucket (`null`, or a `0` from a create) does not count as
+ * naming it — those move, because the alternative is trusting a value we know
+ * we never read.
+ */
+async function resync(
+  deps: VikunjaPushDeps,
+  { task, ctx, scope }: VikunjaPushInput,
+  ref: VikunjaRemoteRef,
+): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
+  // Flat mode: `done` is the only field that crosses at all, and the local
+  // status is the authority on it during a retry of a local change.
+  if (deps.flat) {
+    return setDone(deps, ref.taskId, ref.updated, task.status === 'completed', ref)
+  }
+
+  const bucketId = bucketIdForStatus(task.status, ctx.mapping)
+  if (bucketId === null) return NO_DESTINATION
+
+  let current = ref
+  if (ref.bucketId !== bucketId) {
+    const moved = await move(deps, scope, ref.taskId, bucketId, ref)
+    if (!moved.ok) return moved
+    current = moved.value
+  }
+
+  // Additive only: `remove` would need to know which labels the task carries,
+  // which is the worker's read to make, not a guess for this side. A label the
+  // user removed locally is re-asserted by the next explicit `project` push.
+  const labelId = labelIdOf(task.projectId)
+  if (labelId === null) return { ok: true, value: current }
+
+  const labelled = await deps.send(
+    {
+      type: 'vikunja',
+      op: 'setLabels',
+      cfg: deps.cfg,
+      taskId: ref.taskId,
+      add: [labelId],
+      remove: [],
+    },
+    vikunjaSetLabelsResultSchema,
+  )
+  // The move already happened and already rewrote `updated`: its ref has to
+  // survive the label failure, or the next edit would conflict against a
+  // timestamp two versions old.
+  if (!labelled.ok) return keepingRef(labelled, current)
+  return { ok: true, value: current }
 }
 
 /**
@@ -226,7 +317,7 @@ async function editFields(
       cfg: deps.cfg,
       taskId: ref.taskId,
       etag: ref.updated,
-      payload: { title: task.title, description: textToHtml(task.description ?? '') },
+      payload: clampForVikunja(task.title, task.description ?? ''),
     },
     vikunjaTaskWriteSchema,
   )

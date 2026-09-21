@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import {
+  vikunjaCreatePayloadSchema,
+  vikunjaUpdatePayloadSchema,
+} from '@/background/vikunja/handlers.ts'
+import {
+  VIKUNJA_MAX_DESCRIPTION_LENGTH,
+  VIKUNJA_MAX_TITLE_LENGTH,
+} from '@/background/vikunja/messages.ts'
 import { sendVikunjaMessage } from '@/widgets/Todo/integrations/vikunja/bridge.ts'
 import { VikunjaIntegration } from '@/widgets/Todo/integrations/vikunja/index.ts'
 
@@ -178,14 +186,6 @@ describe('pushTask: create', () => {
     })
   })
 
-  it('skips the move when the task already landed in the right bucket', async () => {
-    stubBridge({ ...HAPPY, create: write({ id: 7, bucketId: 1 }) })
-
-    await push({ kind: 'create' }, task({ remoteRef: null, status: 'input' }))
-
-    expect(ops()).toEqual(['create'])
-  })
-
   it('attaches the project label after the create and before the move', async () => {
     stubBridge(HAPPY)
 
@@ -256,17 +256,67 @@ describe('pushTask: create', () => {
     })
   })
 
-  it('stops at the first failure instead of reporting a half-placed task', async () => {
+  it('refuses an unmapped status before anything is created', async () => {
+    // The destination is resolved first on purpose: discovering it afterwards
+    // would leave a real task on the instance behind an outcome that says the
+    // push never started.
+    stubBridge(HAPPY)
+
+    await expect(
+      push({ kind: 'create' }, task({ remoteRef: null, status: 'struggle' }), {
+        mapping: { ...MAPPING, struggle: [] },
+      }),
+    ).resolves.toEqual({ ok: false, errorKey: 'mappingIncomplete' })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['the label step', '9' as string | null, ['create', 'setLabels']],
+    ['the move', null, ['create', 'moveToBucket']],
+  ])(
+    'reports the created ref when %s fails, so a retry cannot duplicate the task',
+    async (_label, projectId, expectedOps) => {
+      bridge.mockImplementation(async (request) =>
+        request.op === 'create'
+          ? { ok: true, value: write({ id: 7 }) }
+          : { ok: false, errorKey: 'rateLimited' },
+      )
+
+      const out = await push({ kind: 'create' }, task({ remoteRef: null, projectId }))
+
+      expect(out).toEqual({
+        ok: false,
+        errorKey: 'rateLimited',
+        // The task exists; the store has to remember that much even though
+        // the push as a whole did not succeed.
+        ref: { taskId: 7, identifier: '#3', bucketId: null, updated: NEXT_ETAG },
+      })
+      expect(ops()).toEqual(expectedOps)
+    },
+  )
+
+  it('reports the created ref when the flat-mode done toggle fails', async () => {
     bridge.mockImplementation(async (request) =>
       request.op === 'create'
         ? { ok: true, value: write({ id: 7 }) }
-        : { ok: false, errorKey: 'rateLimited' },
+        : { ok: false, errorKey: 'network' },
     )
 
-    await expect(
-      push({ kind: 'create' }, task({ remoteRef: null, projectId: '9' })),
-    ).resolves.toEqual({ ok: false, errorKey: 'rateLimited' })
-    expect(ops()).toEqual(['create', 'setLabels'])
+    const out = await push({ kind: 'create' }, task({ remoteRef: null, status: 'completed' }), {
+      flat: true,
+    })
+
+    expect(out).toMatchObject({ ok: false, errorKey: 'network', ref: { taskId: 7 } })
+    expect(ops()).toEqual(['create', 'update'])
+  })
+
+  it('reports no ref when the create itself failed — there is nothing to remember', async () => {
+    bridge.mockResolvedValue({ ok: false, errorKey: 'authInvalid' })
+
+    const out = await push({ kind: 'create' }, task({ remoteRef: null }))
+
+    expect(out).toEqual({ ok: false, errorKey: 'authInvalid' })
+    expect(ops()).toEqual(['create'])
   })
 })
 
@@ -553,5 +603,178 @@ describe('pushTask: failures', () => {
       errorKey: 'notFound',
     })
     expect(bridge).not.toHaveBeenCalled()
+  })
+})
+
+describe('pushTask: resync', () => {
+  it('moves the task to where its status belongs and re-asserts the project', async () => {
+    stubBridge(HAPPY)
+
+    const out = await push({ kind: 'resync' }, task({ status: 'inprogress', projectId: '9' }))
+
+    expect(out).toMatchObject({ ok: true, value: { bucketId: 3 } })
+    expect(sent()).toEqual([
+      {
+        type: 'vikunja',
+        op: 'moveToBucket',
+        cfg: CFG,
+        taskId: 4,
+        projectId: 1,
+        viewId: 4,
+        bucketId: 2,
+      },
+      // Additive only: we do not know what else the task carries.
+      { type: 'vikunja', op: 'setLabels', cfg: CFG, taskId: 4, add: [9], remove: [] },
+    ])
+  })
+
+  it('never sends the title or the description', async () => {
+    // A retry must not push the widget's flattened copy over a description
+    // the user has since edited in Vikunja's own editor.
+    stubBridge(HAPPY)
+
+    await push({ kind: 'resync' }, task({ description: 'local copy', projectId: '9' }))
+
+    for (const request of sent()) {
+      expect(JSON.stringify(request)).not.toContain('local copy')
+      expect(request.op).not.toBe('update')
+    }
+  })
+
+  it('skips the move when the ref already sits in the right bucket', async () => {
+    stubBridge(HAPPY)
+
+    const out = await push({ kind: 'resync' }, task({ status: 'input', remoteRef: ref() }))
+
+    // `ref().bucketId` is 1, which is exactly where `input` maps.
+    expect(bridge).not.toHaveBeenCalled()
+    expect(out).toEqual({ ok: true, value: ref() })
+  })
+
+  it.each([
+    ['a ref that never learned its bucket', null],
+    ['the zero sentinel', 0],
+  ])('moves anyway given %s', async (_label, bucketId) => {
+    stubBridge(HAPPY)
+
+    await push({ kind: 'resync' }, task({ status: 'input', remoteRef: ref({ bucketId }) }))
+
+    expect(ops()).toEqual(['moveToBucket'])
+  })
+
+  it('keeps the post-move ref when the label step then fails', async () => {
+    // The move already rewrote `updated`; storing the pre-move etag would cost
+    // the user a spurious conflict on their next edit.
+    bridge.mockImplementation(async (request) =>
+      request.op === 'moveToBucket'
+        ? { ok: true, value: write({ bucketId: 2, updated: NEXT_ETAG }) }
+        : { ok: false, errorKey: 'rateLimited' },
+    )
+
+    const out = await push({ kind: 'resync' }, task({ status: 'inprogress', projectId: '9' }))
+
+    expect(out).toEqual({
+      ok: false,
+      errorKey: 'rateLimited',
+      ref: { taskId: 4, identifier: '#3', bucketId: 2, updated: NEXT_ETAG },
+    })
+  })
+
+  it('sends nothing for a project-less task already in place', async () => {
+    stubBridge(HAPPY)
+
+    await push({ kind: 'resync' }, task({ status: 'input', projectId: null }))
+
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  describe('flat mode', () => {
+    it.each([
+      ['completed', 'completed', true],
+      ['input', 'input', false],
+    ] as const)('asserts done=%s for a %s task', async (_label, status, done) => {
+      stubBridge(HAPPY)
+
+      await push({ kind: 'resync' }, task({ status }), { flat: true })
+
+      expect(sent()).toEqual([
+        {
+          type: 'vikunja',
+          op: 'update',
+          cfg: CFG,
+          taskId: 4,
+          etag: ETAG,
+          payload: { done },
+        },
+      ])
+    })
+
+    it('touches no bucket and no label', async () => {
+      stubBridge(HAPPY)
+
+      await push({ kind: 'resync' }, task({ projectId: '9' }), { flat: true })
+
+      expect(ops()).toEqual(['update'])
+    })
+  })
+})
+
+describe('pushTask: field clamps', () => {
+  /** The very schemas the worker validates an incoming payload against. */
+  function assertWorkerAccepts(request: VikunjaRequest) {
+    if (request.op === 'create') {
+      expect(vikunjaCreatePayloadSchema.safeParse(request.payload).success).toBe(true)
+      return
+    }
+    if (request.op === 'update') {
+      expect(vikunjaUpdatePayloadSchema.safeParse(request.payload).success).toBe(true)
+      return
+    }
+    throw new Error(`not a payload-carrying op: ${request.op}`)
+  }
+
+  it('shortens a title no user typed on purpose', async () => {
+    stubBridge(HAPPY)
+
+    await push({ kind: 'create' }, task({ remoteRef: null, title: 'x'.repeat(5000) }))
+
+    const request = sent()[0]
+    expect(request).toMatchObject({ op: 'create' })
+    if (request.op !== 'create') return
+    expect(request.payload.title).toHaveLength(VIKUNJA_MAX_TITLE_LENGTH)
+    assertWorkerAccepts(request)
+  })
+
+  it('measures the description as the HTML it becomes, not as the text', async () => {
+    // 6 000 ampersands escape to 30 000 characters — nearly twice the ceiling —
+    // so a clamp that counted the plain text would hand the worker a payload
+    // it must refuse.
+    stubBridge(HAPPY)
+
+    await push({ kind: 'create' }, task({ remoteRef: null, description: '&'.repeat(6000) }))
+
+    const request = sent()[0]
+    expect(request).toMatchObject({ op: 'create' })
+    if (request.op !== 'create') return
+    const description = request.payload.description ?? ''
+    expect(description.length).toBeLessThanOrEqual(VIKUNJA_MAX_DESCRIPTION_LENGTH)
+    // Cut at a character boundary, never inside an escape sequence.
+    expect(description.endsWith('&amp;</p>')).toBe(true)
+    assertWorkerAccepts(request)
+  })
+
+  it('clamps an edit the same way', async () => {
+    stubBridge(HAPPY)
+
+    await push({ kind: 'update' }, task({ title: 'y'.repeat(5000), description: '&'.repeat(6000) }))
+
+    const request = sent()[0]
+    expect(request).toMatchObject({ op: 'update' })
+    if (request.op !== 'update') return
+    expect(request.payload.title).toHaveLength(VIKUNJA_MAX_TITLE_LENGTH)
+    expect((request.payload.description ?? '').length).toBeLessThanOrEqual(
+      VIKUNJA_MAX_DESCRIPTION_LENGTH,
+    )
+    assertWorkerAccepts(request)
   })
 })

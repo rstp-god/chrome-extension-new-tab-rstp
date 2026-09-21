@@ -406,6 +406,72 @@ describe('TrelloIntegration.pushTask', () => {
     expect(fakeUpdateCard.mock.calls[0][1].idList).toBe('list-deleted')
   })
 
+  it('"resync" re-asserts name, desc, list and labels in one request', async () => {
+    // Trello takes all four in a single PUT, so the retry that has to restore
+    // everything the widget owns costs exactly what a narrower patch costs.
+    fakeUpdateCard.mockResolvedValueOnce(ok(captureCardResponse({ idList: 'list-struggle' })))
+    const task = makeTask({
+      status: 'struggle',
+      projectId: 'label-green',
+      remoteRef: {
+        cardId: 'remote-cid-resync',
+        shortLink: null,
+        listId: 'list-input',
+        etag: null,
+      },
+    })
+
+    const out = await makeIntegration().pushTask(
+      task,
+      { kind: 'resync' },
+      { ...pushCtx, knownRef: task.remoteRef },
+    )
+
+    expect(out.ok).toBe(true)
+    expect(fakeUpdateCard).toHaveBeenCalledOnce()
+    const patch = fakeUpdateCard.mock.calls[0][1]
+    expect(patch.name).toBe('Local task')
+    expect(patch.desc).toContain('<!-- newtab-todo:v1')
+    expect(patch.idList).toBe('list-struggle')
+    expect(patch.idLabels).toEqual(['label-green'])
+  })
+
+  it('"resync" clears the labels of a task with no project', async () => {
+    fakeUpdateCard.mockResolvedValueOnce(ok(captureCardResponse()))
+    const task = makeTask({
+      projectId: null,
+      remoteRef: { cardId: 'remote-cid-r2', shortLink: null, listId: 'list-input', etag: null },
+    })
+
+    await makeIntegration().pushTask(
+      task,
+      { kind: 'resync' },
+      { ...pushCtx, knownRef: task.remoteRef },
+    )
+
+    expect(fakeUpdateCard.mock.calls[0][1].idLabels).toEqual([])
+  })
+
+  it.each([
+    ['create', { kind: 'create' } as const],
+    ['resync', { kind: 'resync' } as const],
+  ])('refuses %s against a mapping row with no list, without a request', async (_label, op) => {
+    const task = makeTask({
+      status: 'struggle',
+      remoteRef: { cardId: 'remote-cid-r3', shortLink: null, listId: 'list-input', etag: null },
+    })
+
+    const out = await makeIntegration().pushTask(task, op, {
+      ...pushCtx,
+      mapping: { ...pushCtx.mapping, struggle: [] },
+      knownRef: op.kind === 'create' ? null : task.remoteRef,
+    })
+
+    expect(out).toEqual({ ok: false, errorKey: 'mappingIncomplete' })
+    expect(fakeCreateCard).not.toHaveBeenCalled()
+    expect(fakeUpdateCard).not.toHaveBeenCalled()
+  })
+
   it('"project" updates idLabels (single label when projectId set)', async () => {
     fakeUpdateCard.mockResolvedValueOnce(ok(captureCardResponse()))
     const task = makeTask({

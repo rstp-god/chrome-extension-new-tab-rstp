@@ -294,11 +294,14 @@ export const descriptor: IntegrationDescriptor = {
   /**
    * Four tasks at a time during a sync.
    *
-   * Safe because the worker serialises per task id (`mutationQueue`), so the
-   * pool can only ever overlap writes to *different* tasks — and worth it
-   * because a push is up to three round trips to a self-hosted instance, which
-   * makes a sequential phase 1 on a board with a dozen dirty tasks a visible
-   * wait. Deliberately small: this is someone's own server, not a CDN.
+   * Safe because the worker's `mutationQueue` serialises every write by key:
+   * per task id for edits, moves, labels and deletes, and per project for
+   * creates (which have no task id yet and share the project's `index`
+   * counter). So the pool can only ever overlap writes that touch different
+   * records — and it is worth having, because a push is up to three round
+   * trips to a self-hosted instance and a sequential phase 1 on a board with a
+   * dozen dirty tasks is a visible wait. Deliberately small: this is someone's
+   * own server, not a CDN.
    */
   pushConcurrency: 4,
   /**

@@ -63,7 +63,10 @@ export function statusForListId(listId: string, mapping: StatusListMapping): Tod
   return statusForContainerId(listId, mapping)
 }
 
-export function primaryListIdForStatus(status: TodoStatus, mapping: StatusListMapping): string {
+export function primaryListIdForStatus(
+  status: TodoStatus,
+  mapping: StatusListMapping,
+): string | undefined {
   return primaryContainerIdForStatus(status, mapping)
 }
 

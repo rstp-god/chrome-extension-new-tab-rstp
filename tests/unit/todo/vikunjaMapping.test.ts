@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
+import {
+  VIKUNJA_MAX_DESCRIPTION_LENGTH,
+  VIKUNJA_MAX_TITLE_LENGTH,
+} from '@/background/vikunja/messages.ts'
 import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.ts'
 import {
+  clampForVikunja,
   htmlToText,
   isReservedLabel,
   labelToProject,
@@ -337,5 +342,48 @@ describe('vikunjaTaskToTodo — fields', () => {
     const task = vikunjaTaskToTodo(pulled(), context())
     expect(task.syncState).toBe('clean')
     expect(task.linkedTab).toBeNull()
+  })
+})
+
+describe('clampForVikunja', () => {
+  it('leaves a normal task alone', () => {
+    expect(clampForVikunja('Buy milk', 'two litres')).toEqual({
+      title: 'Buy milk',
+      description: '<p>two litres</p>',
+    })
+  })
+
+  it('cuts a title to the API ceiling', () => {
+    const out = clampForVikunja('x'.repeat(5000), '')
+
+    expect(out.title).toHaveLength(VIKUNJA_MAX_TITLE_LENGTH)
+    expect(out.description).toBe('')
+  })
+
+  it('never leaves half of a surrogate pair at the cut', () => {
+    // A lone surrogate survives JSON.stringify and reaches the instance as a
+    // broken character.
+    const out = clampForVikunja('a'.repeat(VIKUNJA_MAX_TITLE_LENGTH - 1) + '😀', '')
+
+    expect(out.title).toHaveLength(VIKUNJA_MAX_TITLE_LENGTH - 1)
+    expect(out.title.endsWith('a')).toBe(true)
+  })
+
+  it('measures the description as HTML, so escaping cannot overshoot the limit', () => {
+    // Each `&` becomes five characters, so 6 000 of them render to 30 000.
+    const out = clampForVikunja('t', '&'.repeat(6000))
+
+    expect(out.description.length).toBeLessThanOrEqual(VIKUNJA_MAX_DESCRIPTION_LENGTH)
+    // And the cut lands between characters, never inside an escape.
+    expect(out.description.endsWith('&amp;</p>')).toBe(true)
+    expect(htmlToText(out.description).startsWith('&&&')).toBe(true)
+  })
+
+  it('keeps as much of the description as fits', () => {
+    const out = clampForVikunja('t', 'x'.repeat(VIKUNJA_MAX_DESCRIPTION_LENGTH * 2))
+
+    // Within a `<p>` wrapper of the ceiling, not an order of magnitude under.
+    expect(out.description.length).toBeGreaterThan(VIKUNJA_MAX_DESCRIPTION_LENGTH - 20)
+    expect(out.description.length).toBeLessThanOrEqual(VIKUNJA_MAX_DESCRIPTION_LENGTH)
   })
 })
