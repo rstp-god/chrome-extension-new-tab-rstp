@@ -15,7 +15,7 @@ export const VIKUNJA_TOKEN_SETTINGS_PATH = '/user/settings/api-tokens'
 
 /**
  * The 2.6 line the integration was built and verified against (see
- * `docs/vikunja-recon.md`), with or without the `v` prefix and with an
+ * verified against a 2.6.0 instance), with or without the `v` prefix and with an
  * optional patch component.
  *
  * Anchored on purpose: a prefix test would accept `v2.60`, a future minor

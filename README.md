@@ -371,7 +371,7 @@ Service worker пуллит вью по `chrome.alarms` с периодом **1,
 | Снапшот вью для фонового пулла                        | `chrome.storage.local`, ключ `vikunja:snapshot:<projectId>:<viewId>` (обрезается по числу задач и байтовому бюджету).                                                                                                                                                        |
 | Копия списка перед «Отключить» / «Сменить интеграцию» | `chrome.storage.local`, ключ `todo-widget:handover:v1` — задачи плюс имена интеграции и проекта, **без конфига и токена**; удаляется при первой загрузке стора спустя 30 дней.                                                                                               |
 
-Токен уходит **только** на тот инстанс, адрес которого вы ввели, и только в заголовке `Authorization`. Расширение не отправляет ваши данные никуда больше — см. [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md).
+Токен уходит **только** на тот инстанс, адрес которого вы ввели, и только в заголовке `Authorization`. Расширение не отправляет ваши данные никуда больше.
 
 ### Оговорка про описания задач
 
@@ -380,7 +380,7 @@ Service worker пуллит вью по `chrome.alarms` с периодом **1,
 - описание **существующей** задачи Vikunja виджет не перезаписывает — повторная синхронизация (`resync`) шлёт только статус и проект, поэтому форматирование, набранное в веб-редакторе, остаётся на месте;
 - а вот всё, что виджет **сам отправляет** в описание (задача, созданная из виджета, и будущий UI правки заголовка/описания), уезжает простыми абзацами — богатое форматирование так не сохранить.
 
-По той же причине у Vikunja-интеграции **нет скрытых метаданных**: веб-редактор Vikunja (TipTap) выбрасывает HTML-комментарии при сохранении описания (`docs/vikunja-recon.md`, вопрос 20), поэтому локальный id выводится детерминированно из `vikunja:<task.id>`, а не прячется в тексте задачи.
+По той же причине у Vikunja-интеграции **нет скрытых метаданных**: веб-редактор Vikunja (TipTap) выбрасывает HTML-комментарии при сохранении описания (проверено на инстансе 2.6.0), поэтому локальный id выводится детерминированно из `vikunja:<task.id>`, а не прячется в тексте задачи.
 
 ## 🔌 Свой интегратор для Todo-виджета
 
@@ -399,7 +399,7 @@ Todo-виджет умеет синхронизироваться с внешн�
 Первое решение новой интеграции — не архитектурное, а фактическое. Вопрос один: **отвечает ли API на preflight с `Origin: chrome-extension://…` заголовком `Access-Control-Allow-Origin`?**
 
 - **Да → прямой `fetch` со страницы новой вкладки.** Так работает Trello: его API отдаёт CORS-заголовки для extension-origin. Адаптер — обычный HTTP-клиент в `integrations/<name>/client.ts`, кода в воркере не нужно вообще, хост объявлен в `host_permissions` манифеста. Это самый простой путь, выбирайте его, если можете.
-- **Нет → мост через service worker, и хост придётся запрашивать в рантайме.** Так работает Vikunja: на `OPTIONS` с extension-origin инстанс отвечает `204` вообще без единого `Access-Control-*` (`docs/vikunja-recon.md`, вопрос 17), поэтому со страницы к нему не постучаться. Фоновые запросы из воркера под host-permission под CORS не попадают — отсюда лишний хоп через сообщения.
+- **Нет → мост через service worker, и хост придётся запрашивать в рантайме.** Так работает Vikunja: на `OPTIONS` с extension-origin инстанс отвечает `204` вообще без единого `Access-Control-*` (проверено curl-пробой), поэтому со страницы к нему не постучаться. Фоновые запросы из воркера под host-permission под CORS не попадают — отсюда лишний хоп через сообщения.
 
 Проверить можно одной командой: `curl -i -X OPTIONS -H 'Origin: chrome-extension://aaaa' https://<host>/api/v1/info`.
 
@@ -420,7 +420,7 @@ Todo-виджет умеет синхронизироваться с внешн�
 - **Слушатели воркера (`chrome.runtime.onMessage`, `chrome.alarms.onAlarm`) регистрируются синхронно на верхнем уровне модуля** (`setupVikunjaBridge` / `setupVikunjaPull` в `src/background/index.ts`). MV3 доставляет событие, разбудившее воркер, сразу после вычисления скрипта — слушатель, привешенный за `await`, пропустит именно тот alarm, который его и запустил.
 - **Правило границы:** `src/background/<name>/messages.ts` — единственный модуль, которому разрешено пересекать границу «воркер ↔ виджет». Ничто из `src/background/vikunja/**` не импортирует `src/widgets/**`, а интеграция импортирует из `src/background/` только этот файл. Проверяется контракт-тестом `tests/contracts/vikunjaBoundary.test.ts`.
 
-Конфиг при этом валидируется дважды: на странице — ради UX, в воркере — потому что страница для воркера недоверенная сторона. Все проверенные факты об API Vikunja (формы ответов, ловушки, результат CORS-пробы, поведение веб-редактора) лежат в **`docs/vikunja-recon.md`** — сверяйтесь с ним, а не с догадками.
+Конфиг при этом валидируется дважды: на странице — ради UX, в воркере — потому что страница для воркера недоверенная сторона. Все проверенные факты об API Vikunja (формы ответов, ловушки, результат CORS-пробы, поведение веб-редактора) зафиксированы в комментариях `src/background/vikunja/schema.ts` и закреплены тестами `src/background/vikunja/test/schema.test.ts` — сверяйтесь с ними, а не с догадками.
 
 ### Шаг 1. Создайте папку
 
@@ -1069,7 +1069,7 @@ Tasks created **before** the integration was connected are not pushed on their o
 | Background-pull view snapshot   | `chrome.storage.local`, key `vikunja:snapshot:<projectId>:<viewId>` (capped by task count and by a byte budget).                                                                                                                                                                  |
 | Pre-disconnect copy of the list | `chrome.storage.local`, key `todo-widget:handover:v1` — the tasks plus the integration and project names, **never the config or the token**; removed on the first store init after 30 days.                                                                                       |
 
-The token is sent **only** to the instance whose address you typed, and only in the `Authorization` header. The extension sends your data nowhere else — see [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md).
+The token is sent **only** to the instance whose address you typed, and only in the `Authorization` header. The extension sends your data nowhere else.
 
 ### Caveat: task descriptions
 
@@ -1078,7 +1078,7 @@ The widget stores a description as **plain text**: Vikunja's HTML is flattened t
 - the widget never rewrites the description of an **existing** Vikunja task — a retry (`resync`) sends only status and project, so formatting typed in the web editor stays where it is;
 - but whatever the widget **does send** as a description (a task created from the widget, and the future title/description editing UI) goes out as plain paragraphs — rich formatting cannot survive that round trip.
 
-For the same reason the Vikunja integration keeps **no hidden metadata**: Vikunja's web editor (TipTap) strips HTML comments when a description is saved (`docs/vikunja-recon.md`, Q20), so the local id is derived deterministically from `vikunja:<task.id>` rather than hidden in the task's text.
+For the same reason the Vikunja integration keeps **no hidden metadata**: Vikunja's web editor (TipTap) strips HTML comments when a description is saved (verified against a 2.6.0 instance), so the local id is derived deterministically from `vikunja:<task.id>` rather than hidden in the task's text.
 
 ## 🔌 Writing your own Todo integration
 
@@ -1097,7 +1097,7 @@ The Todo widget can sync with external services through a modular integration sy
 A new integration's first decision is not architectural, it is factual. One question: **does the API answer a preflight from `Origin: chrome-extension://…` with `Access-Control-Allow-Origin`?**
 
 - **Yes → direct `fetch` from the New Tab page.** That is Trello: its API sends CORS headers for extension origins. The adapter is an ordinary HTTP client in `integrations/<name>/client.ts`, no worker code is involved at all, and the host is declared in the manifest's `host_permissions`. This is the simplest path — take it when you can.
-- **No → the service worker bridge, and the host has to be granted at runtime.** That is Vikunja: an `OPTIONS` from an extension origin comes back `204` with not a single `Access-Control-*` header (`docs/vikunja-recon.md`, Q17), so the page cannot reach it. Background fetches made from the worker under a host permission are not subject to CORS — hence the extra message hop.
+- **No → the service worker bridge, and the host has to be granted at runtime.** That is Vikunja: an `OPTIONS` from an extension origin comes back `204` with not a single `Access-Control-*` header (verified with a curl probe), so the page cannot reach it. Background fetches made from the worker under a host permission are not subject to CORS — hence the extra message hop.
 
 One command settles it: `curl -i -X OPTIONS -H 'Origin: chrome-extension://aaaa' https://<host>/api/v1/info`.
 
@@ -1118,7 +1118,7 @@ Two more rules that are easy to break:
 - **The worker's listeners (`chrome.runtime.onMessage`, `chrome.alarms.onAlarm`) are registered synchronously at module top level** (`setupVikunjaBridge` / `setupVikunjaPull` in `src/background/index.ts`). MV3 dispatches the event that woke a cold worker as soon as the script finishes evaluating, so a listener attached behind an `await` misses the very alarm that started it.
 - **Boundary rule:** `src/background/<name>/messages.ts` is the only module allowed to cross the worker ↔ widget boundary. Nothing under `src/background/vikunja/**` imports `src/widgets/**`, and the integration imports from `src/background/` through that file alone. `tests/contracts/vikunjaBoundary.test.ts` enforces it.
 
-The config is therefore validated twice: on the page for the sake of UX, in the worker because the page is the untrusted side of the bridge. Every verified fact about Vikunja's API — response shapes, the traps, the CORS probe, the web editor's behaviour — is written down in **`docs/vikunja-recon.md`**; check it instead of guessing.
+The config is therefore validated twice: on the page for the sake of UX, in the worker because the page is the untrusted side of the bridge. Every verified fact about Vikunja's API — response shapes, the traps, the CORS probe, the web editor's behaviour — is captured in the comments of `src/background/vikunja/schema.ts` and pinned by `src/background/vikunja/test/schema.test.ts`; check those instead of guessing.
 
 ### Step 1. Create the folder
 

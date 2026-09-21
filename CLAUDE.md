@@ -92,7 +92,7 @@ Vikunja's API sends no `Access-Control-Allow-Origin` for `chrome-extension://` o
 
 `src/widgets/Todo/integrations/vikunja/` is the page half: `bridge.ts` (message send + Zod validation, no `fetch`), the connect form (requests `https://<host>/*` via `chrome.permissions.request` synchronously inside the submit click), the mapping wizard, flat mode, `subscribe.ts` (listens for the broadcast), `permission.ts` (`recoverPermission`).
 
-Verified API behaviour — response shapes, the traps, the CORS result, the web-editor finding — is written down in **`docs/vikunja-recon.md`**; check it before changing anything about the Vikunja transport or schemas.
+Verified API behaviour — response shapes, the traps, the CORS result, the web-editor finding — is captured in the comments of `src/background/vikunja/schema.ts` and pinned by `src/background/vikunja/test/schema.test.ts`; read those before changing anything about the Vikunja transport or schemas.
 
 ## Conventions
 

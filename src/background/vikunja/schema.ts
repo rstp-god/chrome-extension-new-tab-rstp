@@ -1,7 +1,7 @@
 /**
  * Zod schemas for everything Vikunja sends back.
  *
- * Built from `docs/vikunja-recon.md` — real responses of a Vikunja 2.6.0
+ * Built from real responses of a Vikunja 2.6.0
  * instance — rather than from the OpenAPI document, because the two disagree
  * on exactly the details that break a parser: unset dates arrive as
  * `0001-01-01T00:00:00Z` instead of `null`, and the four collection fields of

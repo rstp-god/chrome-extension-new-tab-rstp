@@ -14,7 +14,7 @@ import {
 
 /**
  * Every fixture below is a fragment of a real Vikunja 2.6.0 response, copied
- * from `docs/vikunja-recon.md`. The point of this file is that the traps
+ * from a real Vikunja 2.6.0 instance. The point of this file is that the traps
  * recorded there — zero dates instead of `null`, `null` instead of `[]`, a
  * missing `tasks` key — stay handled if anyone touches the schemas.
  */
