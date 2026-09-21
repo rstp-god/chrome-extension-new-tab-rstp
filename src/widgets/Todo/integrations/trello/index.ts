@@ -10,6 +10,7 @@ import type {
   RemoteScope,
   RemoteScopeOption,
   RemoteTaskRef,
+  StatusListMapping,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/types.ts'
 import { isTrelloRef } from '@/widgets/Todo/integrations/types.ts'
@@ -28,6 +29,20 @@ import type { TrelloConfig } from './types.ts'
 
 /** A mapping row that names no list cannot address a destination. */
 const NO_DESTINATION: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
+
+/**
+ * Neither the scope nor the mapping reached the adapter.
+ *
+ * Both are nullable in the contract, because a backend that syncs a list of
+ * scopes keeps them per scope and answers from its own config (Vikunja).
+ * Trello keeps exactly one of each on the integration slice and needs them
+ * both, so it says so instead of reading inside a `null`.
+ *
+ * Unreachable through the store, which starts no sync and no push before
+ * `isReadyToSync` — which, for a descriptor without the hook, is precisely
+ * "there is a scope and there is a mapping".
+ */
+const NO_SETUP: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
 
 /**
  * `RemoteScope` is an open record, so `boardId` may be missing, numeric (other
@@ -88,7 +103,9 @@ export class TrelloIntegration implements TodoIntegration {
   }
 
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
-    const boardId = boardIdOf(ctx.scope)
+    const { scope, mapping } = ctx
+    if (!scope || !mapping) return NO_SETUP
+    const boardId = boardIdOf(scope)
     if (!boardId) return { ok: false, errorKey: 'notFound' }
     const out = await this.client.getBoardCards(boardId)
     if (!out.ok) return out
@@ -105,7 +122,7 @@ export class TrelloIntegration implements TodoIntegration {
 
     for (const card of out.value) {
       const fallbackId = existingByCardId.get(card.id)
-      const task = cardToTask(card, ctx.mapping, fallbackId)
+      const task = cardToTask(card, mapping, fallbackId)
       tasks.push(task)
       if (task.remoteRef) {
         refs[task.id] = task.remoteRef
@@ -120,22 +137,26 @@ export class TrelloIntegration implements TodoIntegration {
     op: IntegrationPushOp,
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
+    // Every write below has to place the card in a list, and only the mapping
+    // says which — see `NO_SETUP`.
+    const { mapping } = ctx
+    if (!mapping) return NO_SETUP
     // A foreign ref (left over from another backend in a hand-edited record)
     // can't address a Trello card — re-link the task by creating one instead
     // of failing every push forever.
     if (op.kind === 'create' || !task.remoteRef || !isTrelloRef(task.remoteRef)) {
-      return this.createCard(task, ctx)
+      return this.createCard(task, mapping)
     }
-    return this.updateCard(task, op, ctx)
+    return this.updateCard(task, op, mapping)
   }
 
   // ---------- internals ----------
 
   private async createCard(
     task: TodoTask,
-    ctx: PushContext,
+    mapping: StatusListMapping,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
-    const idList = primaryListIdForStatus(task.status, ctx.mapping)
+    const idList = primaryListIdForStatus(task.status, mapping)
     // A mapping row with no list names no destination. The persisted schema
     // forbids one, so this only fires on a hand-edited record — where saying
     // so beats POSTing `idList=undefined`.
@@ -162,7 +183,7 @@ export class TrelloIntegration implements TodoIntegration {
   private async updateCard(
     task: TodoTask,
     op: IntegrationPushOp,
-    ctx: PushContext,
+    mapping: StatusListMapping,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
     const knownRef = task.remoteRef
     if (!knownRef || !isTrelloRef(knownRef)) {
@@ -183,7 +204,7 @@ export class TrelloIntegration implements TodoIntegration {
     // name, desc, list and labels in a single request, so the superset of the
     // three narrower patches costs exactly what any one of them costs.
     if (op.kind === 'status' || op.kind === 'delete' || op.kind === 'resync') {
-      const idList = primaryListIdForStatus(task.status, ctx.mapping)
+      const idList = primaryListIdForStatus(task.status, mapping)
       if (idList === undefined) return NO_DESTINATION
       patch.idList = idList
     }

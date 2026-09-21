@@ -195,8 +195,25 @@ export type RemoteChangeEvent =
   | { kind: 'failed'; errorKey: IntegrationErrorKey }
 
 export interface PullContext {
-  scope: RemoteScope
-  mapping: StatusListMapping
+  /**
+   * The address the store resolved for this backend (`descriptor.getScope`),
+   * or `null` when it resolved none.
+   *
+   * Nullable — and, for a backend that keeps a *list* of scopes, beside the
+   * point. The store cannot name the one scope a sync is about when there are
+   * several of them, so it passes what `getScope` answered and the adapter
+   * decides: Trello reads it (one board, one address), Vikunja ignores it and
+   * reads its own `config.boards`.
+   */
+  scope: RemoteScope | null
+  /**
+   * The mapping on the integration slice, or `null` when there is none.
+   *
+   * Same split as `scope`: it is where a single-scope backend has always kept
+   * its mapping, and a backend with one mapping *per* scope (Vikunja) keeps
+   * it on the board instead and ignores this.
+   */
+  mapping: StatusListMapping | null
   /** Existing local refs keyed by local task id, used by `reconcile`. */
   knownRefs: Record<string, RemoteTaskRef>
   /**
@@ -238,8 +255,10 @@ export interface PullContext {
 }
 
 export interface PushContext {
-  scope: RemoteScope
-  mapping: StatusListMapping
+  /** As `PullContext.scope`: what `getScope` answered, which may be `null`. */
+  scope: RemoteScope | null
+  /** As `PullContext.mapping`: the slice's mapping, which may be `null`. */
+  mapping: StatusListMapping | null
   knownRef: RemoteTaskRef | null
 }
 
@@ -308,10 +327,16 @@ export interface ConnectFormProps {
 }
 
 /**
- * The store actions a mapping step is allowed to call. Handed over rather
+ * The store actions a settings step is allowed to call. Handed over rather
  * than imported for the same reason as everything else below.
+ *
+ * One bundle for both steps a descriptor may bring: the settings layer builds
+ * it once and hands the same object to the scope step and to the mapping
+ * step, which need the same three actions for the same reason — a scope step
+ * that offers several boards writes the config and re-reads the columns, and
+ * a mapping step writes the mapping and the mode.
  */
-export interface MappingStepActions {
+export interface SettingsStepActions {
   /** Persists the mapping and kicks off a sync. */
   setMapping: (mapping: StatusListMapping) => Promise<void>
   /** Replaces the integration's config; `false` when it did not validate. */
@@ -342,10 +367,35 @@ export interface MappingStepProps {
   scope: RemoteScope
   /** Current store-level error, if any. */
   errorKey: IntegrationErrorKey | null
-  actions: MappingStepActions
+  actions: SettingsStepActions
 }
 
-/** The store actions a summary extra may call — the same rule as `MappingStepActions`. */
+/**
+ * Props of a backend's own scope step — the screen that answers "which board
+ * is this integration about".
+ *
+ * A mirror of `MappingStepProps` minus the one thing a scope step cannot be
+ * given: the scope itself, which is what it is there to choose. The generic
+ * `TodoSettingsScopePicker` is the default when a descriptor brings none, and
+ * it takes these very props (it lives in the settings layer, so unlike a
+ * descriptor's own component it may also read the store).
+ *
+ * Prop-driven for the same reason as `MappingStepProps`: a component reached
+ * through a descriptor must not import the store, or the import graph closes
+ * the loop `store → registry → descriptor → component → store`.
+ */
+export interface ScopeStepProps {
+  onBack: () => void
+  /** The active integration slice, for its config and its cached state. */
+  integration: IntegrationState
+  /** Adapter built from that slice by the settings layer. */
+  adapter: TodoIntegration
+  /** Current store-level error, if any. */
+  errorKey: IntegrationErrorKey | null
+  actions: SettingsStepActions
+}
+
+/** The store actions a summary extra may call — the same rule as `SettingsStepActions`. */
 export interface SummaryExtrasActions {
   /** Replaces the integration's config; `false` when it did not validate. */
   updateIntegrationConfig: (config: unknown) => boolean
@@ -361,6 +411,40 @@ export interface SummaryExtrasActions {
 export interface SummaryExtrasProps {
   integration: IntegrationState
   actions: SummaryExtrasActions
+}
+
+/**
+ * Which screen of the settings dialog an integration is waiting on.
+ *
+ * The subset of `DialogStep` that follows from persisted state alone — the
+ * other two (`picker`, `connect`) are about a connection that does not exist
+ * yet, which is the dialog's own business and no descriptor's.
+ */
+export type SetupStep = 'board' | 'mapping' | 'summary'
+
+/**
+ * What a backend expects of a task's project.
+ *
+ * Trello's answer is the default one — a project (a label) is optional, the
+ * user may change it, and there is no "default project" to fall back on.
+ * Vikunja's is the opposite on every count: a task lives *in* a project
+ * (that is what a board is), so one is always required, it is the board the
+ * task was created on, and moving a task between projects is a different
+ * operation from anything the widget offers today.
+ */
+export interface ProjectPolicy {
+  /** Must every task name a project? */
+  required: boolean
+  /**
+   * The project a task gets when the user names none, read out of the
+   * persisted config — or `null` when the config names none either.
+   *
+   * Takes the config rather than the whole slice for the same reason as
+   * `getScope`: only the descriptor knows where inside it the answer lives.
+   */
+  defaultId: (config: unknown) => string | null
+  /** May a task be moved to another project from the widget? */
+  changeable: boolean
 }
 
 export interface IntegrationDescriptor {
@@ -383,6 +467,41 @@ export interface IntegrationDescriptor {
    * Like `ConnectForm`, it is prop-driven (see `MappingStepProps`).
    */
   MappingStep?: ComponentType<MappingStepProps>
+  /**
+   * Replaces the generic scope picker with the backend's own step. Optional:
+   * a backend that syncs one scope needs nothing more than the shared
+   * `TodoSettingsScopePicker` — one select and a Continue button.
+   *
+   * Like `ConnectForm`, it is prop-driven (see `ScopeStepProps`).
+   */
+  ScopeStep?: ComponentType<ScopeStepProps>
+  /**
+   * Which screen this integration is waiting on, from its persisted state
+   * alone.
+   *
+   * Optional, and absent means the rule the widget has always had: no scope
+   * yet → pick one, no mapping yet → map it, otherwise the summary (see
+   * `getSetupStep` in `integrations/setup.ts`, which is the one place either
+   * answer is read). A backend that keeps a *list* of scopes implements it
+   * because the question is no longer about "the" scope: Vikunja is waiting
+   * on the mapping step while *any* of its boards is unmapped, and the
+   * default one may not be that board.
+   */
+  getSetupStep?: (integration: IntegrationState) => SetupStep
+  /**
+   * Is there enough configured for a sync to mean anything?
+   *
+   * The gate on every sync the store starts, and on everything the widget
+   * shows about syncing (the footer's badge and button). Absent means the
+   * historical rule — a scope and a mapping on the slice — and a backend that
+   * keeps both per board answers from its boards instead.
+   *
+   * Deliberately a separate hook from `getSetupStep`: "which screen is the
+   * user on" and "may a sync run" agree for every backend today, and would
+   * still be two different questions for one that could sync a partially
+   * configured connection.
+   */
+  isReadyToSync?: (integration: IntegrationState) => boolean
   /**
    * The backend's own part of the settings summary — whatever the shared
    * summary cannot know about. Vikunja puts its background-pull period and
@@ -414,6 +533,14 @@ export interface IntegrationDescriptor {
    * something that does not happen. Its `SummaryExtras` says what does.
    */
   showsStatusMapping?(config: unknown): boolean
+  /**
+   * What this backend expects of a task's project — see `ProjectPolicy`.
+   *
+   * Optional; absent means Trello's answer, which is also the widget's
+   * historical one: a project is optional, changeable, and there is no
+   * default (`getProjectPolicy` in `integrations/setup.ts`).
+   */
+  projectPolicy?: ProjectPolicy
   /** Pure factory: takes persisted config, returns a ready adapter. */
   create: (config: unknown) => TodoIntegration
   /**
@@ -440,13 +567,18 @@ export interface IntegrationDescriptor {
    * only knows what it last asked for. Trello does not implement it: polling
    * from the page would be the very thing the worker exists to avoid.
    *
+   * It is handed the whole integration rather than one scope, because the
+   * set of addresses worth listening to is the descriptor's own reading of
+   * its config: Vikunja accepts a broadcast about **any** of `config.boards`
+   * and filters out the rest — a broadcast about a project this connection
+   * does not sync is not this subscriber's business.
+   *
    * The implementation must be inert where there is no channel (the showcase
-   * build, tests, a stripped `chrome`) and must tolerate being called for a
-   * scope it then filters out — a broadcast about another project is not this
-   * subscriber's business.
+   * build, tests, a stripped `chrome`) and where the config addresses nothing
+   * at all.
    */
   subscribeRemoteChanges?(
-    scope: RemoteScope,
+    integration: IntegrationState,
     onEvent: (event: RemoteChangeEvent) => void,
   ): () => void
   /**

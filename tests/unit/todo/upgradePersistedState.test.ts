@@ -161,15 +161,29 @@ describe('upgradePersistedState — the single board an old config described', (
     expect(config.boards[0].kanbanMapping).toBe(false)
   })
 
-  it('keeps the slice fields as a mirror of the board (task 2 nulls them)', () => {
+  it('empties the single-board slice fields, having moved them onto the board', () => {
     const raw = makeLegacyVikunjaEnvelope()
+    const legacy = raw.state.integration as { boardName: string; lists: unknown[] }
 
     const integration = vikunjaSlice(raw)
     const board = (integration.config as VikunjaConfigShape).boards[0]
 
-    expect(integration.boardName).toBe(board.name)
-    expect(integration.lists).toStrictEqual(board.containers)
-    expect(integration.mapping).toStrictEqual(board.mapping)
+    // The values are on the board…
+    expect(board.name).toBe(legacy.boardName)
+    expect(board.containers).toStrictEqual(legacy.lists)
+    // …and nowhere else: nothing reads these three for this backend any more,
+    // and a copy nobody updates is one a later reader would trust by mistake.
+    expect(integration.boardName).toBeNull()
+    expect(integration.lists).toStrictEqual([])
+    expect(integration.mapping).toBeNull()
+  })
+
+  it('keeps the projects cache, which is not part of the move', () => {
+    const integration = vikunjaSlice(makeLegacyVikunjaEnvelope())
+
+    expect(integration.projects).toStrictEqual([
+      { id: 'label-7', name: 'Urgent', pillClassName: null },
+    ])
   })
 
   it('tells every linked task which board it lives on', () => {

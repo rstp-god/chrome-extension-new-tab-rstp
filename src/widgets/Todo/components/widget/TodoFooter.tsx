@@ -2,7 +2,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { TodoSyncBadge } from '@/widgets/Todo/components/widget/TodoSyncBadge.tsx'
 import { STATUS_ICON } from '@/widgets/Todo/constants.ts'
 import { TODO_STATUSES, type TodoStatus } from '@/widgets/Todo/integrations/index.ts'
-import { useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { isIntegrationReady, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { STATUS_PILL_CLASS } from '@/widgets/Todo/statusStyles.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import clsx from 'clsx'
@@ -38,7 +38,9 @@ export function TodoFooter({ visibleStatuses, onToggleStatus, onOpenAdd, onOpenS
   const loading = useTodoStore((state) => state.loading)
   const syncNow = useTodoStore((state) => state.syncNow)
 
-  const canSync = Boolean(integration?.mapping)
+  // Not "is something connected" but "could a sync do anything", which for a
+  // backend with several boards is a question about all of them.
+  const canSync = isIntegrationReady(integration)
 
   return (
     <div className="mt-auto grid gap-2">

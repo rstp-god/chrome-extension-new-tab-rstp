@@ -42,20 +42,25 @@ export function VikunjaMappingStep({
 }: MappingStepProps) {
   const { t } = useTranslation('todoWidget')
 
-  const lists = integration.lists
-
+  /**
+   * Everything this step is about belongs to the board, not to the connection
+   * — its buckets, its mapping and whether the buckets are used at all. The
+   * slice's own copies are gone (task 2), and the default board is the one
+   * the widget syncs until task 4 makes this step iterate them.
+   */
   const board = integration.name === 'vikunja' ? defaultBoard(integration.config) : null
+  const lists = board?.containers ?? []
   const wasFlat = board !== null && !board.kanbanMapping
 
   /**
-   * The persisted mapping, unless the config is flat: a flat mapping points
-   * four statuses at the same bucket, which the table would (correctly) read
-   * as a pile of conflicts. Someone re-opening this step from flat mode wants
-   * a fresh suggestion, not their placeholder back — the section below says
+   * The saved mapping, unless the board is flat: a flat mapping points four
+   * statuses at the same bucket, which the table would (correctly) read as a
+   * pile of conflicts. Someone re-opening this step from flat mode wants a
+   * fresh suggestion, not their placeholder back — the section below says
    * which mode is actually in effect.
    */
   const [draft, setDraft] = useState<StatusListMapping>(() =>
-    !wasFlat && integration.mapping ? integration.mapping : suggestMapping(lists),
+    !wasFlat && board?.mapping ? board.mapping : suggestMapping(lists),
   )
   const [confirmCompleted, setConfirmCompleted] = useState(false)
   const [createdNote, setCreatedNote] = useState(false)
@@ -170,9 +175,9 @@ export function VikunjaMappingStep({
       // mapping under a kanban config would sync four statuses into one
       // bucket.
       //
-      // The mode belongs to the board, not to the connection; the mapping it
-      // goes with is still written to the slice mirror by `setMapping` below
-      // (task 2 moves that onto the board too).
+      // Both writes land on the board: the mode here, and the mapping through
+      // `setMapping` below — the store routes it there for a descriptor that
+      // keeps its state per board.
       const next = withDefaultBoardPatch(integration.config, { kanbanMapping: false })
       if (!actions.updateIntegrationConfig(next)) return
       setCreatedNote(false)

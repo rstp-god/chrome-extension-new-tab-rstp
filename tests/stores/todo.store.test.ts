@@ -115,12 +115,18 @@ const listsFixture: RemoteContainer[] = [
 type TrelloIntegrationState = Extract<IntegrationState, { name: 'trello' }>
 
 /**
- * The Vikunja branch, for the one thing that is specific to it: its
- * descriptor is the one that opts into a parallel push phase, and the test
- * that proves the pool works should read the real number rather than a
- * fixture's idea of it.
+ * The Vikunja branch, for what is specific to it: its descriptor opts into a
+ * parallel push phase, answers "is this ready to sync" from its boards, and
+ * requires an unchangeable project.
+ *
+ * The single-board slice fields are empty, which is what the store writes for
+ * this backend — everything that decides whether a sync runs is on the board.
  */
-function makeVikunjaIntegrationState(): Extract<IntegrationState, { name: 'vikunja' }> {
+function makeVikunjaIntegrationState(
+  boardOverrides: Partial<
+    Extract<IntegrationState, { name: 'vikunja' }>['config']['boards'][number]
+  > = {},
+): Extract<IntegrationState, { name: 'vikunja' }> {
   return {
     name: 'vikunja',
     config: {
@@ -134,14 +140,15 @@ function makeVikunjaIntegrationState(): Extract<IntegrationState, { name: 'vikun
           containers: [{ id: '1', name: 'To-Do' }],
           mapping: mappingFixture,
           kanbanMapping: true,
+          ...boardOverrides,
         },
       ],
       defaultProjectId: 1,
     },
-    boardName: 'Inbox',
-    lists: [{ id: '1', name: 'To-Do' }],
+    boardName: null,
+    lists: [],
     projects: projectsFixture,
-    mapping: mappingFixture,
+    mapping: null,
     lastSyncAt: null,
   }
 }
@@ -1621,6 +1628,186 @@ describe('todo store — integration: local tasks are imported on purpose', () =
     expect(fakePushTask).not.toHaveBeenCalled()
     expect(fakePullTasks).not.toHaveBeenCalled()
     expect(useTodoStore.getState().tasks[0].syncState).toBe('clean')
+  })
+})
+
+/**
+ * What the store asks the descriptor instead of reading a slice field, now
+ * that a backend may keep its scopes, mappings and project rules elsewhere.
+ * Driven through the **real** descriptors (only the transport is faked), so a
+ * hook that stopped being called fails here.
+ */
+describe('todo store — the descriptor decides what is set up', () => {
+  it('syncs a Vikunja connection whose mapping is only on the board', async () => {
+    useTodoStore.setState({
+      integration: makeVikunjaIntegrationState(),
+      tasks: [makeTask({ id: 't-1', syncState: 'dirty' })],
+    })
+    fakePushTask.mockResolvedValueOnce(ok(makeForeignRef()))
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    // The slice's own `mapping` is `null` here: the old gate would have
+    // answered `mappingIncomplete` and never called the adapter.
+    expect(useTodoStore.getState().errorKey).toBeNull()
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+    expect(fakePullTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses to sync while a board is unmapped', async () => {
+    useTodoStore.setState({ integration: makeVikunjaIntegrationState({ mapping: null }) })
+
+    await useTodoStore.getState().syncNow()
+
+    expect(useTodoStore.getState().errorKey).toBe('mappingIncomplete')
+    expect(fakePullTasks).not.toHaveBeenCalled()
+  })
+
+  it('passes the scope and the mapping through as the descriptor left them', async () => {
+    useTodoStore.setState({
+      integration: makeVikunjaIntegrationState(),
+      tasks: [makeTask({ id: 't-1', syncState: 'dirty' })],
+    })
+    fakePushTask.mockResolvedValueOnce(ok(makeForeignRef()))
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    // `getScope` still answers (the default board), and the slice mapping is
+    // honestly `null` — the adapter reads its own board.
+    expect(fakePullTasks).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: { projectId: 1, viewId: 4 }, mapping: null }),
+    )
+    expect(fakePushTask.mock.calls[0][2]).toMatchObject({
+      scope: { projectId: 1, viewId: 4 },
+      mapping: null,
+    })
+  })
+
+  it('pushes a Vikunja task the moment it is added, mirror or no mirror', async () => {
+    useTodoStore.setState({ integration: makeVikunjaIntegrationState() })
+    fakePushTask.mockResolvedValueOnce(ok(makeForeignRef()))
+
+    useTodoStore.getState().addTask({ title: 'Buy milk' })
+
+    expect(useTodoStore.getState().tasks[0].syncState).toBe('dirty')
+    await vi.waitFor(() => expect(fakePushTask).toHaveBeenCalledTimes(1))
+  })
+
+  it('leaves a task clean while a board is unmapped', () => {
+    useTodoStore.setState({ integration: makeVikunjaIntegrationState({ mapping: null }) })
+
+    useTodoStore.getState().addTask({ title: 'Buy milk' })
+
+    expect(useTodoStore.getState().tasks[0].syncState).toBe('clean')
+    expect(fakePushTask).not.toHaveBeenCalled()
+  })
+})
+
+describe('todo store — the project policy', () => {
+  it('gives a new task the default board when the backend requires a project', () => {
+    useTodoStore.setState({ integration: makeVikunjaIntegrationState() })
+    fakePushTask.mockResolvedValue(ok(makeForeignRef()))
+
+    useTodoStore.getState().addTask({ title: 'Buy milk' })
+
+    // `defaultProjectId: 1`, as `Project.id` spells it.
+    expect(useTodoStore.getState().tasks[0].projectId).toBe('1')
+  })
+
+  it('keeps the project the caller named', () => {
+    useTodoStore.setState({ integration: makeVikunjaIntegrationState() })
+    fakePushTask.mockResolvedValue(ok(makeForeignRef()))
+
+    useTodoStore.getState().addTask({ title: 'Buy milk', projectId: '8' })
+
+    expect(useTodoStore.getState().tasks[0].projectId).toBe('8')
+  })
+
+  it('leaves a task without a project for a backend that does not require one', () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+    fakePushTask.mockResolvedValue(ok(makeRemoteRef()))
+
+    useTodoStore.getState().addTask({ title: 'Buy milk' })
+
+    expect(useTodoStore.getState().tasks[0].projectId).toBeNull()
+  })
+
+  it('setProject does nothing when the backend’s project cannot change', () => {
+    useTodoStore.setState({
+      integration: makeVikunjaIntegrationState(),
+      tasks: [makeTask({ id: 't-1', projectId: '1' })],
+    })
+
+    useTodoStore.getState().setProject('t-1', '8')
+
+    // A Vikunja task lives *in* its project: a local move would be a value no
+    // sync could ever honour.
+    expect(useTodoStore.getState().tasks[0].projectId).toBe('1')
+    expect(useTodoStore.getState().tasks[0].syncState).toBe('clean')
+    expect(fakePushTask).not.toHaveBeenCalled()
+  })
+
+  it('setProject still moves a task for a backend where it may', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 't-1', projectId: null, remoteRef: makeRemoteRef() })],
+    })
+    fakePushTask.mockResolvedValueOnce(ok(makeRemoteRef()))
+
+    useTodoStore.getState().setProject('t-1', 'label-1')
+
+    expect(useTodoStore.getState().tasks[0].projectId).toBe('label-1')
+    await vi.waitFor(() => expect(fakePushTask).toHaveBeenCalledTimes(1))
+    expect(fakePushTask.mock.calls[0][1]).toEqual({ kind: 'project', previous: null })
+  })
+})
+
+describe('todo store — where the cached scope state is written', () => {
+  const containers: RemoteContainer[] = [{ id: '1', name: 'To-Do' }]
+
+  it('writes nothing to the slice for a backend that keeps it per board', () => {
+    useTodoStore.setState({ integration: makeVikunjaIntegrationState({ mapping: null }) })
+
+    useTodoStore.getState().pickScope({ projectId: 1, viewId: 4 }, 'Inbox', containers, [])
+
+    const integration = useTodoStore.getState().integration
+    if (integration?.name !== 'vikunja') throw new Error('expected the vikunja branch')
+    // The board has it all…
+    expect(integration.config.boards[0]).toMatchObject({ name: 'Inbox', containers })
+    // …and the dead single-board fields stay empty.
+    expect(integration.boardName).toBeNull()
+    expect(integration.lists).toStrictEqual([])
+    expect(integration.mapping).toBeNull()
+  })
+
+  it('still writes the slice for a backend that has nowhere else to keep it', () => {
+    useTodoStore.setState({ integration: makeIntegrationState({ mapping: null }) })
+
+    useTodoStore.getState().pickScope({ boardId: 'board-9' }, 'Other board', containers, [])
+
+    const integration = useTodoStore.getState().integration
+    expect(integration?.boardName).toBe('Other board')
+    expect(integration?.lists).toStrictEqual(containers)
+    expect(integration?.mapping).toBeNull()
+  })
+
+  it('setMapping lands on the board for one backend and on the slice for the other', async () => {
+    useTodoStore.setState({ integration: makeVikunjaIntegrationState({ mapping: null }) })
+    fakePullTasks.mockResolvedValue(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().setMapping(mappingFixture)
+
+    const vikunja = useTodoStore.getState().integration
+    if (vikunja?.name !== 'vikunja') throw new Error('expected the vikunja branch')
+    expect(vikunja.config.boards[0].mapping).toStrictEqual(mappingFixture)
+    expect(vikunja.mapping).toBeNull()
+
+    useTodoStore.setState({ integration: makeIntegrationState({ mapping: null }) })
+    await useTodoStore.getState().setMapping(mappingFixture)
+
+    expect(useTodoStore.getState().integration?.mapping).toStrictEqual(mappingFixture)
   })
 })
 

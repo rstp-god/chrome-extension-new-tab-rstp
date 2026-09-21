@@ -55,8 +55,9 @@ export function TodoSettingsStepBody({
   const descriptor = integration ? getIntegrationDescriptor(integration.name) : null
 
   // A descriptor's UI is prop-driven (it must not import the store), so the
-  // actions a mapping step may call are bundled here once.
-  const mappingActions = useMemo(
+  // actions its steps may call are bundled here once — one bundle for both,
+  // since a scope step and a mapping step need the same three.
+  const stepActions = useMemo(
     () => ({ setMapping, updateIntegrationConfig, refreshContainers }),
     [setMapping, updateIntegrationConfig, refreshContainers],
   )
@@ -80,15 +81,22 @@ export function TodoSettingsStepBody({
         <TodoSettingsConnect integrationName={pickedIntegrationName} onBack={onCancelConnect} />
       )
 
-    case 'board':
+    case 'board': {
+      // Same rule as the mapping step below: a backend may bring its own
+      // scope step, and the shared picker — one select and a Continue — is
+      // what every backend with a single scope needs.
+      const ScopeStep = descriptor?.ScopeStep ?? TodoSettingsScopePicker
       if (!adapter || !integration) return null
       return (
-        <TodoSettingsScopePicker
-          adapter={adapter}
-          integrationName={integration.name}
+        <ScopeStep
           onBack={onLeaveScopePicker}
+          integration={integration}
+          adapter={adapter}
+          errorKey={errorKey}
+          actions={stepActions}
         />
       )
+    }
 
     case 'mapping': {
       // A backend may replace the generic table with its own step; most do
@@ -103,7 +111,7 @@ export function TodoSettingsStepBody({
           adapter={adapter}
           scope={scope}
           errorKey={errorKey}
-          actions={mappingActions}
+          actions={stepActions}
         />
       )
     }

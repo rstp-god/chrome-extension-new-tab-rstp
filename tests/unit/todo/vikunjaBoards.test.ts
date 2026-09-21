@@ -1,6 +1,8 @@
 import {
   boardForProject,
+  boardScopes,
   defaultBoard,
+  hasUnmappedBoard,
   withDefaultBoardPatch,
 } from '@/widgets/Todo/integrations/vikunja/boards.ts'
 import { describe, expect, it } from 'vitest'
@@ -15,6 +17,14 @@ import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
  * service worker resolves its background pull with; these tests are here so
  * the widget side of that shared rule is pinned where its callers live.
  */
+
+const MAPPING = {
+  input: ['1'],
+  inprogress: ['1'],
+  struggle: ['1'],
+  completed: ['1'],
+  deleted: ['1'],
+}
 
 function board(overrides: Partial<VikunjaBoard> = {}): VikunjaBoard {
   return {
@@ -113,5 +123,42 @@ describe('withDefaultBoardPatch', () => {
     withDefaultBoardPatch(current, { mapping: null, name: 'Renamed' })
 
     expect(current.boards[0]).toStrictEqual(board())
+  })
+})
+
+describe('boardScopes', () => {
+  it('lists every connected board as the pair Vikunja is addressed by', () => {
+    const scopes = boardScopes(config([board(), board({ projectId: 8, viewId: 21 })]))
+
+    // The broadcast subscriber's input: a sync reads every board, so news
+    // about any of them is news.
+    expect(scopes).toStrictEqual([
+      { projectId: 1, viewId: 4 },
+      { projectId: 8, viewId: 21 },
+    ])
+  })
+
+  it('is empty while no board is connected', () => {
+    expect(boardScopes(config([]))).toStrictEqual([])
+  })
+})
+
+describe('hasUnmappedBoard', () => {
+  it('is false with no board at all — there is nothing unfinished', () => {
+    expect(hasUnmappedBoard(config([]))).toBe(false)
+  })
+
+  it('is true while any board has no mapping, default or not', () => {
+    const mapped = board({ mapping: MAPPING })
+
+    expect(hasUnmappedBoard(config([mapped, board({ projectId: 8 })], 1))).toBe(true)
+  })
+
+  it('is false once every board has one', () => {
+    const mapped = board({ mapping: MAPPING })
+
+    expect(hasUnmappedBoard(config([mapped, board({ projectId: 8, mapping: MAPPING })]))).toBe(
+      false,
+    )
   })
 })

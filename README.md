@@ -468,8 +468,10 @@ export interface TodoIntegration {
 
 ```ts
 export interface PullContext {
-  scope: RemoteScope
-  mapping: StatusListMapping
+  /** Ответ `getScope` как есть: `null`, если scope'а нет или он не один. */
+  scope: RemoteScope | null
+  /** Mapping со слайса; `null` у бэкенда, который держит его на своём scope. */
+  mapping: StatusListMapping | null
   /** Уже известные remoteRef, ключ — локальный id задачи. */
   knownRefs: Record<string, RemoteTaskRef>
   /** Текущий локальный статус каждой задачи, ключ — локальный id. */
@@ -552,6 +554,23 @@ export const descriptor: IntegrationDescriptor = {
   // `store → registry → descriptor → компонент → store`. Стор читает слой
   // настроек (`TodoSettingsStepBody`) и передаёт шагу `MappingStepProps`.
   // MappingStep: MyMappingStep,
+  // Необязательный: свой шаг выбора scope вместо общего пикера — нужен
+  // бэкенду, у которого scope не один (`ScopeStepProps`, те же правила).
+  // ScopeStep: MyScopeStep,
+  // Необязательный: на каком шаге настроек стоит подключение
+  // ('board' | 'mapping' | 'summary'). Отсутствие = обычное правило: нет
+  // scope → 'board', нет mapping → 'mapping', иначе 'summary'. Нужен тому, у
+  // кого scope'ов список: Vikunja отвечает 'mapping', пока не размечена
+  // ЛЮБАЯ из досок.
+  // getSetupStep: (integration) => 'summary',
+  // Необязательный: хватает ли настроек, чтобы синхронизация что-то значила.
+  // Это гейт на каждую синхронизацию стора и на всё, что виджет показывает
+  // про неё. Отсутствие = «есть scope и есть mapping на слайсе».
+  // isReadyToSync: (integration) => true,
+  // Необязательный: что бэкенд требует от проекта задачи. Отсутствие = ответ
+  // Trello: проект необязателен, меняется, дефолта нет. Vikunja: required
+  // (задача живёт В проекте), defaultId — дефолтная доска, changeable: false.
+  // projectPolicy: { required: true, defaultId: (config) => '1', changeable: false },
   create: (config) => new MyIntegration(config as MyServiceConfig),
   // Где внутри конфига лежит адрес — знает только дескриптор; отдельного
   // персистентного поля у scope нет.
@@ -569,7 +588,9 @@ export const descriptor: IntegrationDescriptor = {
   // Необязательный: подписка на изменения на бэкенде — вызывайте onEvent и
   // верните отписку. Есть только у Vikunja (service worker пуллит по
   // chrome.alarms и рассылает дельту); без канала push'а просто не реализуйте.
-  // subscribeRemoteChanges: (scope, onEvent) => () => {},
+  // Получает весь слайс, а не один scope: какие адреса слушать — это чтение
+  // собственного конфига (Vikunja принимает броадкаст о любой из config.boards).
+  // subscribeRemoteChanges: (integration, onEvent) => () => {},
   // Необязательный: перевыдать потерянное разрешение. Нужен только бэкенду,
   // чей хост лежит в optional_host_permissions (Vikunja): по кнопке баннера
   // «Выдать снова». Вызов chrome.permissions.request должен быть
@@ -1166,8 +1187,10 @@ export interface TodoIntegration {
 
 ```ts
 export interface PullContext {
-  scope: RemoteScope
-  mapping: StatusListMapping
+  /** What `getScope` answered: `null` when there is none, or not just one. */
+  scope: RemoteScope | null
+  /** The slice's mapping; `null` for a backend that keeps one per scope. */
+  mapping: StatusListMapping | null
   /** Existing remote refs, keyed by local task id. */
   knownRefs: Record<string, RemoteTaskRef>
   /** Current local status of each task, keyed by local task id. */
@@ -1251,6 +1274,22 @@ export const descriptor: IntegrationDescriptor = {
   // layer (`TodoSettingsStepBody`) reads the store and hands the step its
   // `MappingStepProps`.
   // MappingStep: MyMappingStep,
+  // Optional: your own scope step instead of the generic picker — for a
+  // backend whose scope is not a single one (`ScopeStepProps`, same rules).
+  // ScopeStep: MyScopeStep,
+  // Optional: which settings step this connection is on ('board' | 'mapping'
+  // | 'summary'). Absent means the usual rule: no scope → 'board', no mapping
+  // → 'mapping', otherwise 'summary'. For a backend with a *list* of scopes:
+  // Vikunja answers 'mapping' while ANY of its boards is unmapped.
+  // getSetupStep: (integration) => 'summary',
+  // Optional: is there enough configured for a sync to mean anything? The
+  // gate on every sync the store starts and on everything the widget shows
+  // about syncing. Absent means "a scope and a mapping on the slice".
+  // isReadyToSync: (integration) => true,
+  // Optional: what the backend expects of a task's project. Absent means
+  // Trello's answer: optional, changeable, no default. Vikunja: required (a
+  // task lives *in* a project), defaultId is the default board, not changeable.
+  // projectPolicy: { required: true, defaultId: (config) => '1', changeable: false },
   create: (config) => new MyIntegration(config as MyServiceConfig),
   // Only the descriptor knows where the address lives inside its config —
   // the scope is not a separate persisted field.
@@ -1268,7 +1307,10 @@ export const descriptor: IntegrationDescriptor = {
   // Optional: watch the backend — call onEvent and return the unsubscribe.
   // Only Vikunja has it (its service worker pulls on chrome.alarms and
   // broadcasts the delta); leave it out when there is no push channel.
-  // subscribeRemoteChanges: (scope, onEvent) => () => {},
+  // It takes the whole slice rather than one scope: which addresses are worth
+  // listening to is a reading of your own config (Vikunja accepts a broadcast
+  // about any of `config.boards`).
+  // subscribeRemoteChanges: (integration, onEvent) => () => {},
   // Optional: re-request a permission the user withdrew. Only a backend whose
   // host lives in optional_host_permissions (Vikunja) needs it — it powers the
   // widget banner's "Grant again". The chrome.permissions.request call must be

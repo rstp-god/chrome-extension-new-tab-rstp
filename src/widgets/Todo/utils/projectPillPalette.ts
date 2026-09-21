@@ -38,6 +38,17 @@ const PROJECT_PILL_CLASS: Record<ProjectPillHue, string> = {
 }
 
 /**
+ * The hues in a fixed order, for a backend whose "projects" carry no colour
+ * of their own.
+ *
+ * Vikunja's boards are the case: a project has a title and an id and nothing
+ * a pill could be painted from, so the adapter picks a hue by id (see
+ * `vikunja/projectStyles.ts`). The order is the declaration order above and
+ * is part of what a user sees — reordering it repaints their pills.
+ */
+export const PROJECT_PILL_HUES = Object.keys(PROJECT_PILL_CLASS) as ProjectPillHue[]
+
+/**
  * Fallback for a colour no adapter could place — an unknown name, a missing
  * hex, a project the backend gave no colour at all. `ProjectPill` uses the
  * same value when a `Project` carries no class, so an unstyled pill looks the

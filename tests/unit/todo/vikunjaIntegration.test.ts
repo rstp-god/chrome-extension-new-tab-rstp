@@ -5,7 +5,7 @@ import { descriptor, VikunjaIntegration } from '@/widgets/Todo/integrations/viku
 
 import type { VikunjaProjectSummary, VikunjaPulledTask } from '@/background/vikunja/messages.ts'
 import type { StatusListMapping, TodoIntegration } from '@/widgets/Todo/integrations/types.ts'
-import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
+import type { IntegrationState, VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 
 vi.mock('@/widgets/Todo/integrations/vikunja/bridge.ts', () => ({
   sendVikunjaMessage: vi.fn(),
@@ -20,18 +20,22 @@ const bridge = vi.mocked(sendVikunjaMessage)
  * `withScope` that re-points the board at another view has to drop, and an
  * empty board could not tell that apart from doing nothing.
  */
+const MAPPING: StatusListMapping = {
+  input: ['1'],
+  inprogress: ['2'],
+  struggle: ['5'],
+  completed: ['3'],
+  deleted: ['6'],
+}
+
 const BOARD: VikunjaBoard = {
   projectId: 1,
   viewId: 4,
   name: 'Probe',
   containers: [{ id: '1', name: 'To-Do', isDefault: true }],
-  mapping: {
-    input: ['1'],
-    inprogress: ['1'],
-    struggle: ['1'],
-    completed: ['1'],
-    deleted: ['1'],
-  },
+  // The board's own mapping is what a pull and a push read (task 2) — the
+  // store's `ctx.mapping` is the single-board field this backend dropped.
+  mapping: MAPPING,
   kanbanMapping: true,
 }
 
@@ -46,14 +50,6 @@ const CONFIG: VikunjaConfig = {
 const NO_BOARD: VikunjaConfig = { ...CONFIG, boards: [], defaultProjectId: null }
 
 const SCOPE = { projectId: 1, viewId: 4 }
-
-const MAPPING: StatusListMapping = {
-  input: ['1'],
-  inprogress: ['2'],
-  struggle: ['5'],
-  completed: ['3'],
-  deleted: ['6'],
-}
 
 function summaryProject(overrides: Partial<VikunjaProjectSummary> = {}): VikunjaProjectSummary {
   return { id: 1, title: 'Inbox', kanbanViewId: 4, isArchived: false, ...overrides }
@@ -127,31 +123,18 @@ describe('VikunjaIntegration.pushTask', () => {
   const integration: TodoIntegration = new VikunjaIntegration(CONFIG)
 
   // The push rules themselves live in `vikunjaPush.test.ts`; this is the
-  // adapter's own share of the work — resolving the scope before delegating.
-  it('answers notFound for a scope that addresses nothing, without a request', async () => {
-    await expect(
-      integration.pushTask(
-        {} as never,
-        { kind: 'create' },
-        {
-          scope: { projectId: 1 },
-          mapping: MAPPING,
-          knownRef: null,
-        },
-      ),
-    ).resolves.toEqual({ ok: false, errorKey: 'notFound' })
-    expect(bridge).not.toHaveBeenCalled()
-  })
+  // adapter's own share of the work — resolving the board before delegating.
+  it('answers mappingIncomplete when no board is picked, without a request', async () => {
+    // The board carries the mode, the columns and the project a write goes
+    // to, so without one there is nothing honest to push under — and the
+    // scope the store passes says nothing about it any more.
+    const noBoard: TodoIntegration = new VikunjaIntegration(NO_BOARD)
 
-  it('answers mappingIncomplete for a scope this config has no board for', async () => {
-    // The board carries the mode and the columns the write is about, so
-    // without it there is nothing honest to push under — and guessing would
-    // run the write under rules the user never chose.
     await expect(
-      integration.pushTask(
+      noBoard.pushTask(
         {} as never,
         { kind: 'create' },
-        { scope: { projectId: 99, viewId: 4 }, mapping: MAPPING, knownRef: null },
+        { scope: null, mapping: null, knownRef: null },
       ),
     ).resolves.toEqual({ ok: false, errorKey: 'mappingIncomplete' })
     expect(bridge).not.toHaveBeenCalled()
@@ -279,33 +262,56 @@ describe('VikunjaIntegration.listContainers', () => {
 })
 
 describe('VikunjaIntegration.listProjects', () => {
-  it('drops the reserved labels and paints the rest', async () => {
-    bridge.mockResolvedValue({
-      ok: true,
-      value: [
-        { id: 1, title: 'energy:1', hexColor: 'efbdeb' },
-        { id: 2, title: 'mood:low', hexColor: 'efbdeb' },
-        { id: 3, title: 'work', hexColor: '0ead69' },
-      ],
+  const second: VikunjaBoard = { ...BOARD, projectId: 8, viewId: 21, name: 'Work' }
+
+  it('answers with the connected boards, and asks the instance nothing', async () => {
+    // A Vikunja project *is* the board, so the projects a task may name are
+    // the boards themselves — cached when they were picked, which is why this
+    // costs no request.
+    const adapter: TodoIntegration = new VikunjaIntegration({
+      ...CONFIG,
+      boards: [BOARD, second],
     })
 
-    // Through the interface: labels are instance-wide, so the adapter
-    // declares no scope parameter, but the store still passes one.
-    const adapter: TodoIntegration = new VikunjaIntegration(CONFIG)
     const out = await adapter.listProjects(SCOPE)
 
-    expect(out).toMatchObject({ ok: true })
+    expect(out).toEqual({
+      ok: true,
+      value: [
+        { id: '1', name: 'Probe', pillClassName: expect.any(String) },
+        { id: '8', name: 'Work', pillClassName: expect.any(String) },
+      ],
+    })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('paints every board a colour of its own, derived from its id', async () => {
+    const out = await new VikunjaIntegration({ ...CONFIG, boards: [BOARD, second] }).listProjects()
+
+    expect(out.ok).toBe(true)
     if (!out.ok) return
-    expect(out.value).toEqual([
-      { id: '3', name: 'work', pillClassName: expect.stringContaining('emerald') },
-    ])
+    // Stable (no cache to refresh, the same on every device) and distinct for
+    // two boards created one after the other.
+    expect(out.value[0].pillClassName).not.toBe(out.value[1].pillClassName)
+  })
+
+  it('answers with nothing at all for a connection with no board', async () => {
+    await expect(new VikunjaIntegration(NO_BOARD).listProjects()).resolves.toEqual({
+      ok: true,
+      value: [],
+    })
   })
 })
 
 describe('VikunjaIntegration.pullTasks', () => {
+  /**
+   * The context's `scope` and `mapping` are deliberately `null`: they are the
+   * store's single-scope fields and this adapter reads its own board instead
+   * (task 2), so passing them would hide that.
+   */
   const ctx = {
-    scope: SCOPE,
-    mapping: MAPPING,
+    scope: null,
+    mapping: null,
     knownRefs: {},
     knownStatuses: {},
   }
@@ -389,11 +395,48 @@ describe('VikunjaIntegration.pullTasks', () => {
     expect(out.value.refs['vikunja:4']).toMatchObject({ taskId: 4 })
   })
 
-  it('answers mappingIncomplete for a scope this config has no board for', async () => {
-    await expect(
-      new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, scope: { projectId: 99, viewId: 4 } }),
-    ).resolves.toEqual({ ok: false, errorKey: 'mappingIncomplete' })
+  it('answers mappingIncomplete for a connection with no board', async () => {
+    await expect(new VikunjaIntegration(NO_BOARD).pullTasks(ctx)).resolves.toEqual({
+      ok: false,
+      errorKey: 'mappingIncomplete',
+    })
     expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('answers mappingIncomplete for a kanban board whose wizard never finished', async () => {
+    // Without a mapping there is no bucket → status rule, so every task would
+    // read as `input` — a lie the pull refuses to tell.
+    const unmapped = { ...CONFIG, boards: [{ ...BOARD, mapping: null }] }
+
+    await expect(new VikunjaIntegration(unmapped).pullTasks(ctx)).resolves.toEqual({
+      ok: false,
+      errorKey: 'mappingIncomplete',
+    })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('reads the status off the board’s mapping, not the context’s', async () => {
+    stubPull([pulledTask({ bucketId: 2 })])
+
+    const out = await new VikunjaIntegration(CONFIG).pullTasks({
+      ...ctx,
+      // A mapping that would make bucket 2 mean something else entirely.
+      mapping: { ...MAPPING, inprogress: ['9'], deleted: ['2'] },
+    })
+
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.value.tasks[0].status).toBe('inprogress')
+  })
+
+  it('addresses the board’s own project and view', async () => {
+    stubPull([])
+
+    await new VikunjaIntegration(CONFIG).pullTasks(ctx)
+
+    expect(bridge).toHaveBeenCalledWith(
+      expect.objectContaining({ op: 'pull', projectId: 1, viewId: 4 }),
+    )
   })
 
   it('keeps a locally-known intermediate status in flat mode', async () => {
@@ -435,13 +478,6 @@ describe('VikunjaIntegration.pullTasks', () => {
       ok: false,
       errorKey: 'unknown',
     })
-  })
-
-  it('answers notFound for a scope that addresses nothing', async () => {
-    await expect(
-      new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, scope: { projectId: 1 } }),
-    ).resolves.toEqual({ ok: false, errorKey: 'notFound' })
-    expect(bridge).not.toHaveBeenCalled()
   })
 })
 
@@ -581,6 +617,99 @@ describe('vikunja descriptor', () => {
 
     it('changes nothing when no board is connected', () => {
       expect(descriptor.withBoardState?.(NO_BOARD, { name: 'Work' })).toEqual(NO_BOARD)
+    })
+  })
+
+  describe('getSetupStep', () => {
+    /** The slice the hooks are asked about; only its config matters. */
+    function slice(config: VikunjaConfig): IntegrationState {
+      return {
+        name: 'vikunja',
+        config,
+        boardName: null,
+        lists: [],
+        projects: [],
+        mapping: null,
+        lastSyncAt: null,
+      }
+    }
+
+    const second: VikunjaBoard = { ...BOARD, projectId: 8, viewId: 21, name: 'Work' }
+    const unmapped: VikunjaBoard = { ...second, mapping: null }
+
+    it('asks for a board while none is picked', () => {
+      expect(descriptor.getSetupStep?.(slice(NO_BOARD))).toBe('board')
+    })
+
+    it('asks for a mapping while the picked board has none', () => {
+      const config = { ...CONFIG, boards: [{ ...BOARD, mapping: null }] }
+
+      expect(descriptor.getSetupStep?.(slice(config))).toBe('mapping')
+    })
+
+    it('asks for a mapping while ANY board has none, default or not', () => {
+      // The default board is mapped here; the other one is not, and a sync
+      // reads every board — so the wizard is still where the user belongs.
+      const config = { ...CONFIG, boards: [BOARD, unmapped], defaultProjectId: 1 }
+
+      expect(descriptor.getSetupStep?.(slice(config))).toBe('mapping')
+    })
+
+    it('lands on the summary once every board is mapped', () => {
+      const config = { ...CONFIG, boards: [BOARD, second] }
+
+      expect(descriptor.getSetupStep?.(slice(config))).toBe('summary')
+    })
+
+    it('asks for a board for a slice that is not ours', () => {
+      // Only reachable if this descriptor were resolved for another
+      // integration's slice; answering defensively beats casting through it.
+      expect(
+        descriptor.getSetupStep?.({
+          name: 'trello',
+          config: { apiKey: 'k', token: 't', boardId: 'board-1' },
+          boardName: 'Board',
+          lists: [],
+          projects: [],
+          mapping: null,
+          lastSyncAt: null,
+        }),
+      ).toBe('board')
+    })
+
+    it('agrees with isReadyToSync on every one of those states', () => {
+      const ready = (config: VikunjaConfig) => descriptor.isReadyToSync?.(slice(config))
+
+      expect(ready(NO_BOARD)).toBe(false)
+      expect(ready({ ...CONFIG, boards: [{ ...BOARD, mapping: null }] })).toBe(false)
+      expect(ready({ ...CONFIG, boards: [BOARD, unmapped] })).toBe(false)
+      expect(ready(CONFIG)).toBe(true)
+      expect(ready({ ...CONFIG, boards: [BOARD, second] })).toBe(true)
+    })
+  })
+
+  describe('projectPolicy', () => {
+    it('requires a project and refuses to let the widget change it', () => {
+      // A Vikunja task lives *in* a project — that is what a board is — so
+      // "no project" is not a state, and moving one would mean recreating the
+      // task somewhere else.
+      expect(descriptor.projectPolicy?.required).toBe(true)
+      expect(descriptor.projectPolicy?.changeable).toBe(false)
+    })
+
+    it('defaults to the default board, as the id `Project.id` uses', () => {
+      expect(descriptor.projectPolicy?.defaultId(CONFIG)).toBe('1')
+      expect(
+        descriptor.projectPolicy?.defaultId({
+          ...CONFIG,
+          boards: [BOARD, { ...BOARD, projectId: 8, viewId: 21 }],
+          defaultProjectId: 8,
+        }),
+      ).toBe('8')
+    })
+
+    it('names no default while no board is picked', () => {
+      expect(descriptor.projectPolicy?.defaultId(NO_BOARD)).toBeNull()
     })
   })
 

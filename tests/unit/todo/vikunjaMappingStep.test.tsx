@@ -3,7 +3,6 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { withDefaultBoardPatch } from '@/widgets/Todo/integrations/vikunja/boards.ts'
 import { VikunjaMappingStep } from '@/widgets/Todo/integrations/vikunja/VikunjaMappingStep.tsx'
 
 import type {
@@ -12,7 +11,7 @@ import type {
   StatusListMapping,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/types.ts'
-import type { IntegrationState } from '@/widgets/Todo/store/store.ts'
+import type { IntegrationState, VikunjaBoard } from '@/widgets/Todo/store/store.ts'
 import type { Mock } from 'vitest'
 
 /** Keys, not prose — `tests/contracts/i18nKeys.test.ts` guards the copy. */
@@ -50,7 +49,14 @@ let createContainer: Mock<
   (scope: unknown, title: string) => Promise<IntegrationOutcome<RemoteContainer>>
 >
 
-function integrationState(overrides: Partial<VikunjaSlice> = {}): VikunjaSlice {
+/**
+ * What the step reads: the board's own buckets, mapping and mode. The slice
+ * fields around them are empty, which is what the store writes for this
+ * backend — a step reading them would show the user nothing.
+ */
+type BoardOverrides = Partial<Pick<VikunjaBoard, 'containers' | 'mapping' | 'kanbanMapping'>>
+
+function integrationState(board: BoardOverrides = {}): VikunjaSlice {
   return {
     name: 'vikunja',
     config: {
@@ -64,16 +70,16 @@ function integrationState(overrides: Partial<VikunjaSlice> = {}): VikunjaSlice {
           containers: THREE_COLUMNS,
           mapping: null,
           kanbanMapping: true,
+          ...board,
         },
       ],
       defaultProjectId: 1,
     },
-    boardName: 'Inbox',
-    lists: THREE_COLUMNS,
+    boardName: null,
+    lists: [],
     projects: [],
     mapping: null,
     lastSyncAt: null,
-    ...overrides,
   }
 }
 
@@ -86,14 +92,14 @@ function creates(ids: Partial<Record<string, number | 'fail'>>) {
   })
 }
 
-function setup(overrides: Partial<VikunjaSlice> = {}, withCreate = true) {
+function setup(board: BoardOverrides = {}, withCreate = true) {
   setMapping = vi.fn<(mapping: StatusListMapping) => Promise<void>>(async () => {})
   updateIntegrationConfig = vi.fn<(config: unknown) => boolean>(() => true)
   createContainer = vi.fn()
   // Stands in for the real action: re-reads the buckets into the slice.
   refreshContainers = vi.fn<() => Promise<boolean>>(async () => true)
 
-  const integration = integrationState(overrides)
+  const integration = integrationState(board)
   const adapter = {
     ...(withCreate ? { createContainer } : {}),
   } as unknown as TodoIntegration
@@ -247,7 +253,7 @@ describe('VikunjaMappingStep — validation', () => {
   const fullBoard = [...THREE_COLUMNS, ...CREATED_COLUMNS]
 
   it('saves a complete, conflict-free mapping', async () => {
-    setup({ lists: fullBoard, mapping: complete })
+    setup({ containers: fullBoard, mapping: complete })
 
     expect(screen.queryByText(`${PREFIX}.conflict`)).toBeNull()
     await userEvent.click(saveButton())
@@ -258,7 +264,7 @@ describe('VikunjaMappingStep — validation', () => {
   })
 
   it('blocks the save on a conflict', () => {
-    setup({ lists: fullBoard, mapping: { ...complete, struggle: ['2'] } })
+    setup({ containers: fullBoard, mapping: { ...complete, struggle: ['2'] } })
 
     expect(screen.getByText(`${PREFIX}.conflict`)).toBeTruthy()
     expect(saveButton()).toHaveProperty('disabled', true)
@@ -266,7 +272,7 @@ describe('VikunjaMappingStep — validation', () => {
 
   it('blocks the save and names every status put on the done bucket', () => {
     setup({
-      lists: fullBoard,
+      containers: fullBoard,
       mapping: { ...complete, inprogress: ['3'], deleted: ['3'] },
     })
 
@@ -279,7 +285,7 @@ describe('VikunjaMappingStep — validation', () => {
   })
 
   it('says nothing about the done bucket on a board that has none', () => {
-    setup({ lists: fullBoard.map(({ id, name }) => ({ id, name })), mapping: complete })
+    setup({ containers: fullBoard.map(({ id, name }) => ({ id, name })), mapping: complete })
 
     expect(screen.queryByText(`${PREFIX}.completedNotTerminal`)).toBeNull()
     expect(saveButton()).toHaveProperty('disabled', false)
@@ -289,7 +295,7 @@ describe('VikunjaMappingStep — validation', () => {
     // Every row filled, no conflict, the done bucket left out of all of
     // them — the one shape where this is a warning rather than an error.
     setup({
-      lists: [...fullBoard, { id: '6', name: 'Icebox' }],
+      containers: [...fullBoard, { id: '6', name: 'Icebox' }],
       mapping: {
         input: ['1'],
         inprogress: ['2'],
@@ -317,16 +323,12 @@ describe('VikunjaMappingStep — coming back from flat mode', () => {
     deleted: ['1'],
   }
 
-  function flatSlice(overrides: Partial<VikunjaSlice> = {}) {
-    return {
-      mapping: flat,
-      config: withDefaultBoardPatch(integrationState().config, { kanbanMapping: false }),
-      ...overrides,
-    }
+  function flatBoard(overrides: BoardOverrides = {}): BoardOverrides {
+    return { mapping: flat, kanbanMapping: false, ...overrides }
   }
 
   it('starts from a fresh suggestion and says flat mode is in effect', () => {
-    setup(flatSlice())
+    setup(flatBoard())
 
     // The flat mapping would read as four conflicts; the user sees the
     // suggestion and the create-columns offer instead.
@@ -338,7 +340,7 @@ describe('VikunjaMappingStep — coming back from flat mode', () => {
   })
 
   it('leaves flat mode behind when a real mapping is saved', async () => {
-    setup(flatSlice({ lists: [...THREE_COLUMNS, ...CREATED_COLUMNS] }))
+    setup(flatBoard({ containers: [...THREE_COLUMNS, ...CREATED_COLUMNS] }))
 
     await userEvent.click(saveButton())
 
@@ -353,7 +355,7 @@ describe('VikunjaMappingStep — coming back from flat mode', () => {
   })
 
   it('does not save the mapping when leaving flat mode is refused', async () => {
-    setup(flatSlice({ lists: [...THREE_COLUMNS, ...CREATED_COLUMNS] }))
+    setup(flatBoard({ containers: [...THREE_COLUMNS, ...CREATED_COLUMNS] }))
     updateIntegrationConfig.mockReturnValue(false)
 
     await userEvent.click(saveButton())

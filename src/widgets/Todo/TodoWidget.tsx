@@ -8,10 +8,11 @@ import { TodoSettingsDialog } from '@/widgets/Todo/components/settings/TodoSetti
 import { useOnlineFlush } from '@/widgets/Todo/hooks/useOnlineFlush.ts'
 import {
   getIntegrationDescriptor,
+  getProjectPolicy,
   type Project,
   type TodoStatus,
 } from '@/widgets/Todo/integrations/index.ts'
-import { resolveScope, useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { isIntegrationReady, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { isTerminalError } from '@/widgets/Todo/utils/errorState.ts'
 import {
   groupTasksBySection,
@@ -43,19 +44,23 @@ export function TodoWidget() {
   const tasks = useTodoStore((state) => state.tasks)
   const integration = useTodoStore((state) => state.integration)
   const conflictTaskIds = useTodoStore((state) => state.conflictTaskIds)
-  const scope = resolveScope(integration)
-  // Only the presence matters here, and a boolean keeps the mount-sync
-  // effect's dependency stable (a scope object is rebuilt on every render).
-  const hasScope = scope !== null
   /**
-   * Stable identity of the scope, for the subscription effect's dependencies.
-   * The object itself is rebuilt on every render, so depending on it would
-   * re-subscribe constantly; a boolean would not re-subscribe at all when the
-   * user re-picks a project, leaving the listener filtering on the old one.
+   * Is the connection configured far enough for a sync to mean anything? The
+   * descriptor's answer (see `isIntegrationReady`), and the one gate on every
+   * sync this component starts — mount, broadcast, back online.
+   *
+   * A boolean, so the effects below have a stable dependency: the slice
+   * itself is replaced on every `lastSyncAt`.
    */
-  const scopeKey = scope ? JSON.stringify(scope) : null
+  const ready = isIntegrationReady(integration)
   const integrationName = integration?.name ?? null
-  const hasMapping = Boolean(integration?.mapping)
+  /**
+   * The config, for the subscription effect's dependencies: it is what the
+   * set of watched boards follows from, and it is replaced wholesale on every
+   * change (connect, scope pick, mapping) while surviving the `lastSyncAt`
+   * writes a sync makes.
+   */
+  const integrationConfig = integration?.config ?? null
   const addTask = useTodoStore((state) => state.addTask)
   const toggleTask = useTodoStore((state) => state.toggleTask)
   const removeTask = useTodoStore((state) => state.removeTask)
@@ -87,6 +92,15 @@ export function TodoWidget() {
   const bannerHost = integration ? (descriptor?.describeHost?.(integration.config) ?? null) : null
   const canRecoverPermission = Boolean(descriptor?.recoverPermission)
 
+  /**
+   * What this backend expects of a task's project, for the add dialog: a
+   * Vikunja task always has one (its board), a Trello card may have none.
+   * The dialog stays prop-driven, so the id is resolved here — it is the one
+   * place that has the config.
+   */
+  const projectPolicy = useMemo(() => getProjectPolicy(descriptor), [descriptor])
+  const defaultProjectId = integration ? projectPolicy.defaultId(integration.config) : null
+
   // Same reason as `projectById`: a Set built once per change beats an
   // `includes` per card, and the store hands out a stable array until a
   // conflict actually appears or clears.
@@ -110,11 +124,11 @@ export function TodoWidget() {
   }, [])
 
   // Mount-time pull. Guarded against React StrictMode double-invoke. We
-  // intentionally watch the integration / mapping presence so that wiring up
-  // an integration after the widget is already mounted also kicks off a sync.
+  // intentionally watch `ready` so that finishing the wizard while the widget
+  // is already mounted also kicks off a sync.
   useEffect(() => {
     if (didMountSync.current) return
-    if (!hasScope || !hasMapping) return
+    if (!ready) return
     // A mount that lands on a revoked token or a withdrawn host permission
     // must not sync: it would fail, re-raise the very error the banner is
     // already showing, and spin the badge on the way.
@@ -130,7 +144,7 @@ export function TodoWidget() {
     // Forced on purpose: a widget that has just appeared knows nothing, so
     // the worker's snapshot is not good enough — read the backend.
     void syncNow()
-  }, [hasScope, hasMapping, syncNow])
+  }, [ready, syncNow])
 
   /**
    * The permission banner's action, and the reason it is not `async`: Chrome
@@ -157,7 +171,7 @@ export function TodoWidget() {
 
   // Back online → send what piled up, quietly. Only while a sync could
   // actually succeed.
-  useOnlineFlush(hasScope && hasMapping && !terminalError, syncNow)
+  useOnlineFlush(ready && !terminalError, syncNow)
 
   /**
    * Live updates, for a backend that can tell us it moved.
@@ -174,14 +188,14 @@ export function TodoWidget() {
    * nobody was looking, and there is nothing to spin for.
    */
   useEffect(() => {
-    if (!integrationName || !scopeKey || !hasMapping) return
+    if (!integrationName || !integrationConfig || !ready) return
 
     const descriptor = getIntegrationDescriptor(integrationName)
     if (!descriptor?.subscribeRemoteChanges) return
 
-    // Re-resolved from the store rather than closed over: `scopeKey` is what
-    // this effect depends on, and the object behind it is rebuilt per render.
-    const current = resolveScope(useTodoStore.getState().integration)
+    // Read from the store rather than closed over: what this effect depends
+    // on is the config, and the slice around it is replaced by every sync.
+    const current = useTodoStore.getState().integration
     if (!current) return
 
     // Called as a method, not through a detached reference: an implementation
@@ -197,7 +211,7 @@ export function TodoWidget() {
       }
       reportRemoteFailure(event.errorKey)
     })
-  }, [integrationName, scopeKey, hasMapping, syncNow, reportRemoteFailure])
+  }, [integrationName, integrationConfig, ready, syncNow, reportRemoteFailure])
 
   const effectiveVisibleStatuses = useMemo(
     () => resolveVisibleStatuses(visibleStatuses),
@@ -299,6 +313,8 @@ export function TodoWidget() {
         open={open}
         onOpenChange={setOpen}
         projects={integration?.projects ?? []}
+        projectPolicy={projectPolicy}
+        defaultProjectId={defaultProjectId}
         onSubmit={({ title, description, linkedTab, projectId }) =>
           addTask({ title, description, linkedTab, projectId })
         }

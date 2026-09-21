@@ -19,11 +19,12 @@
  *   `chrome.storage`, and a preprocess that edited them in place would change
  *   what a second parse of the same object sees;
  * - **nothing is thrown away.** The board it builds keeps the cached title,
- *   containers and mapping of the single view the config described, and the
- *   slice's own `boardName` / `lists` / `mapping` stay where they are, as a
- *   mirror of that board: every reader in the widget still goes through them.
- *   Task 2 (the contract hooks) redirects those readers to `config.boards`
- *   and nulls the mirror.
+ *   containers and mapping of the single view the config described — and the
+ *   slice's own `boardName` / `lists` / `mapping`, having been *moved* onto
+ *   that board, are emptied. Nothing reads them for this backend any more
+ *   (the descriptor's `getSetupStep` / `isReadyToSync` answer from the boards,
+ *   and the wizard and the summary read the board itself), and a copy nobody
+ *   updates is a copy a later reader would trust by mistake.
  *
  * The one lossy input is a config whose `projectId` or `viewId` is not a
  * positive integer — a hand-edited or half-written record. It describes no
@@ -167,9 +168,9 @@ export function upgradePersistedState(raw: unknown): unknown {
   return {
     ...raw,
     tasks,
-    // `boardName` / `lists` / `mapping` are deliberately carried over as they
-    // are: they mirror the board above and every reader in the widget still
-    // goes through them. See the module comment.
-    integration: { ...integration, config: nextConfig },
+    // The three single-board slice fields are emptied rather than carried
+    // over: their values are on the board now, and this backend's readers all
+    // go through it. See the module comment.
+    integration: { ...integration, config: nextConfig, boardName: null, lists: [], mapping: null },
   }
 }

@@ -2,10 +2,11 @@ import { VIKUNJA_MUTATION_CONCURRENCY } from '@/background/vikunja/messages.ts'
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 import { urlHost } from '@/widgets/Todo/utils/url.ts'
 
-import { boardForProject, defaultBoard, withDefaultBoardPatch } from './boards.ts'
+import { defaultBoard, hasUnmappedBoard, withDefaultBoardPatch } from './boards.ts'
 import { sendVikunjaMessage } from './bridge.ts'
-import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
+import { isReservedLabel, vikunjaTaskToTodo } from './mapping.ts'
 import { recoverVikunjaPermission } from './permission.ts'
+import { getVikunjaBoardPillClass } from './projectStyles.ts'
 import { pushVikunjaTask } from './push.ts'
 import { scopePair } from './scope.ts'
 import {
@@ -33,14 +34,19 @@ import type {
   Project,
   PullContext,
   PullResult,
-  PushContext,
   RemoteContainer,
   RemoteScope,
   RemoteScopeOption,
   RemoteTaskRef,
+  SetupStep,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/types.ts'
-import type { TodoTask, VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
+import type {
+  IntegrationState,
+  TodoTask,
+  VikunjaBoard,
+  VikunjaConfig,
+} from '@/widgets/Todo/store/store.ts'
 import type { z } from 'zod'
 
 /** A scope that does not address a project *and* a view addresses nothing. */
@@ -57,6 +63,17 @@ const NO_SCOPE: IntegrationOutcome<never> = { ok: false, errorKey: 'notFound' }
  * either way would run the operation under rules the user never chose.
  */
 const NO_BOARD: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
+
+/**
+ * A board whose bucket wizard was never finished.
+ *
+ * The mapping lives on the board (task 2), so this is a question the adapter
+ * can answer on its own instead of trusting whatever the store passed in
+ * `ctx.mapping` — which, with several boards, could only ever be one board's.
+ * Flat mode is not this case: it has no bucket mapping *by design* and reads
+ * `done` instead.
+ */
+const NO_MAPPING: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
 
 /**
  * Vikunja adapter.
@@ -118,13 +135,24 @@ export class VikunjaIntegration implements TodoIntegration {
   }
 
   /**
-   * Labels are instance-wide in Vikunja, so the scope plays no part — the
-   * parameter the contract declares is deliberately not taken.
+   * The connected boards, as the widget's projects.
+   *
+   * A Vikunja project *is* the board — a task lives in one, and that is the
+   * only grouping the instance has that the widget can honour on a write. So
+   * this answers from `config.boards` and spends no request: the titles were
+   * cached when the boards were picked, and the ids are the project ids the
+   * refs already carry.
+   *
+   * It used to answer with the instance's labels, which was the closest thing
+   * to Trello's per-board tags. That never survived contact with several
+   * boards — a label says nothing about which project a task belongs to — and
+   * the pills the user sees now name the board a task is on.
+   *
+   * The scope parameter the contract declares is deliberately not taken: the
+   * answer is about the whole connection.
    */
   async listProjects(): Promise<IntegrationOutcome<Project[]>> {
-    const out = await this.listLabels()
-    if (!out.ok) return out
-    return { ok: true, value: out.value.map(labelToProject) }
+    return { ok: true, value: this.config.boards.map(boardToProject) }
   }
 
   /**
@@ -139,12 +167,15 @@ export class VikunjaIntegration implements TodoIntegration {
    * non-forced pull spends no request on them at all — see the body.
    */
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
-    const pair = scopePair(ctx.scope)
-    if (!pair) return NO_SCOPE
-
-    // The board carries the mode this read has to interpret the tasks under.
-    const board = this.board(pair.projectId)
+    // The board, not `ctx.scope`: with a list of boards there is no single
+    // scope the store could name, so the adapter reads the one it syncs out
+    // of its own config. Task 3 loops over all of them here.
+    const board = defaultBoard(this.config)
     if (!board) return NO_BOARD
+    // Kanban without a mapping cannot place a single task; flat mode never
+    // looks at one.
+    if (board.kanbanMapping && board.mapping === null) return NO_MAPPING
+    const pair = { projectId: board.projectId, viewId: board.viewId }
 
     /**
      * Labels are read only when the pull is a real read of the instance.
@@ -181,7 +212,9 @@ export class VikunjaIntegration implements TodoIntegration {
       labels ? labels.value.map((label) => String(label.id)) : (cachedProjectIds ?? []),
     )
     const taskContext = {
-      mapping: ctx.mapping,
+      // The board's own mapping — `ctx.mapping` is the slice mirror, which
+      // this backend stopped keeping (task 2).
+      mapping: board.mapping,
       localIdByTaskId,
       knownStatuses: ctx.knownStatuses,
       // `kanbanMapping: false` means the user skipped the bucket wizard for
@@ -230,14 +263,14 @@ export class VikunjaIntegration implements TodoIntegration {
   async pushTask(
     task: TodoTask,
     op: IntegrationPushOp,
-    ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
-    const scope = scopePair(ctx.scope)
-    if (!scope) return NO_SCOPE
-
-    // Same reason as in `pullTasks`: the mode is the board's, and a write
-    // made under the wrong one moves the user's task to the wrong place.
-    const board = this.board(scope.projectId)
+    // The `PushContext` the contract declares is deliberately not taken —
+    // same reason as in `pullTasks`: the board carries the mode and the
+    // columns a write has to obey, and a write made under another board's
+    // rules moves the user's task to the wrong place. Task 3 resolves the
+    // board of the task being pushed; today only the default one is synced,
+    // so every ref is on it.
+    const board = defaultBoard(this.config)
     if (!board) return NO_BOARD
 
     return pushVikunjaTask(
@@ -246,23 +279,14 @@ export class VikunjaIntegration implements TodoIntegration {
         // `kanbanMapping: false` means the user skipped the bucket wizard for
         // this board and only `completed` round-trips.
         flat: !board.kanbanMapping,
+        mapping: board.mapping,
         send: (request, schema) => this.send(request, schema),
       },
-      { task, op, ctx, scope },
+      { task, op, scope: { projectId: board.projectId, viewId: board.viewId } },
     )
   }
 
   // ---------- internals ----------
-
-  /**
-   * The board an op is about: the one the scope addresses, or `null` when
-   * this config has none for it (see `boardForProject`). It carries the mode
-   * and the cached columns; the credentials are per connection and come from
-   * `wire`.
-   */
-  private board(projectId: number): VikunjaBoard | null {
-    return boardForProject(this.config, projectId)
-  }
 
   /** Credentials as the bridge wants them — never the whole config. */
   private wire(): VikunjaWire {
@@ -314,6 +338,31 @@ function toContainer(bucket: VikunjaBucketSummary): RemoteContainer {
   }
 }
 
+/**
+ * A board as the widget's project: the project id it is addressed by, the
+ * title cached when it was picked, and a pill colour derived from that id
+ * (a Vikunja project carries no colour of its own).
+ */
+function boardToProject(board: VikunjaBoard): Project {
+  return {
+    id: String(board.projectId),
+    name: board.name,
+    pillClassName: getVikunjaBoardPillClass(board.projectId),
+  }
+}
+
+/**
+ * The config of a Vikunja slice, or `null` for a slice that is not ours.
+ *
+ * The hooks below are handed the whole `IntegrationState`, whose union the
+ * store discriminates by `name` — and a mismatch would mean this descriptor
+ * was resolved for another integration's slice, which is worth answering
+ * defensively rather than casting through.
+ */
+function configOf(integration: IntegrationState): VikunjaConfig | null {
+  return integration.name === 'vikunja' ? integration.config : null
+}
+
 export const descriptor: IntegrationDescriptor = {
   name: 'vikunja',
   titleI18nKey: 'todoWidget:integrations.vikunja.title',
@@ -325,8 +374,47 @@ export const descriptor: IntegrationDescriptor = {
    * needs either new columns or flat mode.
    */
   MappingStep: VikunjaMappingStep,
-  /** The background-pull period, and the flat-mode caveat. */
+  /** The board, the background-pull period, and the flat-mode caveat. */
   SummaryExtras: VikunjaSummaryExtras,
+  /**
+   * Which screen a connection is waiting on, read off the boards rather than
+   * off "the" scope and "the" mapping.
+   *
+   * Two differences from the default rule, both of them about the list being
+   * a list: no board at all sends the user to the picker (there is nothing to
+   * map yet), and **any** unmapped board sends them to the wizard — even when
+   * the default board is mapped, because a sync could not place that other
+   * board's tasks.
+   */
+  getSetupStep: (integration): SetupStep => {
+    const config = configOf(integration)
+    if (!config || config.boards.length === 0) return 'board'
+    return hasUnmappedBoard(config) ? 'mapping' : 'summary'
+  },
+  /**
+   * A sync means something once there is at least one board and every one of
+   * them has been through the wizard — the same condition as `getSetupStep`
+   * landing on the summary.
+   */
+  isReadyToSync: (integration) => {
+    const config = configOf(integration)
+    if (!config) return false
+    return config.boards.length > 0 && !hasUnmappedBoard(config)
+  },
+  /**
+   * A Vikunja task lives *in* a project: that is what a board is, so one is
+   * always required, a new task gets the default board's, and moving a task
+   * to another project is a different operation from anything the widget
+   * offers (it would mean recreating the task on another board).
+   */
+  projectPolicy: {
+    required: true,
+    defaultId: (config) => {
+      const board = defaultBoard(config as VikunjaConfig)
+      return board ? String(board.projectId) : null
+    },
+    changeable: false,
+  },
   /**
    * The instance is the one thing about this backend the user typed, so the
    * permission banner can name it. `host` rather than the whole base URL: a
@@ -356,6 +444,9 @@ export const descriptor: IntegrationDescriptor = {
    * The one backend that can tell the widget it moved: its service worker
    * pulls on a `chrome.alarms` schedule and broadcasts the delta, so a task
    * someone changed in Vikunja shows up here without the page polling for it.
+   *
+   * Takes the whole slice because the broadcasts worth acting on are the ones
+   * about *any* connected board — see `subscribe.ts`.
    */
   subscribeRemoteChanges: subscribeVikunjaRemoteChanges,
   /**

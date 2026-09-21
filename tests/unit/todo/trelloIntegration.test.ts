@@ -469,7 +469,7 @@ describe('TrelloIntegration.pushTask', () => {
 
     const out = await makeIntegration().pushTask(task, op, {
       ...pushCtx,
-      mapping: { ...pushCtx.mapping, struggle: [] },
+      mapping: { ...listMappingFixture, struggle: [] },
       knownRef: op.kind === 'create' ? null : task.remoteRef,
     })
 

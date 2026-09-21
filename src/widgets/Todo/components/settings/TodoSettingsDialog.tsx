@@ -7,7 +7,8 @@ import {
 } from '@/components/ui/dialog.tsx'
 import { isShowcaseMode } from '@/services/chrome/runtime.ts'
 import { TodoSettingsStepBody } from '@/widgets/Todo/components/settings/TodoSettingsStepBody.tsx'
-import { resolveScope, useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { getIntegrationDescriptor, getSetupStep } from '@/widgets/Todo/integrations/index.ts'
+import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import {
   getDialogDescription,
   getDialogTitle,
@@ -52,9 +53,10 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
     if (!integration) {
       return pickedIntegrationName ? 'connect' : 'picker'
     }
-    if (!resolveScope(integration)) return 'board'
-    if (!integration.mapping) return 'mapping'
-    return 'summary'
+    // Which of the three configuring steps a connection is on is the
+    // descriptor's answer: a backend with several boards is on the mapping
+    // step while *any* of them is unmapped, which no slice field can say.
+    return getSetupStep(getIntegrationDescriptor(integration.name), integration)
   }, [integration, pickedIntegrationName])
 
   // One effect for all transient cleanup: dialog close, picked-name that
@@ -112,7 +114,10 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
               // integration already has a scope and a settled state to return
               // to, so back is cancel — dropping the whole connection there
               // would be a destructive answer to a button labelled "Back".
-              if (stepOverride === 'board' && resolveScope(integration)) {
+              const hasScope =
+                integration !== null &&
+                getSetupStep(getIntegrationDescriptor(integration.name), integration) !== 'board'
+              if (stepOverride === 'board' && hasScope) {
                 setStepOverride(null)
                 return
               }

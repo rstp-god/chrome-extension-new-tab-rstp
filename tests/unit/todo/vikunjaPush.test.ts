@@ -15,9 +15,9 @@ import type { VikunjaRequest, VikunjaTaskWrite } from '@/background/vikunja/mess
 import type {
   IntegrationOutcome,
   IntegrationPushOp,
-  RemoteScope,
   RemoteTaskRef,
   StatusListMapping,
+  TodoIntegration,
   VikunjaRemoteRef,
 } from '@/widgets/Todo/integrations/types.ts'
 import type { TodoTask, VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
@@ -46,7 +46,6 @@ const CONFIG: VikunjaConfig = {
 }
 
 const CFG = { baseUrl: CONFIG.baseUrl, token: CONFIG.token }
-const SCOPE = { projectId: 1, viewId: 4 }
 
 /** Bucket 3 is the view's done bucket — the only home `completed` may have. */
 const MAPPING: StatusListMapping = {
@@ -135,22 +134,39 @@ function ops(): string[] {
 
 interface PushOptions {
   flat?: boolean
-  mapping?: StatusListMapping
-  scope?: RemoteScope
+  /** The mapping **of the board** — `null` for a board that has none. */
+  mapping?: StatusListMapping | null
+  /** The whole board list, for the one case that is about not having one. */
+  boards?: VikunjaBoard[]
 }
 
+/**
+ * Pushes through the adapter, with the board carrying the mode and the
+ * mapping.
+ *
+ * The context's `scope` and `mapping` are deliberately `null`: both are the
+ * store's single-scope fields, and this adapter reads its own boards instead
+ * (task 2) — passing them would hide the fact that it no longer needs them.
+ */
 function push(
   op: IntegrationPushOp,
   local: TodoTask,
-  { flat = false, mapping, scope = SCOPE }: PushOptions = {},
+  { flat = false, mapping, boards }: PushOptions = {},
 ): Promise<IntegrationOutcome<RemoteTaskRef>> {
-  const adapter = new VikunjaIntegration({
+  const board: VikunjaBoard = {
+    ...BOARD,
+    kanbanMapping: !flat,
+    mapping: mapping === undefined ? (flat ? FLAT_MAPPING : MAPPING) : mapping,
+  }
+  // Through the interface, so the context the adapter no longer takes is
+  // still handed over — exactly as the store hands it over.
+  const adapter: TodoIntegration = new VikunjaIntegration({
     ...CONFIG,
-    boards: [{ ...BOARD, kanbanMapping: !flat }],
+    boards: boards ?? [board],
   })
   return adapter.pushTask(local, op, {
-    scope,
-    mapping: mapping ?? (flat ? FLAT_MAPPING : MAPPING),
+    scope: null,
+    mapping: null,
     knownRef: local.remoteRef,
   })
 }
@@ -604,16 +620,27 @@ describe('pushTask: failures', () => {
     })
   })
 
-  it.each([
-    ['a half scope', { projectId: 1 }],
-    ['an unparseable half', { projectId: 1, viewId: 'kanban' }],
-  ])('answers notFound for %s without a request', async (_label, scope) => {
+  it('answers mappingIncomplete for a connection with no board, without a request', async () => {
+    // Nothing to write to: the adapter takes the board — the mode, the
+    // columns, the project it writes into — out of its own config, so a
+    // connection that has picked none addresses nothing.
     stubBridge(HAPPY)
 
-    await expect(push({ kind: 'update' }, task(), { scope })).resolves.toEqual({
+    await expect(push({ kind: 'update' }, task(), { boards: [] })).resolves.toEqual({
       ok: false,
-      errorKey: 'notFound',
+      errorKey: 'mappingIncomplete',
     })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('answers mappingIncomplete for a kanban board whose wizard never finished', async () => {
+    // No mapping on the board names no bucket for any status — the same
+    // refusal as an empty row, from the other direction.
+    stubBridge(HAPPY)
+
+    await expect(
+      push({ kind: 'status', previous: 'input' }, task({ status: 'struggle' }), { mapping: null }),
+    ).resolves.toEqual({ ok: false, errorKey: 'mappingIncomplete' })
     expect(bridge).not.toHaveBeenCalled()
   })
 })

@@ -127,13 +127,16 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
     expect(boards()[0].mapping).toStrictEqual(MAPPING)
   })
 
-  it('keeps the slice mirror in step with the board', async () => {
+  it('leaves the single-board slice fields empty', async () => {
     await runWizard()
 
+    // They are dead for this backend (task 2): the board holds all three, and
+    // a second copy nobody updates is one a later reader would trust by
+    // mistake.
     const integration = useTodoStore.getState().integration
-    expect(integration?.boardName).toBe(boards()[0].name)
-    expect(integration?.lists).toStrictEqual(boards()[0].containers)
-    expect(integration?.mapping).toStrictEqual(boards()[0].mapping)
+    expect(integration?.boardName).toBeNull()
+    expect(integration?.lists).toStrictEqual([])
+    expect(integration?.mapping).toBeNull()
   })
 
   it('leaves the worker a schedule it can actually pull', async () => {
@@ -180,7 +183,7 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
     expect(readVikunjaScheduleFrom(envelope())).toBeNull()
   })
 
-  it('refreshed containers land on the board as well as on the slice', async () => {
+  it('refreshed containers land on the board, and only there', async () => {
     await runWizard()
     const created: RemoteContainer[] = [...CONTAINERS, { id: '5', name: 'Blocked' }]
     bridgeMock.mockImplementation(async (request: { op: string }) => {
@@ -202,7 +205,7 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
     await expect(useTodoStore.getState().refreshContainers()).resolves.toBe(true)
 
     expect(boards()[0].containers).toStrictEqual(created)
-    expect(useTodoStore.getState().integration?.lists).toStrictEqual(created)
+    expect(useTodoStore.getState().integration?.lists).toStrictEqual([])
     // The mapping the user is about to extend must survive a refresh.
     expect(boards()[0].mapping).toStrictEqual(MAPPING)
   })

@@ -9,6 +9,7 @@
 
 import {
   DEFAULT_PROJECT_PILL_CLASS,
+  PROJECT_PILL_HUES,
   projectPillClassForHue,
 } from '@/widgets/Todo/utils/projectPillPalette.ts'
 
@@ -113,4 +114,21 @@ export function vikunjaHueFor(hex: string | null): ProjectPillHue | null {
 export function getVikunjaProjectPillClass(hex: string | null): string {
   const hue = vikunjaHueFor(hex)
   return hue === null ? DEFAULT_PROJECT_PILL_CLASS : projectPillClassForHue(hue)
+}
+
+/**
+ * The pill of a board, painted from its project id.
+ *
+ * A Vikunja project carries no colour — only labels do — so there is no hex
+ * to match here. An id maps onto the palette instead: stable (the same board
+ * is always the same colour, on every device, with no cache to refresh) and
+ * spread out (two boards created one after the other get different hues).
+ * `Math.abs` is belt and braces — the schema forbids a non-positive id, and a
+ * negative remainder would index outside the palette.
+ */
+export function getVikunjaBoardPillClass(projectId: number): string {
+  if (!Number.isFinite(projectId)) return DEFAULT_PROJECT_PILL_CLASS
+  return projectPillClassForHue(
+    PROJECT_PILL_HUES[Math.abs(Math.trunc(projectId)) % PROJECT_PILL_HUES.length],
+  )
 }

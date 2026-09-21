@@ -193,26 +193,30 @@ const vikunjaConfigSchema = z.object({
 })
 
 /**
- * `boardName`, `lists` and `mapping` are a **mirror of the default board**
- * for as long as this branch keeps them.
+ * `boardName`, `lists` and `mapping` are **dead** for this branch of the
+ * union: everything they held lives on the board (`config.boards`) and every
+ * reader goes through the descriptor or through the board itself.
  *
- * They are the single-board fields, and the whole widget still reads them —
- * the store's sync, the settings dialog's step, the summary, the wizard. The
- * upgrade therefore leaves them populated instead of moving the values away
- * from every one of their readers at once; task 2 (the contract hooks)
- * redirects those readers to `config.boards` and nulls the mirror, and
- * `projects` then holds the boards themselves.
+ * They are still declared — and still nullable/empty-able — because they are
+ * part of the record on a user's disk. The store writes them empty on every
+ * config write and the upgrade empties them once, so a stale copy cannot
+ * survive; declaring them keeps a record written by an older build parseable
+ * instead of dropping the whole envelope (and with it the token and the task
+ * list) over three fields nothing reads.
  */
 const vikunjaIntegrationSchema = z.object({
   name: z.literal('vikunja'),
   config: vikunjaConfigSchema,
-  /** Cached project title of the default board — see above. */
+  /** Dead — see above. Written as `null`. */
   boardName: z.string().nullable(),
-  /** Cached buckets of the default board's view — see above. */
+  /** Dead — see above. Written as `[]`. */
   lists: z.array(remoteContainerSchema),
-  /** Available projects (= Vikunja labels). */
+  /**
+   * The projects a task may name, cached for zero-network rendering — which
+   * for this backend are the connected boards themselves (`listProjects`).
+   */
   projects: z.array(projectSchema),
-  /** `null` until the user finishes the mapping wizard — see above. */
+  /** Dead — see above. The real mapping is per board. Written as `null`. */
   mapping: statusListMappingSchema.nullable(),
   lastSyncAt: z.number().nullable(),
 })

@@ -40,7 +40,6 @@ import type {
 import type {
   IntegrationOutcome,
   IntegrationPushOp,
-  PushContext,
   StatusListMapping,
   TodoStatus,
   VikunjaRemoteRef,
@@ -63,6 +62,18 @@ export interface VikunjaPushDeps {
   cfg: VikunjaWire
   /** `true` when the user skipped the bucket mapping — see `flatModeMapping`. */
   flat: boolean
+  /**
+   * The bucket mapping of the board being written to, or `null` when it has
+   * none.
+   *
+   * Comes from the board rather than from the store's push context: with
+   * several boards connected, each has its own columns and its own mapping
+   * over them, so a mapping the store passed could only ever be one of them.
+   * `null` is flat mode, where no bucket is addressed at all — and a kanban
+   * board without a mapping simply names no destination, which is what
+   * `bucketIdForStatus` answers.
+   */
+  mapping: StatusListMapping | null
   send: <S extends z.ZodType>(
     request: VikunjaRequest,
     schema: S,
@@ -72,7 +83,6 @@ export interface VikunjaPushDeps {
 export interface VikunjaPushInput {
   task: TodoTask
   op: IntegrationPushOp
-  ctx: PushContext
   scope: VikunjaScope
 }
 
@@ -103,7 +113,12 @@ function keepingRef<T>(out: IntegrationOutcome<T>, ref: VikunjaRemoteRef): Integ
  * hand-edited or half-finished mapping is caught — before an id like `NaN`
  * ends up in a request path.
  */
-export function bucketIdForStatus(status: TodoStatus, mapping: StatusListMapping): number | null {
+export function bucketIdForStatus(
+  status: TodoStatus,
+  mapping: StatusListMapping | null,
+): number | null {
+  // A board whose wizard was never finished names no bucket for any status.
+  if (mapping === null) return null
   // Declared `string` by the contract, but a persisted mapping can carry an
   // empty row, and `[0]` of an empty array is `undefined` whatever the type says.
   const raw: string | undefined = primaryContainerIdForStatus(status, mapping)
@@ -193,9 +208,9 @@ export async function pushVikunjaTask(
  */
 async function createTask(
   deps: VikunjaPushDeps,
-  { task, ctx, scope }: VikunjaPushInput,
+  { task, scope }: VikunjaPushInput,
 ): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
-  const bucketId = deps.flat ? null : bucketIdForStatus(task.status, ctx.mapping)
+  const bucketId = deps.flat ? null : bucketIdForStatus(task.status, deps.mapping)
   if (!deps.flat && bucketId === null) return NO_DESTINATION
 
   const created = await deps.send(
@@ -261,7 +276,7 @@ async function createTask(
  */
 async function resync(
   deps: VikunjaPushDeps,
-  { task, ctx, scope }: VikunjaPushInput,
+  { task, scope }: VikunjaPushInput,
   ref: VikunjaRemoteRef,
 ): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
   // Flat mode: `done` is the only field that crosses at all, and the local
@@ -270,7 +285,7 @@ async function resync(
     return setDone(deps, ref.taskId, ref.updated, task.status === 'completed', ref)
   }
 
-  const bucketId = bucketIdForStatus(task.status, ctx.mapping)
+  const bucketId = bucketIdForStatus(task.status, deps.mapping)
   if (bucketId === null) return NO_DESTINATION
 
   let current = ref
@@ -346,12 +361,12 @@ async function editFields(
  */
 async function applyStatus(
   deps: VikunjaPushDeps,
-  { task, scope, ctx }: VikunjaPushInput,
+  { task, scope }: VikunjaPushInput,
   ref: VikunjaRemoteRef,
   previous: TodoStatus | null,
 ): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
   if (!deps.flat) {
-    const bucketId = bucketIdForStatus(task.status, ctx.mapping)
+    const bucketId = bucketIdForStatus(task.status, deps.mapping)
     if (bucketId === null) return NO_DESTINATION
     return move(deps, scope, ref.taskId, bucketId, ref)
   }

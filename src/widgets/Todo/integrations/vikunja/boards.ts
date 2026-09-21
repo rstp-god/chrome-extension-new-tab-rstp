@@ -17,6 +17,7 @@
 
 import { defaultVikunjaBoard } from '@/background/vikunja/messages.ts'
 
+import type { VikunjaScopePair } from './scope.ts'
 import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 
 /**
@@ -64,4 +65,29 @@ export function withDefaultBoardPatch(
       current.projectId === board.projectId ? { ...current, ...patch } : current,
     ),
   }
+}
+
+/**
+ * Every board this connection syncs, as the pairs Vikunja addresses a task
+ * list by.
+ *
+ * The broadcast subscriber's question: the worker pulls one view per alarm,
+ * and a page has to accept a broadcast about **any** board it is showing
+ * rather than only about the default one. The ids are already numbers here
+ * (the persisted schema insists on positive integers), so nothing can be
+ * unaddressable — an empty list means no board has been picked.
+ */
+export function boardScopes(config: VikunjaConfig): VikunjaScopePair[] {
+  return config.boards.map((board) => ({ projectId: board.projectId, viewId: board.viewId }))
+}
+
+/**
+ * Is there a board whose mapping wizard was never finished?
+ *
+ * What "this connection is waiting on the mapping step" means with a list of
+ * boards: one unmapped board is enough, and it need not be the default one —
+ * a sync that ran anyway would have no way to place that board's tasks.
+ */
+export function hasUnmappedBoard(config: VikunjaConfig): boolean {
+  return config.boards.some((board) => board.mapping === null)
 }

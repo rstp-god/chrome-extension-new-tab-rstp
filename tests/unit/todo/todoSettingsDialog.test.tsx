@@ -84,15 +84,22 @@ function vikunja(overrides: Partial<Extract<IntegrationState, { name: 'vikunja' 
       ],
       defaultProjectId: 1,
     },
-    boardName: 'Probe',
-    lists: [
-      { id: '1', name: 'To-Do', isDefault: true },
-      { id: '3', name: 'Done', isTerminal: true },
-    ],
+    // Dead for this backend: the board above holds all three.
+    boardName: null,
+    lists: [],
     projects: [],
-    mapping: MAPPING,
+    mapping: null,
     lastSyncAt: null,
     ...overrides,
+  }
+}
+
+/** The same connection with the board's wizard unfinished. */
+function unmapped() {
+  const base = vikunja()
+  return {
+    ...base,
+    config: { ...base.config, boards: [{ ...base.config.boards[0], mapping: null }] },
   }
 }
 
@@ -137,6 +144,27 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+})
+
+describe('TodoSettingsDialog — which step the descriptor says it is on', () => {
+  it('shows the summary for a connection whose boards are all mapped', async () => {
+    await open(vikunja())
+
+    // Nothing on the slice says so — `getSetupStep` reads the boards.
+    expect(screen.getByTestId('todo-summary-switch')).toBeTruthy()
+  })
+
+  it('shows the mapping step while a board is unmapped', async () => {
+    await open(unmapped())
+
+    expect(screen.getByTestId('todo-mapping-step')).toBeTruthy()
+  })
+
+  it('shows the scope picker while no board is picked', async () => {
+    await open(vikunja({ config: { ...vikunja().config, boards: [], defaultProjectId: null } }))
+
+    expect(onScopePicker()).toBe(true)
+  })
 })
 
 describe('TodoSettingsDialog — leaving the scope picker', () => {

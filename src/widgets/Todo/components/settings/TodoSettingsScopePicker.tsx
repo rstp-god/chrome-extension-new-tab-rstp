@@ -12,22 +12,11 @@ import type {
   IntegrationErrorKey,
   RemoteScope,
   RemoteScopeOption,
-  TodoIntegration,
+  ScopeStepProps,
 } from '@/widgets/Todo/integrations/index.ts'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-
-interface Props {
-  adapter: TodoIntegration
-  /**
-   * Whose scope is being picked, for the wording: Trello picks a *board*,
-   * Vikunja a *project*. The step itself stays backend-agnostic — only the
-   * i18n namespace it reads changes.
-   */
-  integrationName: string
-  onBack: () => void
-}
 
 /** A `Select` needs a string value, and a scope is an opaque record. */
 function scopeKey(scope: RemoteScope): string {
@@ -38,11 +27,21 @@ function scopeKey(scope: RemoteScope): string {
  * Picks the remote scope (a Trello board, a Vikunja project+view, ...). The
  * scope itself is opaque here — only its label is shown — so options are
  * keyed by their serialized scope, which survives a reordered list.
+ *
+ * The default `descriptor.ScopeStep`, so it takes `ScopeStepProps` like a
+ * backend's own step would. Living in the settings layer rather than being
+ * reached through a descriptor, it may read the store directly and ignores
+ * most of them — it keeps its own error state, because the failure it has to
+ * show (`listScopes` refused) never reaches the store.
+ *
+ * The integration's *name* is all it takes from the slice, and only for the
+ * wording: Trello picks a *board*, Vikunja a *project*. The step itself stays
+ * backend-agnostic — only the i18n namespace it reads changes.
  */
-export function TodoSettingsScopePicker({ adapter, integrationName, onBack }: Props) {
+export function TodoSettingsScopePicker({ adapter, integration, onBack }: ScopeStepProps) {
   const { t } = useTranslation('todoWidget')
   const pickScope = useTodoStore((state) => state.pickScope)
-  const boardKey = (leaf: string) => `integrations.${integrationName}.board.${leaf}`
+  const boardKey = (leaf: string) => `integrations.${integration.name}.board.${leaf}`
   const [options, setOptions] = useState<RemoteScopeOption[] | null>(null)
   const [errorKey, setErrorKey] = useState<IntegrationErrorKey | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | undefined>()

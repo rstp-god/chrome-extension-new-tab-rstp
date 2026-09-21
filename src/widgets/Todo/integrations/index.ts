@@ -21,6 +21,8 @@ export function getIntegrationDescriptor(
   return todoIntegrationRegistry[name] ?? null
 }
 
+export { getProjectPolicy, getSetupStep, isReadyToSync } from './setup.ts'
+
 export type {
   BoardStatePatch,
   ConnectFormProps,
@@ -30,6 +32,7 @@ export type {
   IntegrationPushOp,
   MappingStepProps,
   Project,
+  ProjectPolicy,
   PullContext,
   PullResult,
   PushContext,
@@ -38,6 +41,8 @@ export type {
   RemoteScope,
   RemoteScopeOption,
   RemoteTaskRef,
+  ScopeStepProps,
+  SetupStep,
   StatusListMapping,
   SummaryExtrasActions,
   SummaryExtrasProps,

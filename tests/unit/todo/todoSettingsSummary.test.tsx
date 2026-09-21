@@ -87,14 +87,12 @@ const VIKUNJA: Extract<IntegrationState, { name: 'vikunja' }> = {
     ],
     defaultProjectId: 1,
   },
-  boardName: 'Probe',
-  lists: [
-    { id: '1', name: 'To-Do', isDefault: true },
-    { id: '2', name: 'Doing' },
-    { id: '3', name: 'Done', isTerminal: true },
-  ],
+  // Dead for this backend (task 2): the board holds the name, the buckets
+  // and the mapping, and its own summary section shows them.
+  boardName: null,
+  lists: [],
   projects: [],
-  mapping: MAPPING,
+  mapping: null,
   lastSyncAt: null,
 }
 
@@ -219,13 +217,23 @@ describe('TodoSettingsSummary — importing local tasks', () => {
     makeTask({ id: 'b', title: 'Another one' }),
   ]
 
-  it('offers the import with a count and a destination', async () => {
+  it('offers the import with a count and the instance it would write to', async () => {
     mount(VIKUNJA, locals)
 
-    // `count`, so i18next can pick the plural form the language needs.
+    // `count`, so i18next can pick the plural form the language needs. The
+    // destination falls back to the host: this connection's project cache
+    // holds no board yet, so there is no friendlier name to use.
     expect(screen.getByTestId('todo-import-action').textContent).toContain(
-      'integrations.import.action {"count":2,"scope":"Probe"}',
+      'integrations.import.action {"count":2,"scope":"vikunja.example"}',
     )
+  })
+
+  it('names the board a new task would go to once the cache knows it', async () => {
+    mount({ ...VIKUNJA, projects: [{ id: '1', name: 'Probe', pillClassName: null }] }, locals)
+
+    // Which is what the picker reads for this backend: its boards *are* its
+    // projects, and the default one is where an import lands.
+    expect(screen.getByTestId('todo-import-action').textContent).toContain('"scope":"Probe"')
   })
 
   it('does not offer it for a backend that imports on its own', () => {
@@ -315,6 +323,27 @@ describe('TodoSettingsSummary — the error line', () => {
     // The widget's banner shows this sentence with the action that ends it;
     // repeating it here would make one problem look like two.
     expect(screen.queryByText('integrations.errors.permissionMissing')).toBeNull()
+  })
+})
+
+describe('TodoSettingsSummary — what the generic block shows', () => {
+  it('names the board and its mapping for a backend that keeps them on the slice', () => {
+    mount(TRELLO)
+
+    expect(screen.getByText('integrations.trello.summary.boardLabel')).toBeTruthy()
+    expect(screen.getByText('Board')).toBeTruthy()
+    expect(screen.getByText('integrations.trello.summary.mappingLabel')).toBeTruthy()
+  })
+
+  it('shows neither for a backend that keeps them per board', () => {
+    mount(VIKUNJA)
+
+    // Nothing generic to tabulate: the mapping is per board…
+    expect(screen.queryByText('integrations.vikunja.summary.mappingLabel')).toBeNull()
+    // …and the board is named exactly once, by the backend's own section
+    // (twice would mean the generic line rendered as well).
+    expect(screen.getAllByText('integrations.vikunja.summary.boardLabel')).toHaveLength(1)
+    expect(screen.getByTestId('todo-summary-board').textContent).toBe('Probe')
   })
 })
 

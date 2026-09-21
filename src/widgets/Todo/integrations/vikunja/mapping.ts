@@ -221,7 +221,13 @@ export function labelToProject(label: VikunjaLabelSummary): Project {
 }
 
 export interface VikunjaTaskContext {
-  mapping: StatusListMapping
+  /**
+   * The mapping of the board being pulled, or `null` when that board has
+   * none — which is flat mode, where the status comes from `done` and this is
+   * never read. A kanban board without a mapping is refused by the adapter
+   * before a pull reaches here.
+   */
+  mapping: StatusListMapping | null
   /**
    * Local task id per known Vikunja task id, built once by the adapter. An
    * index rather than the raw `knownRefs` record, so mapping a board stays
@@ -261,7 +267,11 @@ function parseTimestamp(iso: string | null, fallback: number): number {
  * they skip the bucket mapping.
  */
 function statusFor(task: VikunjaPulledTask, localId: string, ctx: VikunjaTaskContext): TodoStatus {
-  if (!ctx.flat) return statusForContainerId(String(task.bucketId), ctx.mapping)
+  // A kanban board with no mapping does not reach here (the adapter refuses
+  // it); `input` is the fallback an unmapped bucket gets anyway.
+  if (!ctx.flat) {
+    return ctx.mapping === null ? 'input' : statusForContainerId(String(task.bucketId), ctx.mapping)
+  }
   if (task.done) return 'completed'
 
   const known = ctx.knownStatuses[localId]

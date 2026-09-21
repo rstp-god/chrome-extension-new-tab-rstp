@@ -1,4 +1,4 @@
-import { useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { isIntegrationReady, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { isQuietError, isTerminalError } from '@/widgets/Todo/utils/errorState.ts'
 import { formatRelative } from '@/widgets/Todo/utils/formatRelative.ts'
 import { AlertTriangleIcon, CheckCircle2Icon, RefreshCwIcon, WifiOffIcon } from 'lucide-react'
@@ -22,7 +22,9 @@ export function TodoSyncBadge() {
     })),
   )
 
-  if (!integration || !integration.mapping) return null
+  // Hidden until a sync could actually happen — the same question the footer
+  // asks before it shows this row at all.
+  if (!integration || !isIntegrationReady(integration)) return null
 
   /**
    * Collapse the three orthogonal flags into a single discriminant so the
