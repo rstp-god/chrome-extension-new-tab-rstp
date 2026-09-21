@@ -682,3 +682,393 @@ describe('pull', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+// ---------- write path (task 6) ----------
+
+/**
+ * The write ops care about the *method* as well as the path (`GET /tasks/4`
+ * and `POST /tasks/4` are the two halves of one read-modify-write), which the
+ * read-path `Responder` above cannot express.
+ */
+function stubMethodFetch(responder: (url: string, init: RequestInit) => Response) {
+  const fetchMock = vi.fn(async (url: string, init: RequestInit) => responder(url, init))
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+/** Method + path of every call, in order. */
+function trace(fetchMock: ReturnType<typeof stubMethodFetch>): string[] {
+  return fetchMock.mock.calls.map(([url, init]) => `${init.method} ${url.slice(API.length)}`)
+}
+
+function bodyOf(fetchMock: ReturnType<typeof stubMethodFetch>, index: number): unknown {
+  return JSON.parse(String(fetchMock.mock.calls[index][1].body))
+}
+
+/** `updated` of `taskBody()` after normalisation — the etag the widget holds. */
+const TASK_ETAG = '2026-09-20T14:57:12.000Z'
+
+describe('create', () => {
+  const request = {
+    type: 'vikunja',
+    op: 'create',
+    cfg: CFG,
+    projectId: 1,
+    payload: { title: 'New task', description: '<p>d</p>' },
+  } as const
+
+  it('creates the task and reports the write summary', async () => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() =>
+      jsonResponse(201, taskBody({ id: 7, title: 'New task' })),
+    )
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: true,
+      value: {
+        id: 7,
+        identifier: '#3',
+        // `bucket_id` is 0 outside a view response, and 0 travels as 0 — the
+        // widget keeps its own last known bucket rather than believing it.
+        bucketId: 0,
+        done: false,
+        doneAt: null,
+        updated: TASK_ETAG,
+      },
+    })
+    expect(trace(fetchMock)).toEqual(['PUT /projects/1/tasks'])
+    expect(bodyOf(fetchMock, 0)).toEqual({ title: 'New task', description: '<p>d</p>' })
+  })
+
+  it('trims the title before sending it', async () => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() => jsonResponse(201, taskBody()))
+
+    await handleVikunjaRequest({ ...request, payload: { title: '  New task  ' } })
+
+    expect(bodyOf(fetchMock, 0)).toEqual({ title: 'New task', description: '' })
+  })
+
+  it.each([
+    ['an empty title', { projectId: 1, payload: { title: '' } }],
+    ['a whitespace-only title', { projectId: 1, payload: { title: '   ' } }],
+    ['an over-long title', { projectId: 1, payload: { title: 'x'.repeat(1025) } }],
+    [
+      'an over-long description',
+      { projectId: 1, payload: { title: 'ok', description: 'x'.repeat(16_385) } },
+    ],
+    ['a fractional project id', { projectId: 1.5, payload: { title: 'ok' } }],
+    ['a zero project id', { projectId: 0, payload: { title: 'ok' } }],
+    ['a payload that is not an object', { projectId: 1, payload: 'ok' }],
+  ])('refuses %s without fetching', async (_label, patch) => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() => jsonResponse(201, taskBody()))
+
+    await expect(handleVikunjaRequest({ ...request, ...patch } as never)).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubMethodFetch(() => jsonResponse(201, taskBody()))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('update', () => {
+  const request = {
+    type: 'vikunja',
+    op: 'update',
+    cfg: CFG,
+    taskId: 4,
+    etag: TASK_ETAG,
+    payload: { title: 'renamed' },
+  } as const
+
+  it('reads, merges and writes the whole record back', async () => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch((_url, init) =>
+      jsonResponse(200, init.method === 'GET' ? taskBody() : taskBody({ title: 'renamed' })),
+    )
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: true,
+      value: {
+        id: 4,
+        identifier: '#3',
+        bucketId: 0,
+        done: false,
+        doneAt: null,
+        updated: TASK_ETAG,
+      },
+    })
+
+    expect(trace(fetchMock)).toEqual(['GET /tasks/4', 'POST /tasks/4'])
+    // The description the widget never sent is still there — trap 1.
+    expect(bodyOf(fetchMock, 1)).toEqual({ ...taskBody(), title: 'renamed' })
+  })
+
+  it('reports conflict without writing when the remote moved on', async () => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() =>
+      jsonResponse(200, taskBody({ updated: '2026-09-20T18:00:00+03:00' })),
+    )
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'conflict',
+    })
+    expect(trace(fetchMock)).toEqual(['GET /tasks/4'])
+  })
+
+  it.each([
+    ['an empty etag', { etag: '' }],
+    ['an absurdly long etag', { etag: 'x'.repeat(65) }],
+    ['a zero task id', { taskId: 0 }],
+    ['a fractional task id', { taskId: 4.5 }],
+    ['a non-boolean done', { payload: { done: 'yes' } }],
+    ['an empty title', { payload: { title: '  ' } }],
+  ])('refuses %s without fetching', async (_label, patch) => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() => jsonResponse(200, taskBody()))
+
+    await expect(handleVikunjaRequest({ ...request, ...patch } as never)).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubMethodFetch(() => jsonResponse(200, taskBody()))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('moveToBucket', () => {
+  const request = {
+    type: 'vikunja',
+    op: 'moveToBucket',
+    cfg: CFG,
+    taskId: 4,
+    projectId: 1,
+    viewId: 4,
+    bucketId: 3,
+  } as const
+
+  it('moves the task and reports the bucket plus the server-set done flag', async () => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() =>
+      jsonResponse(200, {
+        task_id: 4,
+        bucket_id: 3,
+        project_view_id: 4,
+        // Recon Q7: the done bucket sets both of these server-side.
+        task: taskBody({ done: true, done_at: '2026-09-20T14:58:54.988789804Z' }),
+      }),
+    )
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: true,
+      value: {
+        id: 4,
+        identifier: '#3',
+        // From the move's own answer, since the embedded task still says 0.
+        bucketId: 3,
+        done: true,
+        doneAt: '2026-09-20T14:58:54.988789804Z',
+        updated: TASK_ETAG,
+      },
+    })
+    expect(trace(fetchMock)).toEqual(['POST /projects/1/views/4/buckets/3/tasks'])
+    expect(bodyOf(fetchMock, 0)).toEqual({ task_id: 4 })
+  })
+
+  it.each([
+    ['a zero bucket id', { bucketId: 0 }],
+    ['a fractional bucket id', { bucketId: 3.5 }],
+    ['a zero task id', { taskId: 0 }],
+    ['a negative view id', { viewId: -4 }],
+  ])('refuses %s without fetching', async (_label, patch) => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() => jsonResponse(200, {}))
+
+    await expect(handleVikunjaRequest({ ...request, ...patch })).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubMethodFetch(() => jsonResponse(200, {}))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('delete', () => {
+  const request = { type: 'vikunja', op: 'delete', cfg: CFG, taskId: 4 } as const
+
+  it('deletes the task', async () => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() => jsonResponse(200, { message: 'Successfully deleted.' }))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: true,
+      value: { deleted: true },
+    })
+    expect(trace(fetchMock)).toEqual(['DELETE /tasks/4'])
+  })
+
+  it('refuses an unusable id without fetching', async () => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch(() => jsonResponse(200, { message: 'x' }))
+
+    await expect(handleVikunjaRequest({ ...request, taskId: -1 })).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubMethodFetch(() => jsonResponse(200, { message: 'x' }))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('setLabels', () => {
+  const LABELLED = taskBody({
+    labels: [
+      { id: 1, title: 'energy:1', hex_color: 'efbdeb' },
+      { id: 2, title: 'MOOD:low', hex_color: 'efbdeb' },
+      { id: 3, title: 'work', hex_color: '' },
+    ],
+  })
+
+  const request = {
+    type: 'vikunja',
+    op: 'setLabels',
+    cfg: CFG,
+    taskId: 4,
+    add: [5],
+    remove: [3],
+  } as const
+
+  function stubLabelInstance() {
+    return stubMethodFetch((url, init) => {
+      if (init.method === 'GET') return jsonResponse(200, LABELLED)
+      if (init.method === 'PUT') {
+        return jsonResponse(201, { label_id: 5, created: '2026-09-20T17:00:00+03:00' })
+      }
+      return jsonResponse(200, { message: 'Successfully deleted.' })
+    })
+  }
+
+  it('reads the task, then removes before adding', async () => {
+    stubPermissions(true)
+    const fetchMock = stubLabelInstance()
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: true,
+      value: { added: [5], removed: [3] },
+    })
+    expect(trace(fetchMock)).toEqual([
+      'GET /tasks/4',
+      'DELETE /tasks/4/labels/3',
+      'PUT /tasks/4/labels',
+    ])
+    expect(bodyOf(fetchMock, 2)).toEqual({ label_id: 5 })
+  })
+
+  it('never removes a reserved label, whatever the renderer asks for', async () => {
+    // The ids alone say nothing — only the titles on the task do, which is
+    // why the read is not optional.
+    stubPermissions(true)
+    const fetchMock = stubLabelInstance()
+
+    await expect(handleVikunjaRequest({ ...request, add: [], remove: [1, 2, 3] })).resolves.toEqual(
+      { ok: true, value: { added: [], removed: [3] } },
+    )
+
+    expect(trace(fetchMock)).toEqual(['GET /tasks/4', 'DELETE /tasks/4/labels/3'])
+  })
+
+  it('skips ids the task does not carry instead of collecting a 404', async () => {
+    stubPermissions(true)
+    const fetchMock = stubLabelInstance()
+
+    await expect(handleVikunjaRequest({ ...request, add: [3], remove: [99] })).resolves.toEqual({
+      ok: true,
+      value: { added: [], removed: [] },
+    })
+    expect(trace(fetchMock)).toEqual(['GET /tasks/4'])
+  })
+
+  it('propagates a failure mid-way and stops', async () => {
+    stubPermissions(true)
+    const fetchMock = stubMethodFetch((_url, init) =>
+      init.method === 'GET' ? jsonResponse(200, LABELLED) : jsonResponse(429, {}),
+    )
+
+    await expect(handleVikunjaRequest({ ...request, add: [5, 6] })).resolves.toEqual({
+      ok: false,
+      errorKey: 'rateLimited',
+    })
+    expect(trace(fetchMock)).toEqual(['GET /tasks/4', 'DELETE /tasks/4/labels/3'])
+  })
+
+  it.each([
+    ['a zero label id', { add: [0], remove: [] }],
+    ['a fractional label id', { add: [], remove: [1.5] }],
+    ['more ids than one call may carry', { add: Array.from({ length: 51 }, (_v, i) => i + 1) }],
+    ['a list that is not an array', { add: 5 }],
+    ['a zero task id', { taskId: 0 }],
+  ])('refuses %s without fetching', async (_label, patch) => {
+    stubPermissions(true)
+    const fetchMock = stubLabelInstance()
+
+    await expect(handleVikunjaRequest({ ...request, ...patch } as never)).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubLabelInstance()
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})

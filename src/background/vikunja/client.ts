@@ -21,23 +21,37 @@ import {
   VIKUNJA_PAGE_SIZE,
   VIKUNJA_REQUEST_TIMEOUT_MS,
 } from '@/background/vikunja/constants.ts'
+import { normalizeVikunjaTimestamp } from '@/background/vikunja/messages.ts'
+import { enqueue } from '@/background/vikunja/mutationQueue.ts'
 import {
   vikunjaBucketSchema,
   vikunjaBucketWithTasksSchema,
   vikunjaInfoSchema,
   vikunjaLabelSchema,
+  vikunjaMessageSchema,
   vikunjaProjectSchema,
+  vikunjaTaskBucketSchema,
+  vikunjaTaskLabelSchema,
+  vikunjaTaskSchema,
   vikunjaUserSchema,
   vikunjaViewSchema,
+  withoutUnsafeKeys,
 } from '@/background/vikunja/schema.ts'
 
-import type { VikunjaErrorKey, VikunjaResponse } from '@/background/vikunja/messages.ts'
+import type {
+  TaskPayload,
+  VikunjaErrorKey,
+  VikunjaResponse,
+} from '@/background/vikunja/messages.ts'
 import type {
   VikunjaBucket,
   VikunjaBucketWithTasks,
   VikunjaInfo,
   VikunjaLabel,
+  VikunjaMessage,
   VikunjaProject,
+  VikunjaTask,
+  VikunjaTaskLabel,
   VikunjaUser,
   VikunjaView,
 } from '@/background/vikunja/schema.ts'
@@ -45,13 +59,58 @@ import type {
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 /**
- * A parsed body plus the response headers it arrived with. Pagination lives
- * in the headers (`x-pagination-total-pages`), and only the client is allowed
- * to know that — so the headers travel no further than this file.
+ * A parsed body, the JSON it was parsed from, and the response headers it
+ * arrived with.
+ *
+ * Pagination lives in the headers (`x-pagination-total-pages`), and only the
+ * client is allowed to know that — so the headers travel no further than this
+ * file. `raw` is there for the one flow that cannot use the parsed value: a
+ * read-modify-write has to send back exactly what it was given (see
+ * `updateTask`), and the parsed task has normalised its dates and its null
+ * collections on the way in.
  */
 interface WithHeaders<T> {
   value: T
+  raw: unknown
   headers: Headers
+}
+
+/**
+ * `GET /tasks/:id` in both currencies.
+ *
+ * `raw` is the body as the instance sent it (minus the prototype-poisoning
+ * keys `withoutUnsafeKeys` drops) and is the only thing that may be written
+ * back. `task` is the same record parsed, and is for *reading* — its
+ * `updated` is the etag, its `labels` are a real array even when the wire
+ * said `null`.
+ */
+export interface VikunjaRawTask {
+  raw: Record<string, unknown>
+  task: VikunjaTask
+}
+
+/** A moved task plus the bucket it now sits in. */
+export interface VikunjaMovedTask {
+  task: VikunjaTask
+  bucketId: number
+}
+
+/**
+ * The patch as `POST /tasks/:id` spells it, carrying **only the keys the
+ * caller actually set**.
+ *
+ * That is the whole point: the body is `{ ...raw, ...toWireFields(patch) }`,
+ * so a key present here overwrites the instance's value and a key absent here
+ * keeps it. `done_at` is deliberately never written — Vikunja maintains it
+ * itself when `done` flips (recon Q7/Q8), and our guess would only ever be
+ * worse than the server's.
+ */
+function toWireFields(patch: Partial<TaskPayload>): Record<string, unknown> {
+  const fields: Record<string, unknown> = {}
+  if (patch.title !== undefined) fields.title = patch.title
+  if (patch.description !== undefined) fields.description = patch.description
+  if (patch.done !== undefined) fields.done = patch.done
+  return fields
 }
 
 /**
@@ -85,6 +144,7 @@ function warnPageCap(path: string): void {
 
 const NETWORK_FAILURE: VikunjaResponse<never> = { ok: false, errorKey: 'network' }
 const UNKNOWN_FAILURE: VikunjaResponse<never> = { ok: false, errorKey: 'unknown' }
+const CONFLICT_FAILURE: VikunjaResponse<never> = { ok: false, errorKey: 'conflict' }
 
 /**
  * Maps a non-5xx status onto an error key, or `null` when the response is a
@@ -223,7 +283,145 @@ export class VikunjaClient {
     return this.put(`${this.viewPath(projectId, viewId)}/buckets`, vikunjaBucketSchema, { title })
   }
 
+  // ---------- write path ----------
+
+  /**
+   * One task, raw and parsed (see `VikunjaRawTask`). The raw half is what the
+   * read-modify-write of `updateTask` sends back.
+   */
+  async getTaskRaw(taskId: number): Promise<VikunjaResponse<VikunjaRawTask>> {
+    const out = await this.requestWithHeaders('GET', this.taskPath(taskId), vikunjaTaskSchema)
+    if (!out.ok) return out
+
+    const raw = withoutUnsafeKeys(out.value.raw)
+    // The schema parsed it as an object, so this cannot fail — but the body
+    // we are about to spread into a request must be proven to be a record
+    // here, not assumed to be one three methods later.
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return UNKNOWN_FAILURE
+
+    return { ok: true, value: { raw: raw as Record<string, unknown>, task: out.value.value } }
+  }
+
+  /**
+   * Edits a task — **the only `POST /tasks/:id` in the project.**
+   *
+   * `POST /tasks/:id` is a full object **replacement**, not a patch (recon
+   * Q9): sending `{"done": true}` blanks `description`, `due_date`,
+   * `priority`, `percent_done` and everything else the body left out, in the
+   * user's own tracker. So every edit is a read-modify-write: read the task,
+   * merge the patch into the **raw JSON exactly as received**, send the whole
+   * object back. Two details that look optional and are not:
+   *
+   * - the merge base is `raw`, never the parsed task. The parsed one has
+   *   turned `0001-01-01` dates into `null` and `labels: null` into `[]`, and
+   *   POSTing that would hand the instance our normalisation as data.
+   * - the etag is compared through `normalizeVikunjaTimestamp` on both sides.
+   *   Mutation responses carry nanoseconds while reads carry seconds (recon
+   *   Q16), so a raw comparison reports a conflict on every second edit.
+   *
+   * A stale etag means someone else changed the task since the widget last
+   * read it. The local edit loses — reporting `conflict` **without** sending
+   * anything is the whole point of holding the etag.
+   *
+   * Runs inside `enqueue`, so a second edit of the same task cannot read the
+   * record between this method's own read and write.
+   */
+  updateTask(
+    taskId: number,
+    patch: Partial<TaskPayload>,
+    knownEtag: string,
+  ): Promise<VikunjaResponse<VikunjaTask>> {
+    return enqueue(taskId, async () => {
+      const current = await this.getTaskRaw(taskId)
+      if (!current.ok) return current
+
+      if (
+        normalizeVikunjaTimestamp(current.value.task.updated) !==
+        normalizeVikunjaTimestamp(knownEtag)
+      ) {
+        return CONFLICT_FAILURE
+      }
+
+      return this.request('POST', this.taskPath(taskId), vikunjaTaskSchema, {
+        ...current.value.raw,
+        ...toWireFields(patch),
+      })
+    })
+  }
+
+  /**
+   * Creates a task. `PUT` is Vikunja's create verb here too, and the task
+   * lands in the view's default bucket — where it goes next is the caller's
+   * decision, made with `moveToBucket`.
+   *
+   * Only `title` and `description` are sent: there is no existing record to
+   * preserve, so this is the one write that needs no read first.
+   */
+  createTask(projectId: number, payload: TaskPayload): Promise<VikunjaResponse<VikunjaTask>> {
+    return this.put(`/projects/${projectId}/tasks`, vikunjaTaskSchema, {
+      title: payload.title,
+      description: payload.description ?? '',
+    })
+  }
+
+  /**
+   * Moves a task into a bucket.
+   *
+   * A separate endpoint rather than a field: `bucket_id` in a
+   * `POST /tasks/:id` body is echoed back and then ignored (recon Q10). Moving
+   * into the view's done bucket sets `done` + `done_at` server-side and moving
+   * out resets them (recon Q7), so the embedded task in the response — not our
+   * expectation — is what the caller reports back to the widget.
+   *
+   * Enqueued under the same task id as `updateTask`, so a move and an edit of
+   * one task never overlap.
+   */
+  moveToBucket(
+    projectId: number,
+    viewId: number,
+    bucketId: number,
+    taskId: number,
+  ): Promise<VikunjaResponse<VikunjaMovedTask>> {
+    return enqueue(taskId, async () => {
+      const path = `${this.viewPath(projectId, viewId)}/buckets/${bucketId}/tasks`
+      const out = await this.request('POST', path, vikunjaTaskBucketSchema, { task_id: taskId })
+      if (!out.ok) return out
+      return { ok: true, value: { task: out.value.task, bucketId: out.value.bucket_id } }
+    })
+  }
+
+  /**
+   * Deletes a task for good. Not reachable from any push: the widget's
+   * "delete" is a move into the trash column. It exists for an explicit
+   * "delete forever" action and is enqueued like every other write, so it
+   * cannot land between another edit's read and write.
+   */
+  deleteTask(taskId: number): Promise<VikunjaResponse<VikunjaMessage>> {
+    return enqueue(taskId, () =>
+      this.request('DELETE', this.taskPath(taskId), vikunjaMessageSchema),
+    )
+  }
+
+  /** Attaches one label (recon Q13: `PUT`, answers 201 with the id). */
+  addLabel(taskId: number, labelId: number): Promise<VikunjaResponse<VikunjaTaskLabel>> {
+    return enqueue(taskId, () =>
+      this.put(`${this.taskPath(taskId)}/labels`, vikunjaTaskLabelSchema, { label_id: labelId }),
+    )
+  }
+
+  /** Detaches one label. The id is in the path, not in a body. */
+  removeLabel(taskId: number, labelId: number): Promise<VikunjaResponse<VikunjaMessage>> {
+    return enqueue(taskId, () =>
+      this.request('DELETE', `${this.taskPath(taskId)}/labels/${labelId}`, vikunjaMessageSchema),
+    )
+  }
+
   // ---------- internals ----------
+
+  /** Built in one place for the same reason as `viewPath`. */
+  private taskPath(taskId: number): string {
+    return `/tasks/${taskId}`
+  }
 
   /**
    * Ids are numbers validated by the handler before they reach this class, so
@@ -396,7 +594,7 @@ export class VikunjaClient {
     }
     return {
       retry: false,
-      response: { ok: true, value: { value: parsed.data, headers: res.headers } },
+      response: { ok: true, value: { value: parsed.data, raw: json, headers: res.headers } },
     }
   }
 

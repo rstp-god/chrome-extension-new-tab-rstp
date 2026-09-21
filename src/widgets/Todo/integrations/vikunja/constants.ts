@@ -32,17 +32,6 @@ export function isTestedVikunjaVersion(version: string): boolean {
 }
 
 /**
- * Label prefixes the widget must pretend not to see.
- *
- * The instance this integration was built against already uses `energy:*` and
- * `mood:*` labels for a different feature of the user's own workflow (recon
- * Q13). Surfacing them as Todo "projects" would bury the real ones, and task
- * 6 must never strip them off a task it edits — a sync that quietly deletes
- * someone's labels is worse than no sync.
- */
-export const VIKUNJA_RESERVED_LABEL_PREFIXES = ['energy:', 'mood:'] as const
-
-/**
  * The two columns the mapping wizard offers to create on a board that has
  * none, keyed by the status they would fill. Values are i18n keys inside the
  * `todoWidget` namespace, not literals: the bucket is created in the user's

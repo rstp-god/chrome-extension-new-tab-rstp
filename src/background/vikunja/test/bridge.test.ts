@@ -75,9 +75,9 @@ describe('handleVikunjaRequest', () => {
     expect(typeof value.at).toBe('number')
   })
 
-  it('answers a known but not-yet-implemented op with unknown', async () => {
-    // The write ops land in task 6; until then they fall through to the
-    // dispatcher's default rather than pretending to work.
+  it('routes a write op through the permission gate like every other one', async () => {
+    // The dispatcher knows `create` now, and the gate answers before the
+    // network: no host permission is granted in this suite's chrome mock.
     const response = await handleVikunjaRequest({
       type: 'vikunja',
       op: 'create',
@@ -86,7 +86,7 @@ describe('handleVikunjaRequest', () => {
       payload: { title: 'probe' },
     })
 
-    expect(response).toEqual({ ok: false, errorKey: 'unknown' })
+    expect(response).toEqual({ ok: false, errorKey: 'permissionMissing' })
   })
 
   it('keeps a default branch for an op outside the union', async () => {

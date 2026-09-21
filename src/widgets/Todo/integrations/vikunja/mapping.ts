@@ -9,10 +9,9 @@
  * here (`created`, `done_at`) or follows from the task id.
  */
 
-import { normalizeVikunjaTimestamp } from '@/background/vikunja/messages.ts'
+import { isReservedVikunjaLabel, normalizeVikunjaTimestamp } from '@/background/vikunja/messages.ts'
 import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.ts'
 
-import { VIKUNJA_RESERVED_LABEL_PREFIXES } from './constants.ts'
 import { getVikunjaProjectPillClass } from './projectStyles.ts'
 
 import type { VikunjaLabelSummary, VikunjaPulledTask } from '@/background/vikunja/messages.ts'
@@ -107,8 +106,8 @@ export function htmlToText(html: string): string {
 }
 
 /**
- * The inverse, for the writes task 6 will make: blank-line-separated
- * paragraphs, single newlines as `<br>`, everything else escaped.
+ * The inverse, used by every push: blank-line-separated paragraphs, single
+ * newlines as `<br>`, everything else escaped.
  */
 export function textToHtml(text: string): string {
   const normalized = text.replace(/\r\n?/g, '\n').trim()
@@ -131,10 +130,16 @@ export function localIdForTask(taskId: number): string {
   return `vikunja:${taskId}`
 }
 
-/** Is this one of the labels another feature owns (see the constant)? */
+/**
+ * Is this one of the labels another feature owns?
+ *
+ * Re-exported under the adapter's own name from the shared list in
+ * `messages.ts`: the worker enforces the very same rule when it removes
+ * labels, and two copies of a "never touch these" list is how one of them
+ * ends up out of date.
+ */
 export function isReservedLabel(title: string): boolean {
-  const normalized = title.trim().toLowerCase()
-  return VIKUNJA_RESERVED_LABEL_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+  return isReservedVikunjaLabel(title)
 }
 
 export function labelToProject(label: VikunjaLabelSummary): Project {

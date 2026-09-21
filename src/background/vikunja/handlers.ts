@@ -13,6 +13,7 @@ import { z } from 'zod'
 
 import { VikunjaClient } from '@/background/vikunja/client.ts'
 import {
+  isReservedVikunjaLabel,
   normalizeVikunjaBaseUrl,
   normalizeVikunjaTimestamp,
   vikunjaHostPattern,
@@ -24,6 +25,7 @@ import {
 import type {
   VikunjaBucketSummary,
   VikunjaConnectInfo,
+  VikunjaDeleteResult,
   VikunjaLabelSummary,
   VikunjaPing,
   VikunjaProjectSummary,
@@ -31,6 +33,8 @@ import type {
   VikunjaPulledTask,
   VikunjaRequest,
   VikunjaResponse,
+  VikunjaSetLabelsResult,
+  VikunjaTaskWrite,
 } from '@/background/vikunja/messages.ts'
 import type {
   VikunjaBucket,
@@ -134,6 +138,60 @@ const vikunjaBucketTitleSchema = z
   .max(250)
   .transform((raw) => raw.trim())
   .refine((title) => title.length > 0)
+
+/**
+ * One id on its own, for the ops that address a task rather than a scope.
+ * Same reasoning as `vikunjaScopeSchema`: the value is interpolated into a
+ * path, so "it is typed `number`" is not a check.
+ */
+const vikunjaIdSchema = z.number().int().positive()
+
+/**
+ * A task's two free-text fields on the way *out*.
+ *
+ * The ceilings are the same ones the pull truncates to, so a round trip
+ * cannot grow a task past what the widget is willing to read back. The title
+ * is trimmed and must survive it: Vikunja accepts `"   "` and the user then
+ * has a nameless task they cannot find.
+ */
+const vikunjaTaskTitleSchema = z
+  .string()
+  .max(VIKUNJA_MAX_TITLE_LENGTH)
+  .transform((raw) => raw.trim())
+  .refine((title) => title.length > 0)
+
+const vikunjaDescriptionSchema = z.string().max(VIKUNJA_MAX_DESCRIPTION_LENGTH)
+
+const vikunjaCreatePayloadSchema = z.object({
+  title: vikunjaTaskTitleSchema,
+  description: vikunjaDescriptionSchema.optional(),
+})
+
+/**
+ * The patch of an `update`. Every field optional — the point of the op is to
+ * send only what changed — but each one validated the same way as on create,
+ * because the merge writes it into the task either way.
+ */
+const vikunjaUpdatePayloadSchema = z.object({
+  title: vikunjaTaskTitleSchema.optional(),
+  description: vikunjaDescriptionSchema.optional(),
+  done: z.boolean().optional(),
+})
+
+/**
+ * The etag the widget claims to have read the task at. Bounded and non-empty:
+ * it is a normalised ISO timestamp (~24 chars), and an empty one would mean
+ * "compare against nothing", which is exactly the case `updateTask`'s
+ * conflict check exists to refuse.
+ */
+const vikunjaEtagSchema = z.string().min(1).max(64)
+
+/**
+ * Label ids for one `setLabels` call. Bounded at 50 per direction: each id
+ * costs a request, and a renderer asking for ten thousand of them is asking
+ * the worker to hammer the user's instance until MV3 unloads it.
+ */
+const vikunjaLabelIdsSchema = z.array(vikunjaIdSchema).max(50)
 
 function toProjectSummary(project: VikunjaProject): VikunjaProjectSummary {
   // The first kanban view wins. A project can hold several, but they share
@@ -287,6 +345,162 @@ export function handlePull(
   })
 }
 
+/**
+ * What a mutation reports back.
+ *
+ * `bucket_id` on a task is only filled inside a view response (recon Q3), so
+ * a create or an edit answers `0` and the caller's own `fallback` — the bucket
+ * a move was asked for, or nothing — stands in. Never a guess: `0` travels to
+ * the widget as `0`, and the widget keeps its last known bucket rather than
+ * believing it.
+ */
+function toTaskWrite(task: VikunjaTask, fallbackBucketId = 0): VikunjaTaskWrite {
+  return {
+    id: task.id,
+    identifier: task.identifier,
+    bucketId: task.bucket_id > 0 ? task.bucket_id : fallbackBucketId,
+    done: task.done,
+    doneAt: task.done_at,
+    // Normalised at the single point every mutation answer passes through:
+    // this value becomes the widget's etag, and a nanosecond timestamp stored
+    // there would conflict against the next read (recon Q16).
+    updated: normalizeVikunjaTimestamp(task.updated),
+  }
+}
+
+/** Creates a task in the project's default bucket. */
+export function handleCreate(
+  req: Extract<VikunjaRequest, { op: 'create' }>,
+): Promise<VikunjaResponse<VikunjaTaskWrite>> {
+  const projectId = vikunjaIdSchema.safeParse(req.projectId)
+  const payload = vikunjaCreatePayloadSchema.safeParse(req.payload)
+  if (!projectId.success || !payload.success) return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+
+  return withVikunjaClient(req.cfg, async (client) => {
+    const out = await client.createTask(projectId.data, payload.data)
+    if (!out.ok) return out
+    return { ok: true, value: toTaskWrite(out.value) }
+  })
+}
+
+/**
+ * Edits a task through the read-modify-write in `VikunjaClient.updateTask` —
+ * the only path in the project that may `POST /tasks/:id`. A stale `etag`
+ * comes back as `conflict` and nothing is sent.
+ */
+export function handleUpdate(
+  req: Extract<VikunjaRequest, { op: 'update' }>,
+): Promise<VikunjaResponse<VikunjaTaskWrite>> {
+  const taskId = vikunjaIdSchema.safeParse(req.taskId)
+  const etag = vikunjaEtagSchema.safeParse(req.etag)
+  const payload = vikunjaUpdatePayloadSchema.safeParse(req.payload)
+  if (!taskId.success || !etag.success || !payload.success) {
+    return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+  }
+
+  return withVikunjaClient(req.cfg, async (client) => {
+    const out = await client.updateTask(taskId.data, payload.data, etag.data)
+    if (!out.ok) return out
+    return { ok: true, value: toTaskWrite(out.value) }
+  })
+}
+
+/**
+ * Moves a task into a bucket. The response's embedded task is authoritative
+ * for `done` / `done_at` — the done bucket flips them server-side (recon Q7)
+ * — so no follow-up read is needed and none is made.
+ */
+export function handleMoveToBucket(
+  req: Extract<VikunjaRequest, { op: 'moveToBucket' }>,
+): Promise<VikunjaResponse<VikunjaTaskWrite>> {
+  const scope = vikunjaScopeSchema.safeParse(req)
+  const taskId = vikunjaIdSchema.safeParse(req.taskId)
+  const bucketId = vikunjaIdSchema.safeParse(req.bucketId)
+  if (!scope.success || !taskId.success || !bucketId.success) {
+    return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+  }
+  const { projectId, viewId } = scope.data
+
+  return withVikunjaClient(req.cfg, async (client) => {
+    const out = await client.moveToBucket(projectId, viewId, bucketId.data, taskId.data)
+    if (!out.ok) return out
+    // The move endpoint knows the bucket even when the embedded task does not.
+    return { ok: true, value: toTaskWrite(out.value.task, out.value.bucketId) }
+  })
+}
+
+/** Deletes a task for good. No push produces this — see `client.deleteTask`. */
+export function handleDelete(
+  req: Extract<VikunjaRequest, { op: 'delete' }>,
+): Promise<VikunjaResponse<VikunjaDeleteResult>> {
+  const taskId = vikunjaIdSchema.safeParse(req.taskId)
+  if (!taskId.success) return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+
+  return withVikunjaClient(req.cfg, async (client) => {
+    const out = await client.deleteTask(taskId.data)
+    if (!out.ok) return out
+    return { ok: true, value: { deleted: true } }
+  })
+}
+
+/**
+ * Attaches and detaches labels, one request each (Vikunja has no bulk form).
+ *
+ * Removals run before additions so a project change frees the slot before it
+ * fills it, and both run sequentially: the label endpoints are per-id, and
+ * firing them in parallel would only race the same task's own mutation queue.
+ *
+ * The read that opens it is not optional. A removal list is a list of **ids**,
+ * and whether an id is one of the reserved `energy:` / `mood:` labels (recon
+ * Q13) can only be told from its *title* — which lives on the task. So the
+ * task is read first, the reserved ids are dropped from the removals, and a
+ * renderer that asks for one is refused rather than trusted. Ids the task does
+ * not carry are dropped too: Vikunja answers 404 for those, and one stale id
+ * in the list would otherwise abort the whole operation.
+ */
+export function handleSetLabels(
+  req: Extract<VikunjaRequest, { op: 'setLabels' }>,
+): Promise<VikunjaResponse<VikunjaSetLabelsResult>> {
+  const taskId = vikunjaIdSchema.safeParse(req.taskId)
+  const add = vikunjaLabelIdsSchema.safeParse(req.add)
+  const remove = vikunjaLabelIdsSchema.safeParse(req.remove)
+  if (!taskId.success || !add.success || !remove.success) {
+    return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+  }
+
+  return withVikunjaClient(req.cfg, async (client) => {
+    const current = await client.getTaskRaw(taskId.data)
+    if (!current.ok) return current
+
+    const attached = new Set(current.value.task.labels.map((label) => label.id))
+    const reserved = new Set(
+      current.value.task.labels
+        .filter((label) => isReservedVikunjaLabel(label.title))
+        .map((label) => label.id),
+    )
+
+    const removed: number[] = []
+    for (const labelId of remove.data) {
+      if (reserved.has(labelId) || !attached.has(labelId)) continue
+      const out = await client.removeLabel(taskId.data, labelId)
+      if (!out.ok) return out
+      attached.delete(labelId)
+      removed.push(labelId)
+    }
+
+    const added: number[] = []
+    for (const labelId of add.data) {
+      if (attached.has(labelId)) continue
+      const out = await client.addLabel(taskId.data, labelId)
+      if (!out.ok) return out
+      attached.add(labelId)
+      added.push(labelId)
+    }
+
+    return { ok: true, value: { added, removed } }
+  })
+}
+
 /** Validates credentials against a live instance. */
 export function handleConnect(
   req: Extract<VikunjaRequest, { op: 'connect' }>,
@@ -305,9 +519,9 @@ export function handleConnect(
 }
 
 /**
- * Dispatcher. Everything the read path needs is wired up; the write ops
- * (`create` / `update` / `moveToBucket` / `delete` / `setLabels`) answer
- * `unknown` until task 6 implements them, rather than pretending to work.
+ * Dispatcher. Every op of the union is wired up; `default` stays as the
+ * refusal for an `op` that somehow passed `isVikunjaRequest` without having a
+ * handler — it answers `unknown` rather than falling through to a throw.
  */
 export async function handleVikunjaRequest(req: VikunjaRequest): Promise<VikunjaResponse<unknown>> {
   switch (req.op) {
@@ -333,6 +547,21 @@ export async function handleVikunjaRequest(req: VikunjaRequest): Promise<Vikunja
 
     case 'pull':
       return handlePull(req)
+
+    case 'create':
+      return handleCreate(req)
+
+    case 'update':
+      return handleUpdate(req)
+
+    case 'moveToBucket':
+      return handleMoveToBucket(req)
+
+    case 'delete':
+      return handleDelete(req)
+
+    case 'setLabels':
+      return handleSetLabels(req)
 
     default:
       return VIKUNJA_UNKNOWN_FAILURE

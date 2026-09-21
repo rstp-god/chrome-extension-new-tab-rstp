@@ -166,12 +166,17 @@ const vikunjaTaskShape = z.looseObject({
  * Prototype-pollution guard for the loose schema above. A passthrough object
  * copies whatever keys the instance sent, and `JSON.parse` happily produces an
  * *own* `__proto__` property — which, once spread into another object literal
- * (exactly what the read-modify-write of task 6 does), stops being data and
- * starts being an assignment to the prototype. The payload is attacker-shaped
- * from our side of the trust boundary: a shared Vikunja project is enough to
- * put a task there.
+ * (exactly what the read-modify-write of `updateTask` does), stops being data
+ * and starts being an assignment to the prototype. The payload is
+ * attacker-shaped from our side of the trust boundary: a shared Vikunja
+ * project is enough to put a task there.
+ *
+ * Exported because the write path needs the *raw* body too — the object it
+ * POSTs back is built from the untouched JSON, not from the parsed task — and
+ * that copy has to be stripped by the very same rule, or the guard would
+ * cover only the half of the flow that never reaches a request body.
  */
-export const vikunjaTaskSchema = z.preprocess((value) => {
+export function withoutUnsafeKeys(value: unknown): unknown {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
 
   const safe: Record<string, unknown> = {}
@@ -180,7 +185,9 @@ export const vikunjaTaskSchema = z.preprocess((value) => {
     safe[key] = nested
   }
   return safe
-}, vikunjaTaskShape)
+}
+
+export const vikunjaTaskSchema = z.preprocess(withoutUnsafeKeys, vikunjaTaskShape)
 
 /**
  * One entry of `GET /projects/:pid/views/:vid/tasks` on a kanban view: the
@@ -204,6 +211,25 @@ export const vikunjaTaskBucketSchema = z.object({
   task: vikunjaTaskSchema,
 })
 
+/**
+ * Answer to `PUT /tasks/:id/labels` (recon Q13): 201 with the id that was
+ * attached. The label's own record is not echoed, and we do not need it — the
+ * caller already knows which id it asked for.
+ */
+export const vikunjaTaskLabelSchema = z.object({
+  label_id: z.number(),
+  created: z.string(),
+})
+
+/**
+ * Vikunja's uniform "it is gone now" body, answered by every `DELETE`
+ * (`{"message":"Successfully deleted."}`). Parsed rather than ignored so a
+ * proxy's HTML error page cannot pass for a successful delete.
+ */
+export const vikunjaMessageSchema = z.object({
+  message: z.string(),
+})
+
 export type VikunjaInfo = z.infer<typeof vikunjaInfoSchema>
 export type VikunjaUser = z.infer<typeof vikunjaUserSchema>
 export type VikunjaLabel = z.infer<typeof vikunjaLabelSchema>
@@ -213,3 +239,5 @@ export type VikunjaBucket = z.infer<typeof vikunjaBucketSchema>
 export type VikunjaTask = z.infer<typeof vikunjaTaskSchema>
 export type VikunjaBucketWithTasks = z.infer<typeof vikunjaBucketWithTasksSchema>
 export type VikunjaTaskBucket = z.infer<typeof vikunjaTaskBucketSchema>
+export type VikunjaTaskLabel = z.infer<typeof vikunjaTaskLabelSchema>
+export type VikunjaMessage = z.infer<typeof vikunjaMessageSchema>

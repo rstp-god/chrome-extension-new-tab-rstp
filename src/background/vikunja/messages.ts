@@ -42,13 +42,69 @@ export interface VikunjaWire {
 }
 
 /**
- * Minimal task body. Task 6 finalises the field set (due dates, labels,
- * priority, …) once the mapping layer exists.
+ * Everything the widget may write to a task, and nothing else.
+ *
+ * Deliberately three fields. `POST /tasks/:id` is a **full replace** (recon
+ * Q9), so the worker has to read the task, merge this patch into the raw
+ * record and write the whole thing back; every field listed here is a field
+ * the user's own instance can lose to a bug, and none of the rest
+ * (`due_date`, `priority`, `percent_done`, assignees, reminders) is something
+ * the widget can even show, let alone edit. Labels are not here either: they
+ * have their own endpoints (`setLabels`) and are not part of the task body.
+ *
+ * `description` is **HTML**, already produced by the widget's `textToHtml` —
+ * Vikunja stores rich text in this field and would render an escaped string
+ * as literal markup.
+ *
+ * `done` is only ever sent in flat mode. In kanban mode a move into the
+ * view's done bucket sets it server-side (recon Q7), so sending it as well
+ * would be a second request for an effect that already happened.
  */
 export interface TaskPayload {
   title: string
   description?: string
   done?: boolean
+}
+
+/**
+ * What a mutation answers with: the identity of the task plus the three
+ * fields the widget's ref and its card actually depend on.
+ *
+ * Not the whole task — the bridge is a `structuredClone` boundary and the
+ * widget has no use for the other forty fields it would then have to
+ * re-validate.
+ *
+ * `bucketId` is `0` when the response cannot say (the global task endpoints
+ * do not fill `bucket_id` — recon Q3); the widget keeps its last known bucket
+ * in that case rather than believing the zero.
+ *
+ * `updated` is already normalised to whole seconds, so it can be stored as
+ * the ref's etag and compared with the next read without a false conflict
+ * (recon Q16).
+ */
+export interface VikunjaTaskWrite {
+  id: number
+  identifier: string
+  bucketId: number
+  done: boolean
+  doneAt: string | null
+  updated: string
+}
+
+/**
+ * What `setLabels` actually changed — not what it was asked to change. A
+ * reserved label (see `isReservedVikunjaLabel`) is never removed and a label
+ * the task does not carry is not removed twice, so the two lists can be
+ * shorter than the request's.
+ */
+export interface VikunjaSetLabelsResult {
+  added: number[]
+  removed: number[]
+}
+
+/** `DELETE /tasks/:id` carries no payload worth forwarding. */
+export interface VikunjaDeleteResult {
+  deleted: true
 }
 
 export type VikunjaRequest =
@@ -194,6 +250,28 @@ export interface VikunjaLabelSummary {
  */
 export const VIKUNJA_MAX_TITLE_LENGTH = 1024
 export const VIKUNJA_MAX_DESCRIPTION_LENGTH = 16_384
+
+/**
+ * Label prefixes that belong to another feature of the user's own workflow.
+ *
+ * The instance this integration was built against already uses `energy:*` and
+ * `mood:*` labels for something else (recon Q13). The widget pretends not to
+ * see them — surfacing them as Todo "projects" would bury the real ones — and,
+ * more importantly, the **write path must never strip one off a task it
+ * edits**: a sync that quietly deletes someone's labels is worse than no sync.
+ *
+ * Shared vocabulary rather than a widget constant because both sides enforce
+ * it: the widget hides them, and the worker drops them from a `setLabels`
+ * removal list — a renderer asking for a reserved id is refused there, not
+ * trusted. One list, so the two checks cannot disagree.
+ */
+export const VIKUNJA_RESERVED_LABEL_PREFIXES = ['energy:', 'mood:'] as const
+
+/** Is this one of the labels another feature owns (see the list above)? */
+export function isReservedVikunjaLabel(title: string): boolean {
+  const normalized = title.trim().toLowerCase()
+  return VIKUNJA_RESERVED_LABEL_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+}
 
 /**
  * One task as the pull hands it over.
