@@ -155,6 +155,73 @@ const VIKUNJA_ENVELOPE = {
   },
 }
 
+/**
+ * The same connection in the **current** shape: two boards, each with its own
+ * view, columns and mapping, and a period of its own so this case cannot pass
+ * on the legacy envelope's alarm.
+ *
+ * It exercises the other branch of `readVikunjaScheduleFrom` — the one that
+ * reads `config.boards` — and the rule that gates it: a schedule is refused
+ * while *any* board is unmapped, so both mappings here are filled in.
+ */
+const VIKUNJA_BOARDS_ENVELOPE = {
+  meta: { originId: 'playwright', rev: 1, ts: 1_700_000_000_000 },
+  state: {
+    tasks: [],
+    integration: {
+      name: 'vikunja',
+      config: {
+        baseUrl: 'https://vikunja.example',
+        token: 'tk_not-a-real-token',
+        boards: [
+          {
+            projectId: 1,
+            viewId: 4,
+            name: 'Inbox',
+            containers: [
+              { id: '1', name: 'To-Do', isDefault: true },
+              { id: '3', name: 'Done', isTerminal: true },
+            ],
+            mapping: {
+              input: ['1'],
+              inprogress: ['1'],
+              struggle: ['1'],
+              completed: ['3'],
+              deleted: ['1'],
+            },
+            kanbanMapping: true,
+          },
+          {
+            projectId: 2,
+            viewId: 8,
+            name: 'Работа',
+            containers: [
+              { id: '11', name: 'To-Do', isDefault: true },
+              { id: '13', name: 'Done', isTerminal: true },
+            ],
+            mapping: {
+              input: ['11'],
+              inprogress: ['11'],
+              struggle: ['11'],
+              completed: ['13'],
+              deleted: ['11'],
+            },
+            kanbanMapping: true,
+          },
+        ],
+        defaultProjectId: 1,
+        pullPeriodMin: 1,
+      },
+      // The three slice fields this backend stopped keeping.
+      boardName: null,
+      lists: [],
+      projects: [],
+      mapping: null,
+      lastSyncAt: null,
+    },
+  },
+}
+
 /** The boards the stored envelope carries, if any — the upgrade's own output. */
 async function storedBoards(page: Page): Promise<unknown> {
   return page.evaluate(async () => {
@@ -217,6 +284,40 @@ test('the worker schedules and clears the background pull from stored config', a
   } finally {
     // Other specs assume an empty profile: the envelope above would otherwise
     // resurrect a connected integration in the Todo widget.
+    if (opened) await clearExtensionStorage(opened)
+    await context.close()
+  }
+})
+
+test('the worker schedules the background pull from a multi-board config', async () => {
+  const context = await launchExtensionContext()
+  let opened: Page | null = null
+
+  try {
+    const page = await context.newPage()
+    opened = page
+    await openExtensionNewTab(page)
+    await clearExtensionStorage(page)
+
+    expect(await ping(page)).toMatchObject({ ok: true })
+
+    await page.evaluate(
+      (envelope) => chrome.storage.local.set({ 'todo-widget:v1': envelope }),
+      VIKUNJA_BOARDS_ENVELOPE,
+    )
+
+    // One alarm for the whole connection, at the period the config names —
+    // never one per board, and never the boards' count divided into it.
+    await expect
+      .poll(() => pullAlarmPeriod(page), { timeout: 10_000 })
+      .toBe(VIKUNJA_BOARDS_ENVELOPE.state.integration.config.pullPeriodMin)
+
+    // Nothing left to pull: the alarm goes, exactly as it does for the
+    // single-board record above.
+    await page.evaluate(() => chrome.storage.local.remove('todo-widget:v1'))
+
+    await expect.poll(() => pullAlarmPeriod(page), { timeout: 10_000 }).toBeNull()
+  } finally {
     if (opened) await clearExtensionStorage(opened)
     await context.close()
   }
