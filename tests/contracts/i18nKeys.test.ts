@@ -51,21 +51,37 @@ function leaf(value: Record<string, unknown>, path: string): unknown {
 const TEMPLATED_LEAVES = [
   'connect.title',
   'connect.description',
+  // The dialog's own header at the scope and mapping steps, whoever renders
+  // their bodies.
   'board.title',
   'board.description',
-  'board.pickLabel',
-  'board.empty',
   'mapping.title',
   'summary.title',
-  'summary.boardLabel',
-  'summary.mappingLabel',
   'summary.lastSync',
   'summary.neverSynced',
   'summary.disconnect',
   'summary.disconnectConfirm',
-  'summary.rePickBoard',
   'summary.switch',
   'summary.switchConfirm',
+]
+
+/**
+ * Leaves only the **shared** steps read: the generic scope picker's select and
+ * empty state, and the generic summary's board line, mapping table and
+ * "change the scope" button.
+ *
+ * A descriptor that brings its own `ScopeStep` or `SummaryExtras` replaces
+ * those screens, so requiring the strings would be requiring copy nothing can
+ * render — dead translations that still have to be kept in two locales. They
+ * are required of every other descriptor, which is where the shared UI is the
+ * whole UI.
+ */
+const GENERIC_UI_LEAVES = [
+  'board.pickLabel',
+  'board.empty',
+  'summary.boardLabel',
+  'summary.mappingLabel',
+  'summary.rePickBoard',
 ]
 
 describe('i18n contract', () => {
@@ -92,11 +108,23 @@ describe('i18n contract', () => {
   describe.each(Object.keys(todoIntegrationRegistry))(
     'todo integration "%s"',
     (integrationName) => {
+      const descriptor = todoIntegrationRegistry[integrationName]
+      const bringsOwnUi = Boolean(descriptor.ScopeStep) || Boolean(descriptor.SummaryExtras)
+
       it.each(TEMPLATED_LEAVES)('has integrations.<name>.%s in both locales', (path) => {
         const full = `integrations.${integrationName}.${path}`
         expect(leaf(enTodo, full), `missing in en: ${full}`).toEqual(expect.any(String))
         expect(leaf(ruTodo, full), `missing in ru: ${full}`).toEqual(expect.any(String))
       })
+
+      it.skipIf(bringsOwnUi).each(GENERIC_UI_LEAVES)(
+        'has integrations.<name>.%s for the shared steps it renders',
+        (path) => {
+          const full = `integrations.${integrationName}.${path}`
+          expect(leaf(enTodo, full), `missing in en: ${full}`).toEqual(expect.any(String))
+          expect(leaf(ruTodo, full), `missing in ru: ${full}`).toEqual(expect.any(String))
+        },
+      )
     },
   )
 })

@@ -1,7 +1,11 @@
 import { Button } from '@/components/ui/button.tsx'
 import { TodoConfirmDialog } from '@/widgets/Todo/components/settings/TodoConfirmDialog.tsx'
 import { TodoImportDialog } from '@/widgets/Todo/components/settings/TodoImportDialog.tsx'
-import { getIntegrationDescriptor, TODO_STATUSES } from '@/widgets/Todo/integrations/index.ts'
+import {
+  getIntegrationDescriptor,
+  getProjectPolicy,
+  TODO_STATUSES,
+} from '@/widgets/Todo/integrations/index.ts'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { unlinkedLocalTasks } from '@/widgets/Todo/store/sync.ts'
 import { isTerminalError } from '@/widgets/Todo/utils/errorState.ts'
@@ -13,7 +17,12 @@ import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
-  onEditMapping: () => void
+  /**
+   * Opens the mapping step — for one named scope, when the backend's own
+   * section offers a button per scope (Vikunja's list of boards), or for
+   * whatever is waiting when called with nothing.
+   */
+  onEditMapping: (target?: string) => void
   onPickScope: () => void
 }
 
@@ -72,12 +81,28 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
   const summaryKey = (leaf: string) => `integrations.${integration.name}.summary.${leaf}`
 
   /**
-   * Whether the per-status table describes anything. A backend may say no
-   * (Vikunja in flat mode, where the mapping is a placeholder) and then its
-   * `SummaryExtras` explains what happens instead.
+   * Whether the per-status table describes anything.
+   *
+   * Two ways it does not. A backend may say no outright (Vikunja in flat
+   * mode, where the mapping is a placeholder) and then its `SummaryExtras`
+   * explains what happens instead. Or the slice may simply not be where its
+   * mapping lives — a backend with several boards has one per board, so there
+   * is nothing generic to tabulate and its own section shows them.
    */
-  const showsMapping = descriptor?.showsStatusMapping?.(integration.config) ?? true
+  const showsMapping =
+    (descriptor?.showsStatusMapping?.(integration.config) ?? true) && integration.mapping !== null
   const SummaryExtras = descriptor?.SummaryExtras
+
+  /**
+   * Whether the shared row of buttons still owns "configure this backend".
+   *
+   * A backend that brings its own scope step or its own summary section has
+   * its own way in — Vikunja's section offers "Columns" per board and
+   * "Change boards", which is the same two actions said precisely. Showing
+   * both would ask the user to pick between a button that names their board
+   * and one that names "the" board.
+   */
+  const showsGenericSetup = !descriptor?.ScopeStep && !SummaryExtras
 
   /**
    * Offered only by a backend that does not sweep local tasks along on its
@@ -94,7 +119,24 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
    */
   const showsError = errorKey !== null && !isTerminalError(errorKey)
 
-  const scopeName = integration.boardName ?? '—'
+  /**
+   * The destination an import would create tasks in, in the user's own words
+   * — the one thing the import button and its dialog have to name.
+   *
+   * Three answers, most specific first. A backend that keeps one scope on the
+   * slice has its cached name there (Trello). One whose scopes *are* its
+   * projects answers with the project a new task goes to — the same id the
+   * add dialog preselects — as long as its project cache has been read since
+   * the boards became the projects. Failing both, the instance the connection
+   * points at, which is still a place the user recognises; `—` is left for a
+   * backend that names nothing at all.
+   */
+  const defaultProjectId = getProjectPolicy(descriptor).defaultId(integration.config)
+  const scopeName =
+    integration.boardName ??
+    integration.projects.find((project) => project.id === defaultProjectId)?.name ??
+    descriptor?.describeHost?.(integration.config) ??
+    '—'
 
   const handleSync = async () => {
     setBusy(true)
@@ -123,10 +165,15 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
   return (
     <div className="grid gap-4">
       <div className="grid gap-2 text-sm">
-        <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">{t(summaryKey('boardLabel'))}</span>
-          <span className="font-medium">{integration.boardName ?? '—'}</span>
-        </div>
+        {/* Only for a backend that keeps one scope on the slice. One that
+            syncs a list of boards has no single name to put here, and names
+            them in its own section below. */}
+        {integration.boardName !== null && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">{t(summaryKey('boardLabel'))}</span>
+            <span className="font-medium">{integration.boardName}</span>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <span className="text-muted-foreground">{t(summaryKey('lastSync'))}</span>
           <span className="font-medium">{lastSyncLabel}</span>
@@ -134,10 +181,15 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
       </div>
 
       {SummaryExtras && (
-        <SummaryExtras integration={integration} actions={{ updateIntegrationConfig }} />
+        <SummaryExtras
+          integration={integration}
+          onEditMapping={onEditMapping}
+          onPickScope={onPickScope}
+          actions={{ updateIntegrationConfig }}
+        />
       )}
 
-      {integration.mapping && showsMapping && (
+      {showsMapping && (
         <div className="grid gap-1.5 rounded-2xl border border-border bg-muted/20 p-3 text-sm">
           <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t(summaryKey('mappingLabel'))}
@@ -181,12 +233,16 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
           <RefreshCwIcon className={loading || busy ? 'animate-spin' : undefined} />
           {t('actions.syncNow')}
         </Button>
-        <Button type="button" variant="outline" onClick={onEditMapping}>
-          {t(`integrations.${integration.name}.mapping.title`)}
-        </Button>
-        <Button type="button" variant="outline" onClick={onPickScope}>
-          {t(summaryKey('rePickBoard'))}
-        </Button>
+        {showsGenericSetup && (
+          <>
+            <Button type="button" variant="outline" onClick={() => onEditMapping()}>
+              {t(`integrations.${integration.name}.mapping.title`)}
+            </Button>
+            <Button type="button" variant="outline" onClick={onPickScope}>
+              {t(summaryKey('rePickBoard'))}
+            </Button>
+          </>
+        )}
         <Button
           data-testid={TestId.TodoSummarySwitch}
           type="button"

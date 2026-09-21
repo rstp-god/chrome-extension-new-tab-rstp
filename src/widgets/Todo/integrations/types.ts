@@ -37,6 +37,23 @@ export interface Project {
  */
 export type RemoteScope = Record<string, string | number>
 
+/**
+ * The cached state of one scope, as the store hands it to `withBoardState`.
+ *
+ * Every field is optional and only the ones present are written: the three
+ * callers know different amounts (picking a scope knows all of it, saving a
+ * mapping knows the mapping, refreshing the columns knows the columns), and
+ * an absent field must not overwrite what the config already holds.
+ */
+export interface BoardStatePatch {
+  /** Human name of the scope, as `listScopes` reported it. */
+  name?: string
+  /** Containers of the scope, as `listContainers` reported them. */
+  containers?: RemoteContainer[]
+  /** The mapping for this scope, or `null` when it has just been invalidated. */
+  mapping?: StatusListMapping | null
+}
+
 /** One pickable scope plus its human label, as offered by `listScopes`. */
 export interface RemoteScopeOption {
   scope: RemoteScope
@@ -72,6 +89,16 @@ export interface TrelloRemoteRef {
 /** Pointer to the remote Vikunja task for a local task. */
 export interface VikunjaRemoteRef {
   taskId: number
+  /**
+   * The board (Vikunja project) the task lives on.
+   *
+   * Required rather than optional: with several boards connected, a ref that
+   * does not name one addresses nothing — neither a pull nor a push could
+   * tell which project to look in. The view is deliberately *not* here; it is
+   * looked up on the board (`config.boards`), which is the one place it can
+   * change without every ref having to be rewritten.
+   */
+  projectId: number
   /** Human-facing id (`#42`, `PROJ-42`) — cheap to show, cheap to search. */
   identifier: string
   /** Last observed bucket (kanban column); `null` in flat mode. */
@@ -96,6 +123,42 @@ export function isTrelloRef(ref: RemoteTaskRef): ref is TrelloRemoteRef {
 
 export function isVikunjaRef(ref: RemoteTaskRef): ref is VikunjaRemoteRef {
   return 'taskId' in ref
+}
+
+/**
+ * The project a ref was written against, as a string, or `null` for a ref
+ * that names none.
+ *
+ * Structural rather than a per-backend branch: "which project does this
+ * record live in" is a question about the ref's own shape. A ref without the
+ * field (Trello's) answers `null`.
+ */
+function refProjectId(ref: RemoteTaskRef): string | null {
+  const raw = (ref as { projectId?: unknown }).projectId
+  return typeof raw === 'number' || typeof raw === 'string' ? String(raw) : null
+}
+
+/**
+ * Does this task live on the board `projectId` names?
+ *
+ * The one answer two callers have to agree on: the settings step that counts
+ * what dropping a board would cost, and the store action that then drops it.
+ * Two copies of the rule would mean a confirmation promising one number and
+ * a store removing another.
+ *
+ * Both sides of the same fact are matched — the project the task names and
+ * the one its own ref was written against — and `ownsRef` is what keeps a
+ * foreign ref out of it: another backend's `projectId` belongs to another
+ * instance's numbering, so it can never mean this board.
+ */
+export function taskBelongsToBoard(
+  task: TodoTask,
+  projectId: string,
+  ownsRef: (ref: RemoteTaskRef) => boolean,
+): boolean {
+  if (task.projectId === projectId) return true
+  if (task.remoteRef === null || !ownsRef(task.remoteRef)) return false
+  return refProjectId(task.remoteRef) === projectId
 }
 
 export type IntegrationPushOp =
@@ -168,8 +231,25 @@ export type RemoteChangeEvent =
   | { kind: 'failed'; errorKey: IntegrationErrorKey }
 
 export interface PullContext {
-  scope: RemoteScope
-  mapping: StatusListMapping
+  /**
+   * The address the store resolved for this backend (`descriptor.getScope`),
+   * or `null` when it resolved none.
+   *
+   * Nullable — and, for a backend that keeps a *list* of scopes, beside the
+   * point. The store cannot name the one scope a sync is about when there are
+   * several of them, so it passes what `getScope` answered and the adapter
+   * decides: Trello reads it (one board, one address), Vikunja ignores it and
+   * reads its own `config.boards`.
+   */
+  scope: RemoteScope | null
+  /**
+   * The mapping on the integration slice, or `null` when there is none.
+   *
+   * Same split as `scope`: it is where a single-scope backend has always kept
+   * its mapping, and a backend with one mapping *per* scope (Vikunja) keeps
+   * it on the board instead and ignores this.
+   */
+  mapping: StatusListMapping | null
   /** Existing local refs keyed by local task id, used by `reconcile`. */
   knownRefs: Record<string, RemoteTaskRef>
   /**
@@ -182,20 +262,6 @@ export interface PullContext {
    * otherwise reset every task to `input` on every sync.
    */
   knownStatuses: Record<string, TodoStatus>
-  /**
-   * The project ids the store already has cached (`integration.projects`),
-   * for an adapter that would otherwise have to read them again to tell a
-   * task's project from something else.
-   *
-   * Vikunja needs it: a task carries label *ids*, and the adapter has to know
-   * which of them are real projects rather than the reserved `energy:` /
-   * `mood:` ones — a question it used to answer by listing every label on the
-   * instance, on every sync, including the cheap non-forced ones the
-   * background pull triggers. The cache is refreshed on a forced pull and by
-   * the scope picker / `refreshContainers`, which is exactly when the answer
-   * can have changed. A backend that does not need it (Trello) ignores it.
-   */
-  knownProjectIds?: readonly string[]
   /**
    * Read the backend for real instead of answering from whatever the adapter
    * (or the service worker behind it) has cached.
@@ -211,8 +277,10 @@ export interface PullContext {
 }
 
 export interface PushContext {
-  scope: RemoteScope
-  mapping: StatusListMapping
+  /** As `PullContext.scope`: what `getScope` answered, which may be `null`. */
+  scope: RemoteScope | null
+  /** As `PullContext.mapping`: the slice's mapping, which may be `null`. */
+  mapping: StatusListMapping | null
   knownRef: RemoteTaskRef | null
 }
 
@@ -281,16 +349,49 @@ export interface ConnectFormProps {
 }
 
 /**
- * The store actions a mapping step is allowed to call. Handed over rather
+ * The store actions a settings step is allowed to call. Handed over rather
  * than imported for the same reason as everything else below.
+ *
+ * One bundle for both steps a descriptor may bring: the settings layer builds
+ * it once and hands the same object to the scope step and to the mapping
+ * step, which need the same three actions for the same reason — a scope step
+ * that offers several boards writes the config and re-reads the columns, and
+ * a mapping step writes the mapping and the mode.
  */
-export interface MappingStepActions {
-  /** Persists the mapping and kicks off a sync. */
+export interface SettingsStepActions {
+  /** Persists the mapping of the default scope and kicks off a sync. */
   setMapping: (mapping: StatusListMapping) => Promise<void>
   /** Replaces the integration's config; `false` when it did not validate. */
   updateIntegrationConfig: (config: unknown) => boolean
-  /** Re-reads containers and projects, keeping the mapping; `false` on failure. */
+  /** Re-reads containers and projects of the default scope, keeping the mapping. */
   refreshContainers: () => Promise<boolean>
+  /**
+   * Forgets every local task that belongs to a project the connection no
+   * longer syncs — by `task.projectId` and by the project its own `remoteRef`
+   * names.
+   *
+   * For the scope step of a backend that syncs a *list* of boards: unchecking
+   * one is the user saying "stop showing me this board", and the tasks it
+   * pulled in would otherwise stay in the widget forever — never refreshed
+   * (no pull reads that board any more) and never pushed (no board carries
+   * their mapping). Deleting nothing on the backend is the point: the records
+   * stay in the tracker, and only the widget's copy goes.
+   *
+   * Returns nothing and is not awaited: it is a local edit of the task list,
+   * with no request behind it.
+   */
+  dropTasksOfProject: (projectId: string) => void
+  /**
+   * Reads the backend and pushes whatever is pending.
+   *
+   * A step needs it at the end of the configuration it owns: a wizard that
+   * has just written the last mapping has made the connection syncable, and
+   * the widget behind the dialog would otherwise show yesterday's list until
+   * something else happened to ask. Steps that write through `setMapping`
+   * get the sync for free (it syncs on its own); one that writes the config
+   * directly — a backend with a mapping per scope — does not.
+   */
+  syncNow: () => Promise<void>
 }
 
 /**
@@ -306,7 +407,18 @@ export interface MappingStepActions {
  * read, and it has all of this at hand already.
  */
 export interface MappingStepProps {
+  /** The user pressed Back: undo the step that led here, change nothing. */
   onBack: () => void
+  /**
+   * The step has finished what it was opened for and persisted it.
+   *
+   * Separate from `onBack` because the settings layer answers them
+   * differently — Back returns to the step behind this one, done hands the
+   * dialog back to the step its own state implies — and because only the
+   * step knows which one happened: a wizard walking several scopes is not
+   * finished until the last of them is written.
+   */
+  onDone: () => void
   /** The active integration slice, for its containers, mapping and config. */
   integration: IntegrationState
   /** Adapter built from that slice by the settings layer. */
@@ -315,10 +427,55 @@ export interface MappingStepProps {
   scope: RemoteScope
   /** Current store-level error, if any. */
   errorKey: IntegrationErrorKey | null
-  actions: MappingStepActions
+  /**
+   * Which of the backend's scopes the user asked to map, as a key only the
+   * descriptor gives meaning to (Vikunja: `String(projectId)`).
+   *
+   * Absent means "whatever is waiting to be mapped", which is the wizard a
+   * fresh connection walks through. It is set by the summary's per-scope
+   * button, where the user named one — the dialog keeps it beside the step
+   * override and drops it with it.
+   */
+  target?: string
+  actions: SettingsStepActions
 }
 
-/** The store actions a summary extra may call — the same rule as `MappingStepActions`. */
+/**
+ * Props of a backend's own scope step — the screen that answers "which board
+ * is this integration about".
+ *
+ * A mirror of `MappingStepProps` minus the one thing a scope step cannot be
+ * given: the scope itself, which is what it is there to choose. The generic
+ * `TodoSettingsScopePicker` is the default when a descriptor brings none, and
+ * it takes these very props (it lives in the settings layer, so unlike a
+ * descriptor's own component it may also read the store).
+ *
+ * Prop-driven for the same reason as `MappingStepProps`: a component reached
+ * through a descriptor must not import the store, or the import graph closes
+ * the loop `store → registry → descriptor → component → store`.
+ */
+export interface ScopeStepProps {
+  /** The user pressed Back: undo the step that led here, change nothing. */
+  onBack: () => void
+  /** The step persisted the scopes it was opened for — see `MappingStepProps`. */
+  onDone: () => void
+  /** The active integration slice, for its config and its cached state. */
+  integration: IntegrationState
+  /** Adapter built from that slice by the settings layer. */
+  adapter: TodoIntegration
+  /**
+   * The widget's tasks, for a step that has to say what dropping a scope
+   * would cost: "12 tasks of this board disappear from the widget" is a
+   * sentence only the task list can produce, and a step reached through a
+   * descriptor may not read the store to find it out.
+   */
+  tasks: TodoTask[]
+  /** Current store-level error, if any. */
+  errorKey: IntegrationErrorKey | null
+  actions: SettingsStepActions
+}
+
+/** The store actions a summary extra may call — the same rule as `SettingsStepActions`. */
 export interface SummaryExtrasActions {
   /** Replaces the integration's config; `false` when it did not validate. */
   updateIntegrationConfig: (config: unknown) => boolean
@@ -333,7 +490,49 @@ export interface SummaryExtrasActions {
  */
 export interface SummaryExtrasProps {
   integration: IntegrationState
+  /**
+   * Open the mapping step for one of the backend's scopes, named the way
+   * `MappingStepProps.target` reads it — or for whatever is waiting, with no
+   * argument.
+   */
+  onEditMapping: (target?: string) => void
+  /** Open the scope step — for a backend whose section offers its own way in. */
+  onPickScope: () => void
   actions: SummaryExtrasActions
+}
+
+/**
+ * Which screen of the settings dialog an integration is waiting on.
+ *
+ * The subset of `DialogStep` that follows from persisted state alone — the
+ * other two (`picker`, `connect`) are about a connection that does not exist
+ * yet, which is the dialog's own business and no descriptor's.
+ */
+export type SetupStep = 'board' | 'mapping' | 'summary'
+
+/**
+ * What a backend expects of a task's project.
+ *
+ * Trello's answer is the default one — a project (a label) is optional, the
+ * user may change it, and there is no "default project" to fall back on.
+ * Vikunja's is the opposite on every count: a task lives *in* a project
+ * (that is what a board is), so one is always required, it is the board the
+ * task was created on, and moving a task between projects is a different
+ * operation from anything the widget offers today.
+ */
+export interface ProjectPolicy {
+  /** Must every task name a project? */
+  required: boolean
+  /**
+   * The project a task gets when the user names none, read out of the
+   * persisted config — or `null` when the config names none either.
+   *
+   * Takes the config rather than the whole slice for the same reason as
+   * `getScope`: only the descriptor knows where inside it the answer lives.
+   */
+  defaultId: (config: unknown) => string | null
+  /** May a task be moved to another project from the widget? */
+  changeable: boolean
 }
 
 export interface IntegrationDescriptor {
@@ -356,6 +555,32 @@ export interface IntegrationDescriptor {
    * Like `ConnectForm`, it is prop-driven (see `MappingStepProps`).
    */
   MappingStep?: ComponentType<MappingStepProps>
+  /**
+   * Replaces the generic scope picker with the backend's own step. Optional:
+   * a backend that syncs one scope needs nothing more than the shared
+   * `TodoSettingsScopePicker` — one select and a Continue button.
+   *
+   * Like `ConnectForm`, it is prop-driven (see `ScopeStepProps`).
+   */
+  ScopeStep?: ComponentType<ScopeStepProps>
+  /**
+   * Which screen this integration is waiting on, from its persisted state
+   * alone.
+   *
+   * Optional, and absent means the rule the widget has always had: no scope
+   * yet → pick one, no mapping yet → map it, otherwise the summary (see
+   * `getSetupStep` in `integrations/setup.ts`, which is the one place this
+   * answer is read). A backend that keeps a *list* of scopes implements it
+   * because the question is no longer about "the" scope: Vikunja is waiting
+   * on the mapping step while *any* of its boards is unmapped, and the
+   * default one may not be that board.
+   *
+   * It answers a second question through `isReadyToSync`, which is `summary`
+   * and nothing else: a connection still being configured is precisely one a
+   * sync cannot do anything useful with, so the two are one hook rather than
+   * two that must agree.
+   */
+  getSetupStep?: (integration: IntegrationState) => SetupStep
   /**
    * The backend's own part of the settings summary — whatever the shared
    * summary cannot know about. Vikunja puts its background-pull period and
@@ -387,6 +612,14 @@ export interface IntegrationDescriptor {
    * something that does not happen. Its `SummaryExtras` says what does.
    */
   showsStatusMapping?(config: unknown): boolean
+  /**
+   * What this backend expects of a task's project — see `ProjectPolicy`.
+   *
+   * Optional; absent means Trello's answer, which is also the widget's
+   * historical one: a project is optional, changeable, and there is no
+   * default (`getProjectPolicy` in `integrations/setup.ts`).
+   */
+  projectPolicy?: ProjectPolicy
   /** Pure factory: takes persisted config, returns a ready adapter. */
   create: (config: unknown) => TodoIntegration
   /**
@@ -413,13 +646,18 @@ export interface IntegrationDescriptor {
    * only knows what it last asked for. Trello does not implement it: polling
    * from the page would be the very thing the worker exists to avoid.
    *
+   * It is handed the whole integration rather than one scope, because the
+   * set of addresses worth listening to is the descriptor's own reading of
+   * its config: Vikunja accepts a broadcast about **any** of `config.boards`
+   * and filters out the rest — a broadcast about a project this connection
+   * does not sync is not this subscriber's business.
+   *
    * The implementation must be inert where there is no channel (the showcase
-   * build, tests, a stripped `chrome`) and must tolerate being called for a
-   * scope it then filters out — a broadcast about another project is not this
-   * subscriber's business.
+   * build, tests, a stripped `chrome`) and where the config addresses nothing
+   * at all.
    */
   subscribeRemoteChanges?(
-    scope: RemoteScope,
+    integration: IntegrationState,
     onEvent: (event: RemoteChangeEvent) => void,
   ): () => void
   /**
@@ -467,6 +705,28 @@ export interface IntegrationDescriptor {
    * descriptor knows which keys make it up.
    */
   getScope: (config: unknown) => RemoteScope | null
+  /**
+   * Writes the cached state of the scope the store just read — its name, its
+   * containers, its mapping — into the config, for a backend that keeps that
+   * per scope rather than once.
+   *
+   * Optional, and absent means "this backend keeps it on the integration
+   * slice", which is where it has always lived (`boardName` / `lists` /
+   * `mapping`) and is all Trello needs: one board, one set of columns, one
+   * mapping. Vikunja implements it because it syncs a *list* of boards and
+   * each board has its own columns — the same status maps to a different
+   * bucket on each, so a single stored mapping would be wrong for all but one
+   * of them.
+   *
+   * Pure, like `withScope`: it returns a copy of the config, and the store
+   * re-validates that copy against the persisted schema before it lands.
+   *
+   * Implementing it is also what retires the slice fields: the store writes
+   * `boardName` / `lists` / `mapping` **empty** for such a descriptor, since
+   * the board is now the only copy and a second one nobody updates is one a
+   * later reader would trust by mistake.
+   */
+  withBoardState?: (config: unknown, patch: BoardStatePatch) => unknown
   /** Pure counterpart of `getScope`: returns a copy of the config with the scope written in. */
   withScope: (config: unknown, scope: RemoteScope) => unknown
   /**

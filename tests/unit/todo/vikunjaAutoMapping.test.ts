@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  copyMappingByNames,
   flatModeMapping,
   suggestMapping,
   terminalContainer,
@@ -8,6 +9,7 @@ import {
 } from '@/widgets/Todo/integrations/vikunja/autoMapping.ts'
 
 import type { RemoteContainer, StatusListMapping } from '@/widgets/Todo/integrations/types.ts'
+import type { VikunjaBoard } from '@/widgets/Todo/store/store.ts'
 
 /** The board the recon instance actually has. */
 const THREE_COLUMNS: RemoteContainer[] = [
@@ -265,5 +267,119 @@ describe('flatModeMapping', () => {
   it('answers null without a done bucket — nothing could round-trip', () => {
     expect(flatModeMapping([{ id: '1', name: 'To-Do' }])).toBeNull()
     expect(flatModeMapping([])).toBeNull()
+  })
+})
+
+describe('copyMappingByNames — carrying a mapping to a board built from the same template', () => {
+  /** The board the user already mapped, with ids of its own. */
+  const source: VikunjaBoard = {
+    projectId: 8,
+    viewId: 80,
+    name: 'Work',
+    containers: [
+      { id: 's1', name: 'To-Do', isDefault: true },
+      { id: 's2', name: 'Doing' },
+      { id: 's3', name: 'Struggle' },
+      { id: 's4', name: 'Done', isTerminal: true },
+      { id: 's5', name: 'Trash' },
+    ],
+    mapping: {
+      input: ['s1'],
+      inprogress: ['s2'],
+      struggle: ['s3'],
+      completed: ['s4'],
+      deleted: ['s5'],
+    },
+    kanbanMapping: true,
+  }
+
+  it('matches by name, ignoring case and surrounding space', () => {
+    const target: RemoteContainer[] = [
+      { id: 't1', name: '  to-do ', isDefault: true },
+      { id: 't2', name: 'DOING' },
+      { id: 't3', name: 'struggle' },
+      { id: 't4', name: 'done', isTerminal: true },
+      { id: 't5', name: 'Trash' },
+    ]
+
+    expect(copyMappingByNames(source, target)).toEqual({
+      input: ['t1'],
+      inprogress: ['t2'],
+      struggle: ['t3'],
+      completed: ['t4'],
+      deleted: ['t5'],
+    })
+  })
+
+  it('points completed at the target’s done bucket whatever either board calls it', () => {
+    const target: RemoteContainer[] = [
+      { id: 't1', name: 'To-Do' },
+      { id: 't2', name: 'Doing' },
+      { id: 't3', name: 'Struggle' },
+      { id: 't9', name: 'Archive', isTerminal: true },
+      { id: 't5', name: 'Trash' },
+    ]
+
+    const mapping = copyMappingByNames(source, target)
+
+    // Nothing was called "Done" on the target board; the terminal bucket is
+    // still the only honest home for `completed`.
+    expect(mapping.completed).toEqual(['t9'])
+    // Every other row found its column, so nothing is left for the wizard.
+    expect(validateMapping(mapping, target).missing).toEqual([])
+  })
+
+  it('never carries a row onto the done bucket, even when the names agree', () => {
+    // The source used "Trash" for `deleted`; on the target that very name is
+    // the done bucket, and pushing a deleted task there would close it.
+    const target: RemoteContainer[] = [
+      { id: 't1', name: 'To-Do' },
+      { id: 't2', name: 'Doing' },
+      { id: 't3', name: 'Struggle' },
+      { id: 't5', name: 'Trash', isTerminal: true },
+    ]
+
+    const mapping = copyMappingByNames(source, target)
+
+    // Left empty rather than carried onto the done bucket: the wizard's own
+    // validation is what reports it, and the save stays blocked.
+    expect(mapping.deleted).toEqual([])
+    expect(mapping.completed).toEqual(['t5'])
+    expect(validateMapping(mapping, target).missing).toEqual(['deleted'])
+  })
+
+  it('reports every row the target board has no column for', () => {
+    const target: RemoteContainer[] = [
+      { id: 't1', name: 'To-Do', isDefault: true },
+      { id: 't2', name: 'Doing' },
+      { id: 't4', name: 'Done', isTerminal: true },
+    ]
+
+    const mapping = copyMappingByNames(source, target)
+
+    expect(mapping).toEqual({
+      input: ['t1'],
+      inprogress: ['t2'],
+      struggle: [],
+      completed: ['t4'],
+      deleted: [],
+    })
+    // The empty rows are exactly what the "create the missing columns" panel
+    // then offers to build.
+    expect(validateMapping(mapping, target).missing).toEqual(['struggle', 'deleted'])
+  })
+
+  it('answers an all-empty mapping for a source that was never mapped', () => {
+    const target: RemoteContainer[] = [{ id: 't1', name: 'To-Do' }]
+    const mapping = copyMappingByNames({ ...source, mapping: null }, target)
+
+    expect(mapping.input).toEqual([])
+    expect(validateMapping(mapping, target).missing).toEqual([
+      'input',
+      'inprogress',
+      'struggle',
+      'completed',
+      'deleted',
+    ])
   })
 })

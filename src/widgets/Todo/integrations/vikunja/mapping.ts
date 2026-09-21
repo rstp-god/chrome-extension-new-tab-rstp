@@ -10,17 +10,14 @@
  */
 
 import {
-  isReservedVikunjaLabel,
   normalizeVikunjaTimestamp,
   VIKUNJA_MAX_DESCRIPTION_LENGTH,
   VIKUNJA_MAX_TITLE_LENGTH,
 } from '@/background/vikunja/messages.ts'
 import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.ts'
 
-import { getVikunjaProjectPillClass } from './projectStyles.ts'
-
-import type { VikunjaLabelSummary, VikunjaPulledTask } from '@/background/vikunja/messages.ts'
-import type { Project, StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
+import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
+import type { StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 
 /** Statuses flat mode keeps locally because Vikunja has nowhere to put them. */
@@ -200,28 +197,14 @@ export function localIdForTask(taskId: number): string {
   return `vikunja:${taskId}`
 }
 
-/**
- * Is this one of the labels another feature owns?
- *
- * Re-exported under the adapter's own name from the shared list in
- * `messages.ts`: the worker enforces the very same rule when it removes
- * labels, and two copies of a "never touch these" list is how one of them
- * ends up out of date.
- */
-export function isReservedLabel(title: string): boolean {
-  return isReservedVikunjaLabel(title)
-}
-
-export function labelToProject(label: VikunjaLabelSummary): Project {
-  return {
-    id: String(label.id),
-    name: label.title,
-    pillClassName: getVikunjaProjectPillClass(label.hexColor),
-  }
-}
-
 export interface VikunjaTaskContext {
-  mapping: StatusListMapping
+  /**
+   * The mapping of the board being pulled, or `null` when that board has
+   * none — which is flat mode, where the status comes from `done` and this is
+   * never read. A kanban board without a mapping is refused by the adapter
+   * before a pull reaches here.
+   */
+  mapping: StatusListMapping | null
   /**
    * Local task id per known Vikunja task id, built once by the adapter. An
    * index rather than the raw `knownRefs` record, so mapping a board stays
@@ -231,8 +214,19 @@ export interface VikunjaTaskContext {
   knownStatuses: Record<string, TodoStatus>
   /** `true` when the user declined the bucket mapping — see `flatModeMapping`. */
   flat: boolean
-  /** Label ids (as strings) that may act as a project. */
-  projectIds: Set<string>
+  /**
+   * The board being pulled, as its Vikunja project id.
+   *
+   * It is two things at once, and deliberately so: what every ref built here
+   * records — a task that does not say which board it lives on cannot be
+   * found again once more than one is connected — and the task's `projectId`,
+   * because a Vikunja task's project *is* the board it lives in.
+   *
+   * Still not called `projectId`: the name would read as the widget's own
+   * field, and the conversion (`number` here, `string` there) is exactly
+   * where the two are told apart.
+   */
+  boardProjectId: number
 }
 
 /** `Date.parse` that cannot produce NaN — the persisted schema rejects one. */
@@ -251,7 +245,11 @@ function parseTimestamp(iso: string | null, fallback: number): number {
  * they skip the bucket mapping.
  */
 function statusFor(task: VikunjaPulledTask, localId: string, ctx: VikunjaTaskContext): TodoStatus {
-  if (!ctx.flat) return statusForContainerId(String(task.bucketId), ctx.mapping)
+  // A kanban board with no mapping does not reach here (the adapter refuses
+  // it); `input` is the fallback an unmapped bucket gets anyway.
+  if (!ctx.flat) {
+    return ctx.mapping === null ? 'input' : statusForContainerId(String(task.bucketId), ctx.mapping)
+  }
   if (task.done) return 'completed'
 
   const known = ctx.knownStatuses[localId]
@@ -277,7 +275,11 @@ export function vikunjaTaskToTodo(task: VikunjaPulledTask, ctx: VikunjaTaskConte
     title: task.title,
     description: description.length > 0 ? description : null,
     status,
-    projectId: task.labelIds.map(String).find((labelId) => ctx.projectIds.has(labelId)) ?? null,
+    // The board, every time: a Vikunja task lives *in* a project, so that is
+    // what its project is — a label never said anything about it, which is
+    // why none reaches this side any more. Stringified, because `Project.id`
+    // is a string for every backend.
+    projectId: String(ctx.boardProjectId),
     createdAt: parseTimestamp(task.created, updatedAt),
     statusChangedAt: completedAt ?? updatedAt,
     completedAt,
@@ -286,6 +288,7 @@ export function vikunjaTaskToTodo(task: VikunjaPulledTask, ctx: VikunjaTaskConte
     linkedTab: null,
     remoteRef: {
       taskId: task.id,
+      projectId: ctx.boardProjectId,
       identifier: task.identifier,
       // `0` is Vikunja's "no bucket" sentinel, which flat mode leaves behind.
       bucketId: task.bucketId || null,

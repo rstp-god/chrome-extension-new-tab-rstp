@@ -3,24 +3,25 @@
  * the wire.
  *
  * Split out of `index.ts` because it is the part with the rules in it. Vikunja
- * has no single "save this task" call — a push is one to three ops chosen by
- * the kind of change and by whether the user mapped the board's buckets at
- * all:
+ * has no single "save this task" call — a push is one or two ops chosen by the
+ * kind of change and by whether the user mapped the board's buckets at all:
  *
- * - `create` is `create` (+ `setLabels` for the project, + a move or a `done`
- *   flag to put the task where its status says it belongs);
+ * - `create` is `create` (+ a move or a `done` flag to put the task where its
+ *   status says it belongs). The task's project needs no op of its own: it is
+ *   the board it was created in;
  * - `update` is one full read-modify-write of the title and description, and
  *   never carries `done` — that is a status change, and it has its own path;
  * - `status` is a bucket move in kanban mode, and in flat mode either a `done`
  *   flag or nothing at all;
- * - `project` is label bookkeeping, which is not part of the task body;
+ * - `project` is refused: the project *is* the board, so a move would mean
+ *   creating a different task elsewhere;
  * - `delete` is a move into the trash column, or nothing. Vikunja's own
  *   `DELETE /tasks/:id` is deliberately unreachable from here: the widget's
  *   "delete" is a status, and destroying someone's task because they pressed a
  *   bin icon in a new-tab page is not a trade we make;
  * - `resync` — the retry a sync uses when it no longer knows what changed —
- *   re-asserts the bucket and the project, and deliberately never the title or
- *   the description.
+ *   re-asserts the bucket, and deliberately never the title or the
+ *   description.
  *
  * Everything here goes through the bridge — the worker owns the HTTP, the
  * read-modify-write and the etag check (see `VikunjaClient.updateTask`).
@@ -30,7 +31,7 @@ import { primaryContainerIdForStatus } from '@/widgets/Todo/integrations/statusM
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 
 import { clampForVikunja } from './mapping.ts'
-import { vikunjaSetLabelsResultSchema, vikunjaTaskWriteSchema } from './schema.ts'
+import { vikunjaTaskWriteSchema } from './schema.ts'
 
 import type {
   VikunjaRequest,
@@ -40,7 +41,6 @@ import type {
 import type {
   IntegrationOutcome,
   IntegrationPushOp,
-  PushContext,
   StatusListMapping,
   TodoStatus,
   VikunjaRemoteRef,
@@ -63,6 +63,18 @@ export interface VikunjaPushDeps {
   cfg: VikunjaWire
   /** `true` when the user skipped the bucket mapping — see `flatModeMapping`. */
   flat: boolean
+  /**
+   * The bucket mapping of the board being written to, or `null` when it has
+   * none.
+   *
+   * Comes from the board rather than from the store's push context: with
+   * several boards connected, each has its own columns and its own mapping
+   * over them, so a mapping the store passed could only ever be one of them.
+   * `null` is flat mode, where no bucket is addressed at all — and a kanban
+   * board without a mapping simply names no destination, which is what
+   * `bucketIdForStatus` answers.
+   */
+  mapping: StatusListMapping | null
   send: <S extends z.ZodType>(
     request: VikunjaRequest,
     schema: S,
@@ -72,7 +84,6 @@ export interface VikunjaPushDeps {
 export interface VikunjaPushInput {
   task: TodoTask
   op: IntegrationPushOp
-  ctx: PushContext
   scope: VikunjaScope
 }
 
@@ -103,7 +114,12 @@ function keepingRef<T>(out: IntegrationOutcome<T>, ref: VikunjaRemoteRef): Integ
  * hand-edited or half-finished mapping is caught — before an id like `NaN`
  * ends up in a request path.
  */
-export function bucketIdForStatus(status: TodoStatus, mapping: StatusListMapping): number | null {
+export function bucketIdForStatus(
+  status: TodoStatus,
+  mapping: StatusListMapping | null,
+): number | null {
+  // A board whose wizard was never finished names no bucket for any status.
+  if (mapping === null) return null
   // Declared `string` by the contract, but a persisted mapping can carry an
   // empty row, and `[0]` of an empty array is `undefined` whatever the type says.
   const raw: string | undefined = primaryContainerIdForStatus(status, mapping)
@@ -113,18 +129,11 @@ export function bucketIdForStatus(status: TodoStatus, mapping: StatusListMapping
 }
 
 /**
- * A project id as a Vikunja label id. The widget's `Project.id` is the label
- * id stringified (`labelToProject`), so anything that does not survive the
- * round trip is not a label of ours and is dropped rather than sent.
- */
-export function labelIdOf(projectId: string | null): number | null {
-  if (projectId === null) return null
-  const parsed = Number(projectId)
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
-}
-
-/**
  * The ref to store after a mutation.
+ *
+ * `projectId` is the board the write happened on, passed in rather than read
+ * off the response: a task write answers with the task, and the board is
+ * something only the caller's scope (or the ref it already had) knows.
  *
  * `bucketId` falls back to the previous one when the answer reports `0`: only
  * a view response fills a task's `bucket_id` (recon Q3), so an edit or a
@@ -133,10 +142,12 @@ export function labelIdOf(projectId: string | null): number | null {
  */
 export function refFromWrite(
   write: VikunjaTaskWrite,
+  projectId: number,
   previous: VikunjaRemoteRef | null = null,
 ): VikunjaRemoteRef {
   return {
     taskId: write.id,
+    projectId,
     identifier: write.identifier,
     bucketId: write.bucketId > 0 ? write.bucketId : (previous?.bucketId ?? null),
     updated: write.updated,
@@ -162,7 +173,7 @@ export async function pushVikunjaTask(
     case 'delete':
       return applyStatus(deps, input, ref, null)
     case 'project':
-      return applyProject(deps, input, ref, op.previous)
+      return applyProject()
     case 'resync':
       return resync(deps, input, ref)
   }
@@ -171,9 +182,9 @@ export async function pushVikunjaTask(
 /**
  * Creates the task, then puts it where it belongs.
  *
- * Three ops at most, in this order: the task has to exist before a label can
- * be attached to it, and it has to carry its label before a move makes the
- * board look right.
+ * Two ops at most: the task has to exist before a move can place it. The
+ * task's *project* costs no request at all — it is the board the task was
+ * created in, which the create above already decided (`scope.projectId`).
  *
  * Two rules keep a failure half-way through from costing the user a duplicate:
  *
@@ -187,9 +198,9 @@ export async function pushVikunjaTask(
  */
 async function createTask(
   deps: VikunjaPushDeps,
-  { task, ctx, scope }: VikunjaPushInput,
+  { task, scope }: VikunjaPushInput,
 ): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
-  const bucketId = deps.flat ? null : bucketIdForStatus(task.status, ctx.mapping)
+  const bucketId = deps.flat ? null : bucketIdForStatus(task.status, deps.mapping)
   if (!deps.flat && bucketId === null) return NO_DESTINATION
 
   const created = await deps.send(
@@ -203,23 +214,7 @@ async function createTask(
     vikunjaTaskWriteSchema,
   )
   if (!created.ok) return created
-  const ref = refFromWrite(created.value)
-
-  const labelId = labelIdOf(task.projectId)
-  if (labelId !== null) {
-    const labelled = await deps.send(
-      {
-        type: 'vikunja',
-        op: 'setLabels',
-        cfg: deps.cfg,
-        taskId: created.value.id,
-        add: [labelId],
-        remove: [],
-      },
-      vikunjaSetLabelsResultSchema,
-    )
-    if (!labelled.ok) return keepingRef(labelled, ref)
-  }
+  const ref = refFromWrite(created.value, scope.projectId)
 
   // Vikunja drops a new task into the view's default bucket, and the create
   // response cannot say which one that was (`bucket_id` is only filled inside
@@ -245,8 +240,9 @@ async function createTask(
  * either, so its copy is only ever what a pull gave it, flattened to plain
  * text; pushing that back on a retry would overwrite whatever the user has
  * since written in Vikunja's own editor and strip its formatting. What the
- * widget genuinely owns is where the task sits and which project it belongs
- * to, so that is what gets re-asserted.
+ * widget genuinely owns is where the task sits, so that is what gets
+ * re-asserted — the project is the board the task lives on and cannot drift
+ * from under it.
  *
  * The move is skipped when the ref already names the destination. A ref that
  * never learned its bucket (`null`, or a `0` from a create) does not count as
@@ -255,7 +251,7 @@ async function createTask(
  */
 async function resync(
   deps: VikunjaPushDeps,
-  { task, ctx, scope }: VikunjaPushInput,
+  { task, scope }: VikunjaPushInput,
   ref: VikunjaRemoteRef,
 ): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
   // Flat mode: `done` is the only field that crosses at all, and the local
@@ -264,38 +260,11 @@ async function resync(
     return setDone(deps, ref.taskId, ref.updated, task.status === 'completed', ref)
   }
 
-  const bucketId = bucketIdForStatus(task.status, ctx.mapping)
+  const bucketId = bucketIdForStatus(task.status, deps.mapping)
   if (bucketId === null) return NO_DESTINATION
 
-  let current = ref
-  if (ref.bucketId !== bucketId) {
-    const moved = await move(deps, scope, ref.taskId, bucketId, ref)
-    if (!moved.ok) return moved
-    current = moved.value
-  }
-
-  // Additive only: `remove` would need to know which labels the task carries,
-  // which is the worker's read to make, not a guess for this side. A label the
-  // user removed locally is re-asserted by the next explicit `project` push.
-  const labelId = labelIdOf(task.projectId)
-  if (labelId === null) return { ok: true, value: current }
-
-  const labelled = await deps.send(
-    {
-      type: 'vikunja',
-      op: 'setLabels',
-      cfg: deps.cfg,
-      taskId: ref.taskId,
-      add: [labelId],
-      remove: [],
-    },
-    vikunjaSetLabelsResultSchema,
-  )
-  // The move already happened and already rewrote `updated`: its ref has to
-  // survive the label failure, or the next edit would conflict against a
-  // timestamp two versions old.
-  if (!labelled.ok) return keepingRef(labelled, current)
-  return { ok: true, value: current }
+  if (ref.bucketId === bucketId) return { ok: true, value: ref }
+  return move(deps, scope, ref.taskId, bucketId, ref)
 }
 
 /**
@@ -322,7 +291,7 @@ async function editFields(
     vikunjaTaskWriteSchema,
   )
   if (!out.ok) return out
-  return { ok: true, value: refFromWrite(out.value, ref) }
+  return { ok: true, value: refFromWrite(out.value, ref.projectId, ref) }
 }
 
 /**
@@ -340,12 +309,12 @@ async function editFields(
  */
 async function applyStatus(
   deps: VikunjaPushDeps,
-  { task, scope, ctx }: VikunjaPushInput,
+  { task, scope }: VikunjaPushInput,
   ref: VikunjaRemoteRef,
   previous: TodoStatus | null,
 ): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
   if (!deps.flat) {
-    const bucketId = bucketIdForStatus(task.status, ctx.mapping)
+    const bucketId = bucketIdForStatus(task.status, deps.mapping)
     if (bucketId === null) return NO_DESTINATION
     return move(deps, scope, ref.taskId, bucketId, ref)
   }
@@ -360,35 +329,24 @@ async function applyStatus(
 }
 
 /**
- * A project change, which in Vikunja is a label swap.
+ * A project change, which this backend has no way to perform.
  *
- * Labels have their own endpoints and are not part of the task body, so this
- * never touches `updated` as far as we can observe — the ref is returned
- * unchanged rather than guessing a new etag. A wrong etag would cost the
- * user's *next* edit a spurious conflict; a slightly old one costs nothing,
- * because the worker re-reads before every write anyway.
+ * A Vikunja task's project is the board it was created in: moving it means
+ * creating a different task somewhere else, with a new id and a new ref —
+ * nothing this op could honestly do to the record it was handed. The
+ * descriptor says as much through `projectPolicy.changeable: false`, and the
+ * store refuses such a move before it ever reaches an adapter, so this is
+ * the belt to that braces: a hand-edited record (or a future caller that
+ * forgets the policy) is told the push failed rather than being answered with
+ * a success that changed nothing.
+ *
+ * It used to swap a *label*, which was the closest thing Vikunja had to
+ * Trello's per-board tags. That stopped being the task's project the moment
+ * `projectId` became the board's id — a label op would have written one id
+ * space into another.
  */
-async function applyProject(
-  deps: VikunjaPushDeps,
-  { task }: VikunjaPushInput,
-  ref: VikunjaRemoteRef,
-  previous: string | null,
-): Promise<IntegrationOutcome<VikunjaRemoteRef>> {
-  const next = labelIdOf(task.projectId)
-  const gone = labelIdOf(previous)
-
-  // The same label on both sides means nothing changed — a request that adds
-  // and removes one id would just flap it.
-  const add = next !== null && next !== gone ? [next] : []
-  const remove = gone !== null && gone !== next ? [gone] : []
-  if (add.length === 0 && remove.length === 0) return { ok: true, value: ref }
-
-  const out = await deps.send(
-    { type: 'vikunja', op: 'setLabels', cfg: deps.cfg, taskId: ref.taskId, add, remove },
-    vikunjaSetLabelsResultSchema,
-  )
-  if (!out.ok) return out
-  return { ok: true, value: ref }
+function applyProject(): IntegrationOutcome<VikunjaRemoteRef> {
+  return { ok: false, errorKey: 'pushFailed' }
 }
 
 async function move(
@@ -411,7 +369,7 @@ async function move(
     vikunjaTaskWriteSchema,
   )
   if (!out.ok) return out
-  return { ok: true, value: refFromWrite(out.value, previous) }
+  return { ok: true, value: refFromWrite(out.value, scope.projectId, previous) }
 }
 
 async function setDone(
@@ -426,5 +384,5 @@ async function setDone(
     vikunjaTaskWriteSchema,
   )
   if (!out.ok) return out
-  return { ok: true, value: refFromWrite(out.value, previous) }
+  return { ok: true, value: refFromWrite(out.value, previous.projectId, previous) }
 }

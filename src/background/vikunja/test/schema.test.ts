@@ -141,7 +141,7 @@ describe('vikunjaTaskSchema passthrough', () => {
   /**
    * The reason the schema is loose: `POST /tasks/:id` is a full replace
    * (recon Q9), so anything stripped here would be wiped from the user's
-   * instance on the first edit task 6 makes.
+   * instance on the first edit the widget makes.
    */
   it('keeps fields the schema does not model', () => {
     const task = parseTask({
@@ -175,7 +175,7 @@ describe('vikunjaTaskSchema passthrough', () => {
 
 describe('vikunjaTaskSchema prototype safety', () => {
   /**
-   * A passthrough schema copies whatever the instance sent, and task 6
+   * A passthrough schema copies whatever the instance sent, and a write
    * spreads the parsed record into a new object. An own `__proto__` key
    * surviving that far would stop being data.
    */

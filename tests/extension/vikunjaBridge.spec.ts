@@ -108,9 +108,15 @@ test('the bridge answers a ping that cold-starts the service worker', async () =
 })
 
 /**
- * The Todo envelope as `withChromeSync` writes it, with a Vikunja
+ * The Todo envelope as the **single-board** build wrote it, with a Vikunja
  * integration the background pull can actually schedule: a scope, a full
  * mapping, and a non-default period so the assertion cannot pass by accident.
+ *
+ * Deliberately left in the old shape. It is what is on a real user's disk
+ * after the multi-board update, so it checks two things at once: that the
+ * worker still reads it (its schedule schema accepts both shapes), and that
+ * the page upgrades it to `boards[]` and writes the upgrade back — which is
+ * asserted at the end of the test.
  *
  * Written from the page rather than through the UI on purpose — this test is
  * about the worker reacting to `chrome.storage.onChanged`, not about the
@@ -149,6 +155,84 @@ const VIKUNJA_ENVELOPE = {
   },
 }
 
+/**
+ * The same connection in the **current** shape: two boards, each with its own
+ * view, columns and mapping, and a period of its own so this case cannot pass
+ * on the legacy envelope's alarm.
+ *
+ * It exercises the other branch of `readVikunjaScheduleFrom` — the one that
+ * reads `config.boards` — and the rule that gates it: a schedule is refused
+ * while *any* board is unmapped, so both mappings here are filled in.
+ */
+const VIKUNJA_BOARDS_ENVELOPE = {
+  meta: { originId: 'playwright', rev: 1, ts: 1_700_000_000_000 },
+  state: {
+    tasks: [],
+    integration: {
+      name: 'vikunja',
+      config: {
+        baseUrl: 'https://vikunja.example',
+        token: 'tk_not-a-real-token',
+        boards: [
+          {
+            projectId: 1,
+            viewId: 4,
+            name: 'Inbox',
+            containers: [
+              { id: '1', name: 'To-Do', isDefault: true },
+              { id: '3', name: 'Done', isTerminal: true },
+            ],
+            mapping: {
+              input: ['1'],
+              inprogress: ['1'],
+              struggle: ['1'],
+              completed: ['3'],
+              deleted: ['1'],
+            },
+            kanbanMapping: true,
+          },
+          {
+            projectId: 2,
+            viewId: 8,
+            name: 'Работа',
+            containers: [
+              { id: '11', name: 'To-Do', isDefault: true },
+              { id: '13', name: 'Done', isTerminal: true },
+            ],
+            mapping: {
+              input: ['11'],
+              inprogress: ['11'],
+              struggle: ['11'],
+              completed: ['13'],
+              deleted: ['11'],
+            },
+            kanbanMapping: true,
+          },
+        ],
+        defaultProjectId: 1,
+        pullPeriodMin: 1,
+      },
+      // The three slice fields this backend stopped keeping.
+      boardName: null,
+      lists: [],
+      projects: [],
+      mapping: null,
+      lastSyncAt: null,
+    },
+  },
+}
+
+/** The boards the stored envelope carries, if any — the upgrade's own output. */
+async function storedBoards(page: Page): Promise<unknown> {
+  return page.evaluate(async () => {
+    const items = await chrome.storage.local.get('todo-widget:v1')
+    const envelope = items['todo-widget:v1'] as
+      | { state?: { integration?: { config?: { boards?: unknown } } } }
+      | undefined
+    return envelope?.state?.integration?.config?.boards ?? null
+  })
+}
+
 /** `chrome.alarms.get` from the page, polled until it settles either way. */
 async function pullAlarmPeriod(page: Page): Promise<number | null> {
   return page.evaluate(async () => {
@@ -182,6 +266,16 @@ test('the worker schedules and clears the background pull from stored config', a
       .poll(() => pullAlarmPeriod(page), { timeout: 10_000 })
       .toBe(VIKUNJA_ENVELOPE.state.integration.config.pullPeriodMin)
 
+    // A page that *loads* the single-board envelope upgrades it and persists
+    // the upgrade, so the bytes on disk end up in the current shape — the
+    // real path after an extension update. The reload is what makes this the
+    // load path: the write above reached the open page as a
+    // `storage.onChanged` event, which only updates the store in memory.
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect
+      .poll(() => storedBoards(page), { timeout: 10_000 })
+      .toMatchObject([{ projectId: 1, viewId: 4 }])
+
     // Disconnecting wipes the local envelope; the worker must clean up after
     // itself rather than keep pulling a project nobody is linked to.
     await page.evaluate(() => chrome.storage.local.remove('todo-widget:v1'))
@@ -190,6 +284,40 @@ test('the worker schedules and clears the background pull from stored config', a
   } finally {
     // Other specs assume an empty profile: the envelope above would otherwise
     // resurrect a connected integration in the Todo widget.
+    if (opened) await clearExtensionStorage(opened)
+    await context.close()
+  }
+})
+
+test('the worker schedules the background pull from a multi-board config', async () => {
+  const context = await launchExtensionContext()
+  let opened: Page | null = null
+
+  try {
+    const page = await context.newPage()
+    opened = page
+    await openExtensionNewTab(page)
+    await clearExtensionStorage(page)
+
+    expect(await ping(page)).toMatchObject({ ok: true })
+
+    await page.evaluate(
+      (envelope) => chrome.storage.local.set({ 'todo-widget:v1': envelope }),
+      VIKUNJA_BOARDS_ENVELOPE,
+    )
+
+    // One alarm for the whole connection, at the period the config names —
+    // never one per board, and never the boards' count divided into it.
+    await expect
+      .poll(() => pullAlarmPeriod(page), { timeout: 10_000 })
+      .toBe(VIKUNJA_BOARDS_ENVELOPE.state.integration.config.pullPeriodMin)
+
+    // Nothing left to pull: the alarm goes, exactly as it does for the
+    // single-board record above.
+    await page.evaluate(() => chrome.storage.local.remove('todo-widget:v1'))
+
+    await expect.poll(() => pullAlarmPeriod(page), { timeout: 10_000 }).toBeNull()
+  } finally {
     if (opened) await clearExtensionStorage(opened)
     await context.close()
   }

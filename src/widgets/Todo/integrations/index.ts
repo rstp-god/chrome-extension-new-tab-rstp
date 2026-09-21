@@ -21,7 +21,10 @@ export function getIntegrationDescriptor(
   return todoIntegrationRegistry[name] ?? null
 }
 
+export { getProjectPolicy, getSetupStep, isReadyToSync } from './setup.ts'
+
 export type {
+  BoardStatePatch,
   ConnectFormProps,
   IntegrationDescriptor,
   IntegrationErrorKey,
@@ -29,6 +32,7 @@ export type {
   IntegrationPushOp,
   MappingStepProps,
   Project,
+  ProjectPolicy,
   PullContext,
   PullResult,
   PushContext,
@@ -37,6 +41,8 @@ export type {
   RemoteScope,
   RemoteScopeOption,
   RemoteTaskRef,
+  ScopeStepProps,
+  SetupStep,
   StatusListMapping,
   SummaryExtrasActions,
   SummaryExtrasProps,
@@ -46,4 +52,4 @@ export type {
   VikunjaRemoteRef,
 } from './types.ts'
 
-export { isTrelloRef, isVikunjaRef, TODO_STATUSES } from './types.ts'
+export { isTrelloRef, isVikunjaRef, taskBelongsToBoard, TODO_STATUSES } from './types.ts'

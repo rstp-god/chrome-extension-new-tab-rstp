@@ -152,9 +152,10 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
       await onConnect({
         baseUrl,
         token: apiToken,
-        projectId: null,
-        viewId: null,
-        kanbanMapping: true,
+        // No board yet: the picker step is what adds the first one, and an
+        // empty list is what keeps the user on it.
+        boards: [],
+        defaultProjectId: null,
       } satisfies VikunjaConfig)
     } finally {
       setSubmitting(false)

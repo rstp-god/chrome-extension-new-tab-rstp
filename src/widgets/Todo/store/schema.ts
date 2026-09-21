@@ -9,6 +9,8 @@ import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
 import { TODO_STATUSES } from '@/widgets/Todo/integrations/types.ts'
 import { z } from 'zod'
 
+import { upgradePersistedState } from './upgrade.ts'
+
 import type { VikunjaPullPeriod } from '@/background/vikunja/messages.ts'
 
 const linkedTabSchema = z.object({
@@ -25,6 +27,13 @@ const trelloRemoteRefSchema = z.object({
 
 const vikunjaRemoteRefSchema = z.object({
   taskId: z.number(),
+  /**
+   * The board (Vikunja project) the task lives on — required, because a task
+   * that does not say which board it belongs to cannot be found again once
+   * there is more than one. Refs written by the single-board build gain it in
+   * `upgradePersistedState`.
+   */
+  projectId: z.number().int().positive(),
   identifier: z.string(),
   bucketId: z.number().nullable(),
   updated: z.string(),
@@ -127,35 +136,87 @@ const vikunjaPullPeriodSchema: z.ZodType<VikunjaPullPeriod> = z.union([
   z.literal(15),
 ])
 
+/**
+ * One board the widget syncs: a Vikunja project, its kanban view, and
+ * everything that belongs to *that* board rather than to the connection —
+ * the cached title, the buckets, the mapping the user built for them and
+ * whether the buckets are used at all.
+ *
+ * All four used to live on the integration slice, where there was room for
+ * exactly one of them. They are per board now, because two boards on the same
+ * instance have different columns and the same status maps to a different
+ * bucket in each.
+ */
+export const vikunjaBoardSchema = z.object({
+  projectId: z.number().int().positive(),
+  /** The project's kanban view — the only kind of view that has buckets. */
+  viewId: z.number().int().positive(),
+  /** Project title, cached so the summary stays zero-network. */
+  name: z.string(),
+  /** Buckets of the view, with the backend's own terminal/default flags. */
+  containers: z.array(remoteContainerSchema),
+  /** `null` until the wizard finished for **this** board. */
+  mapping: statusListMappingSchema.nullable(),
+  /** `false` → flat mode for this board: only done ↔ completed. */
+  kanbanMapping: z.boolean(),
+})
+
 const vikunjaConfigSchema = z.object({
   // https-only: the token travels on every request, and a self-hosted
   // instance reachable over plain http would leak it on the wire. Hostname
   // stays unconstrained — `localhost` and bare IPs are normal for self-hosted.
   baseUrl: z.url({ protocol: /^https$/ }),
   token: z.string(),
-  projectId: z.number().nullable(),
-  viewId: z.number().nullable(),
-  /** `false` → flat mode: only done ↔ completed, buckets are ignored. */
-  kanbanMapping: z.boolean(),
+  /**
+   * Every board the connection syncs, in the order the user added them.
+   * Empty while the wizard has not picked one — the `projectId: null` of the
+   * single-board shape, without a second field to keep in step with it.
+   */
+  boards: z.array(vikunjaBoardSchema),
+  /**
+   * The board a new task is created on, or `null` when no board is picked.
+   * An id, not an index, so adding or removing a board cannot silently
+   * re-point it at a different one.
+   */
+  defaultProjectId: z.number().int().positive().nullable(),
   /**
    * Absent means the worker's default (5 min) — deliberately optional rather
    * than defaulted, so every config written before this setting existed stays
    * valid without a migration, and a user who never opened the select has
    * nothing about it in their storage.
+   *
+   * Per connection rather than per board: it is how often the worker talks to
+   * the instance, which is a property of the instance and of the user's
+   * patience, not of a column layout.
    */
   pullPeriodMin: vikunjaPullPeriodSchema.optional(),
 })
 
+/**
+ * `boardName`, `lists` and `mapping` are **dead** for this branch of the
+ * union: everything they held lives on the board (`config.boards`) and every
+ * reader goes through the descriptor or through the board itself.
+ *
+ * They are still declared — and still nullable/empty-able — because they are
+ * part of the record on a user's disk. The store writes them empty on every
+ * config write and the upgrade empties them once, so a stale copy cannot
+ * survive; declaring them keeps a record written by an older build parseable
+ * instead of dropping the whole envelope (and with it the token and the task
+ * list) over three fields nothing reads.
+ */
 const vikunjaIntegrationSchema = z.object({
   name: z.literal('vikunja'),
   config: vikunjaConfigSchema,
-  /** Cached project title — the Vikunja counterpart of a Trello board name. */
+  /** Dead — see above. Written as `null`. */
   boardName: z.string().nullable(),
-  /** Cached buckets of the chosen view. */
+  /** Dead — see above. Written as `[]`. */
   lists: z.array(remoteContainerSchema),
-  /** Available projects (= Vikunja labels). */
+  /**
+   * The projects a task may name, cached for zero-network rendering — which
+   * for this backend are the connected boards themselves (`listProjects`).
+   */
   projects: z.array(projectSchema),
-  /** `null` until the user finishes the mapping wizard. */
+  /** Dead — see above. The real mapping is per board. Written as `null`. */
   mapping: statusListMappingSchema.nullable(),
   lastSyncAt: z.number().nullable(),
 })
@@ -174,10 +235,19 @@ export const integrationSchema = z.discriminatedUnion('name', [
   vikunjaIntegrationSchema,
 ])
 
-const todoPersistedStateSchema = z.object({
-  tasks: z.array(todoTaskSchema),
-  integration: integrationSchema.nullable(),
-})
+/**
+ * The state itself, behind the upgrade of anything written by an older build
+ * (see `upgrade.ts`). The preprocess is a no-op — the same object back — for
+ * every shape that is already current, so nothing but an old Vikunja config
+ * is rewritten on its way through.
+ */
+const todoPersistedStateSchema = z.preprocess(
+  upgradePersistedState,
+  z.object({
+    tasks: z.array(todoTaskSchema),
+    integration: integrationSchema.nullable(),
+  }),
+)
 
 /** The record `withChromeSync` reads from and writes to storage. */
 export const todoEnvelopeSchema = makeEnvelopeSchema(todoPersistedStateSchema)
@@ -241,6 +311,7 @@ export type LinkedTab = z.infer<typeof linkedTabSchema>
 export type TodoTask = z.infer<typeof todoTaskSchema>
 export type TodoSyncState = z.infer<typeof syncStateSchema>
 export type TrelloConfig = z.infer<typeof trelloConfigSchema>
+export type VikunjaBoard = z.infer<typeof vikunjaBoardSchema>
 export type VikunjaConfig = z.infer<typeof vikunjaConfigSchema>
 export type IntegrationState = z.infer<typeof integrationSchema>
 export type TodoPersistedState = z.infer<typeof todoPersistedStateSchema>

@@ -57,7 +57,7 @@ function nullableArray<T extends z.ZodType>(item: T) {
 /**
  * `GET /info`. Only the fields we act on: `version` is shown on the connect
  * screen and gates the "tested with 2.6" warning, `max_items_per_page` sizes
- * the paged pull (task 5). The latter is optional — an older instance may not
+ * the paged pull. The latter is optional — an older instance may not
  * report it, and a missing field must not cost the user a connection.
  */
 export const vikunjaInfoSchema = z.object({
@@ -76,7 +76,17 @@ export const vikunjaUserSchema = z.looseObject({
   name: z.string(),
 })
 
-/** `GET /labels`, and the entries of a task's `labels`. */
+/**
+ * The entries of a task's `labels`.
+ *
+ * All that is left of the label handling: `GET /labels` is no longer read, no
+ * label is ever written, and the pull does not forward them to the widget
+ * either. The field is parsed because a task carries it and the
+ * read-modify-write in `client.ts` must write it back untouched — a sync that
+ * quietly dropped someone's labels would be worse than no sync. Kept
+ * `looseObject` for the same reason as the rest of the file: an instance may
+ * add fields.
+ */
 export const vikunjaLabelSchema = z.looseObject({
   id: z.number(),
   title: z.string(),
@@ -121,7 +131,7 @@ export const vikunjaBucketSchema = z.object({
  * A task.
  *
  * **Loose on purpose.** `POST /tasks/:id` is a full replace — a partial body
- * blanks every field left out (recon Q9) — so task 6 has to read, modify and
+ * blanks every field left out (recon Q9) — so every write has to read, modify and
  * write back the whole record. A stripping schema would silently drop every
  * field this file does not model (`reactions`, `subscription`, `cover_*`,
  * anything a future Vikunja adds) and the first edit would wipe them from the
@@ -218,16 +228,6 @@ export const vikunjaTaskBucketSchema = z.object({
 })
 
 /**
- * Answer to `PUT /tasks/:id/labels` (recon Q13): 201 with the id that was
- * attached. The label's own record is not echoed, and we do not need it — the
- * caller already knows which id it asked for.
- */
-export const vikunjaTaskLabelSchema = z.object({
-  label_id: z.number(),
-  created: z.string(),
-})
-
-/**
  * Vikunja's uniform "it is gone now" body, answered by every `DELETE`
  * (`{"message":"Successfully deleted."}`). Parsed rather than ignored so a
  * proxy's HTML error page cannot pass for a successful delete.
@@ -245,5 +245,4 @@ export type VikunjaBucket = z.infer<typeof vikunjaBucketSchema>
 export type VikunjaTask = z.infer<typeof vikunjaTaskSchema>
 export type VikunjaBucketWithTasks = z.infer<typeof vikunjaBucketWithTasksSchema>
 export type VikunjaTaskBucket = z.infer<typeof vikunjaTaskBucketSchema>
-export type VikunjaTaskLabel = z.infer<typeof vikunjaTaskLabelSchema>
 export type VikunjaMessage = z.infer<typeof vikunjaMessageSchema>

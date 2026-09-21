@@ -263,9 +263,9 @@ describe('the two-step flow', () => {
     expect(onConnect).toHaveBeenCalledWith({
       baseUrl: URL_VALUE,
       token: TOKEN_VALUE,
-      projectId: null,
-      viewId: null,
-      kanbanMapping: true,
+      // No board yet: the picker step adds the first one.
+      boards: [],
+      defaultProjectId: null,
     } satisfies VikunjaConfig)
     // Continue must not re-probe: the store runs `connect` through the adapter.
     expect(bridge).toHaveBeenCalledTimes(1)

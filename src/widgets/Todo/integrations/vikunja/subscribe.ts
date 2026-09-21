@@ -12,10 +12,11 @@
 import { isVikunjaBroadcast } from '@/background/vikunja/messages.ts'
 import { getChromeObject, isShowcaseMode } from '@/services/chrome/runtime.ts'
 
-import { scopePair } from './scope.ts'
+import { boardScopes } from './boards.ts'
 import { vikunjaBroadcastSchema } from './schema.ts'
 
-import type { RemoteChangeEvent, RemoteScope } from '@/widgets/Todo/integrations/types.ts'
+import type { RemoteChangeEvent } from '@/widgets/Todo/integrations/types.ts'
+import type { IntegrationState } from '@/widgets/Todo/store/store.ts'
 
 /** Nothing to unsubscribe from. */
 const NOOP = () => {}
@@ -47,8 +48,8 @@ function isOwnWorker(sender: chrome.runtime.MessageSender): boolean {
 }
 
 /**
- * Calls `onEvent` whenever the worker reports that *this* view moved, and
- * answers with the unsubscribe.
+ * Calls `onEvent` whenever the worker reports that one of *this connection's*
+ * boards moved, and answers with the unsubscribe.
  *
  * Four things it deliberately does:
  *
@@ -57,10 +58,13 @@ function isOwnWorker(sender: chrome.runtime.MessageSender): boolean {
  *   service worker, which is the only thing that should be broadcasting) or a
  *   document this extension shipped. A broadcast is acted on by starting a
  *   sync, so "who said so" is worth a check even on a channel only we use;
- * - **filters by scope.** One worker, one alarm, but a config the user is
- *   half-way through changing (or a stale page left open on the previous
- *   project) can subscribe for a different pair — and a sync triggered by
- *   another project's broadcast would read a view the widget is not showing;
+ * - **filters by board.** One worker, one alarm, and a broadcast names the
+ *   project and view it is about — while a config the user is half-way
+ *   through changing (or a stale page left open on a project they removed)
+ *   can be listening for something else entirely. Every board of this
+ *   connection is accepted and nothing else is: a sync reads all of them, so
+ *   a broadcast about any one of them is news, and one about a project this
+ *   connection does not sync is not this subscriber's business;
  * - **re-validates the payload** with Zod even though the sender is our own
  *   worker. `chrome.runtime.onMessage` also carries the Tab Rules traffic, so
  *   the guard proves the `type` and the schema proves the rest;
@@ -69,16 +73,18 @@ function isOwnWorker(sender: chrome.runtime.MessageSender): boolean {
  *
  * Inert wherever there is no channel — the showcase build, jsdom tests, a
  * stripped `chrome` — because a widget that cannot be told about a change is
- * still a working widget.
+ * still a working widget. Inert, too, for a connection with no board: there
+ * is no view anybody could report on yet.
  */
 export function subscribeVikunjaRemoteChanges(
-  scope: RemoteScope,
+  integration: IntegrationState,
   onEvent: (event: RemoteChangeEvent) => void,
 ): () => void {
   if (isShowcaseMode()) return NOOP
+  if (integration.name !== 'vikunja') return NOOP
 
-  const pair = scopePair(scope)
-  if (!pair) return NOOP
+  const scopes = boardScopes(integration.config)
+  if (scopes.length === 0) return NOOP
 
   const onMessage = getChromeObject()?.runtime?.onMessage
   if (!onMessage?.addListener || !onMessage.removeListener) return NOOP
@@ -91,7 +97,10 @@ export function subscribeVikunjaRemoteChanges(
     if (!parsed.success) return
 
     const broadcast = parsed.data
-    if (broadcast.projectId !== pair.projectId || broadcast.viewId !== pair.viewId) return
+    const known = scopes.some(
+      (scope) => scope.projectId === broadcast.projectId && scope.viewId === broadcast.viewId,
+    )
+    if (!known) return
 
     onEvent(
       broadcast.type === 'vikunja/pulled'

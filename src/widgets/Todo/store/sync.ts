@@ -87,8 +87,14 @@ export function unlinkedLocalTasks(tasks: readonly TodoTask[]): TodoTask[] {
 export interface PushPhaseDeps {
   adapter: TodoIntegration
   descriptor: IntegrationDescriptor
-  scope: RemoteScope
-  mapping: StatusListMapping
+  /**
+   * The scope and the mapping exactly as the store resolved them — both
+   * nullable, because a backend that syncs several scopes keeps neither on
+   * the slice and reads its own config instead (see `PushContext`). The phase
+   * passes them through without looking inside.
+   */
+  scope: RemoteScope | null
+  mapping: StatusListMapping | null
   /**
    * Applies one settled push to the store. Called for every outcome,
    * successes and failures alike — including conflicts, which are a per-task

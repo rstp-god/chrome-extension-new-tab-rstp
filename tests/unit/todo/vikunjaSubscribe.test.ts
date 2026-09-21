@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { subscribeVikunjaRemoteChanges } from '@/widgets/Todo/integrations/vikunja/subscribe.ts'
 
 import type { RemoteChangeEvent } from '@/widgets/Todo/integrations/types.ts'
+import type { IntegrationState, VikunjaBoard } from '@/widgets/Todo/store/store.ts'
 
 /**
  * Same shape as `vikunjaBridge.test.ts`: `isShowcaseMode` reads
@@ -20,7 +21,48 @@ vi.mock('@/services/chrome/runtime.ts', async (importOriginal) => {
 type Sender = chrome.runtime.MessageSender
 type Listener = (message: unknown, sender: Sender) => void
 
-const SCOPE = { projectId: 1, viewId: 4 }
+const MAPPING = {
+  input: ['1'],
+  inprogress: ['1'],
+  struggle: ['1'],
+  completed: ['3'],
+  deleted: ['1'],
+}
+
+function board(projectId: number, viewId: number): VikunjaBoard {
+  return {
+    projectId,
+    viewId,
+    name: `Project ${projectId}`,
+    containers: [],
+    mapping: MAPPING,
+    kanbanMapping: true,
+  }
+}
+
+/**
+ * The slice the subscriber is handed: it derives the views worth listening to
+ * from `config.boards`, so that list is the whole input.
+ */
+function vikunja(boards: VikunjaBoard[] = [board(1, 4)]): IntegrationState {
+  return {
+    name: 'vikunja',
+    config: {
+      baseUrl: 'https://vikunja.example',
+      token: 'tk_super-secret-value',
+      boards,
+      defaultProjectId: boards[0]?.projectId ?? null,
+    },
+    boardName: null,
+    lists: [],
+    projects: [],
+    mapping: null,
+    lastSyncAt: null,
+  }
+}
+
+/** A connection with one board — the one `PULLED` below is about. */
+const CONNECTION = vikunja()
 const EXTENSION_ID = 'abcdefghijklmnopabcdefghijklmnop'
 const EXTENSION_ROOT = `chrome-extension://${EXTENSION_ID}/`
 
@@ -78,7 +120,7 @@ describe('subscribeVikunjaRemoteChanges', () => {
     const chromeMock = installChromeMock()
     const { onEvent } = collect()
 
-    const unsubscribe = subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    const unsubscribe = subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     expect(chromeMock.addListener).toHaveBeenCalledTimes(1)
     unsubscribe()
@@ -89,7 +131,7 @@ describe('subscribeVikunjaRemoteChanges', () => {
   it('maps vikunja/pulled to a `changed` event', () => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     chromeMock.emit(PULLED)
 
@@ -99,7 +141,7 @@ describe('subscribeVikunjaRemoteChanges', () => {
   it('maps vikunja/pull-failed to a `failed` event carrying the error key', () => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     chromeMock.emit({
       type: 'vikunja/pull-failed',
@@ -116,19 +158,19 @@ describe('subscribeVikunjaRemoteChanges', () => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
 
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)()
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)()
     chromeMock.emit(PULLED)
 
     expect(events).toEqual([])
   })
 
   it.each([
-    ['another project', { ...PULLED, projectId: 2 }],
-    ['another view of the same project', { ...PULLED, viewId: 9 }],
+    ['a project this connection does not sync', { ...PULLED, projectId: 2 }],
+    ['another view of a project it does sync', { ...PULLED, viewId: 9 }],
   ])('ignores a broadcast about %s', (_label, message) => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     chromeMock.emit(message)
 
@@ -153,28 +195,53 @@ describe('subscribeVikunjaRemoteChanges', () => {
   ])('ignores %s', (_label, message) => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     chromeMock.emit(message)
 
     expect(events).toEqual([])
   })
 
-  it('accepts a scope whose ids arrived as strings', () => {
+  it('accepts a broadcast about any of the connected boards', () => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
-    subscribeVikunjaRemoteChanges({ projectId: '1', viewId: '4' }, onEvent)
+    // A sync reads every board, so news about any of them is news — and the
+    // worker pulls one view per alarm, so a second board's broadcast is the
+    // normal case rather than an odd one.
+    subscribeVikunjaRemoteChanges(vikunja([board(7, 9), board(1, 4)]), onEvent)
 
     chromeMock.emit(PULLED)
+    chromeMock.emit({ ...PULLED, projectId: 7, viewId: 9 })
 
-    expect(events).toEqual([{ kind: 'changed' }])
+    expect(events).toEqual([{ kind: 'changed' }, { kind: 'changed' }])
   })
 
-  it('is a no-op for a scope that addresses nothing', () => {
+  it('is a no-op for a connection that has picked no board', () => {
     const chromeMock = installChromeMock()
     const { onEvent } = collect()
 
-    const unsubscribe = subscribeVikunjaRemoteChanges({ projectId: 0 }, onEvent)
+    const unsubscribe = subscribeVikunjaRemoteChanges(vikunja([]), onEvent)
+
+    expect(chromeMock.addListener).not.toHaveBeenCalled()
+    expect(() => unsubscribe()).not.toThrow()
+  })
+
+  it('is a no-op for another integration’s slice', () => {
+    const chromeMock = installChromeMock()
+    const { onEvent } = collect()
+
+    const unsubscribe = subscribeVikunjaRemoteChanges(
+      {
+        name: 'trello',
+        config: { apiKey: 'k', token: 't', boardId: 'board-1' },
+        boardName: 'Board',
+        lists: [],
+        projects: [],
+        mapping: MAPPING,
+        lastSyncAt: null,
+      },
+      onEvent,
+    )
 
     expect(chromeMock.addListener).not.toHaveBeenCalled()
     expect(() => unsubscribe()).not.toThrow()
@@ -185,7 +252,7 @@ describe('subscribeVikunjaRemoteChanges', () => {
     runtimeFlags.showcase = true
     const { onEvent } = collect()
 
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     expect(chromeMock.addListener).not.toHaveBeenCalled()
   })
@@ -194,13 +261,13 @@ describe('subscribeVikunjaRemoteChanges', () => {
     Object.defineProperty(globalThis, 'chrome', { value: undefined, configurable: true })
     const { onEvent } = collect()
 
-    expect(() => subscribeVikunjaRemoteChanges(SCOPE, onEvent)()).not.toThrow()
+    expect(() => subscribeVikunjaRemoteChanges(CONNECTION, onEvent)()).not.toThrow()
   })
 
   it('never answers the message, so the response channel stays free', () => {
     const chromeMock = installChromeMock()
     const { onEvent } = collect()
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     const listener = chromeMock.addListener.mock.calls[0][0] as (
       message: unknown,
@@ -217,7 +284,7 @@ describe('subscribeVikunjaRemoteChanges — who is allowed to say it', () => {
   it('accepts the service worker, which sends no url', () => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     chromeMock.emit(PULLED, { id: EXTENSION_ID })
 
@@ -227,7 +294,7 @@ describe('subscribeVikunjaRemoteChanges — who is allowed to say it', () => {
   it('accepts another page of this same extension', () => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     chromeMock.emit(PULLED, { id: EXTENSION_ID, url: `${EXTENSION_ROOT}src/newtab/index.html` })
 
@@ -245,7 +312,7 @@ describe('subscribeVikunjaRemoteChanges — who is allowed to say it', () => {
   ])('rejects a broadcast from %s', (_label, sender) => {
     const chromeMock = installChromeMock()
     const { events, onEvent } = collect()
-    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+    subscribeVikunjaRemoteChanges(CONNECTION, onEvent)
 
     chromeMock.emit(PULLED, sender as Sender)
 

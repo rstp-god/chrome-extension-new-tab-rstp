@@ -59,6 +59,7 @@ vi.mock('@/widgets/Todo/integrations/index.ts', async (importOriginal) => {
 })
 
 import { TodoSettingsSummary } from '@/widgets/Todo/components/settings/TodoSettingsSummary.tsx'
+import { withDefaultBoardPatch } from '@/widgets/Todo/integrations/vikunja/boards.ts'
 import { TODO_HANDOVER_KEY, useTodoStore } from '@/widgets/Todo/store/store.ts'
 
 const MAPPING = {
@@ -69,23 +70,29 @@ const MAPPING = {
   deleted: ['2'],
 }
 
-const VIKUNJA: IntegrationState = {
+const VIKUNJA: Extract<IntegrationState, { name: 'vikunja' }> = {
   name: 'vikunja',
   config: {
     baseUrl: 'https://vikunja.example',
     token: 'tk_super-secret-value',
-    projectId: 1,
-    viewId: 4,
-    kanbanMapping: true,
+    boards: [
+      {
+        projectId: 1,
+        viewId: 4,
+        name: 'Probe',
+        containers: [],
+        mapping: MAPPING,
+        kanbanMapping: true,
+      },
+    ],
+    defaultProjectId: 1,
   },
-  boardName: 'Probe',
-  lists: [
-    { id: '1', name: 'To-Do', isDefault: true },
-    { id: '2', name: 'Doing' },
-    { id: '3', name: 'Done', isTerminal: true },
-  ],
+  // Dead for this backend (task 2): the board holds the name, the buckets
+  // and the mapping, and its own summary section shows them.
+  boardName: null,
+  lists: [],
   projects: [],
-  mapping: MAPPING,
+  mapping: null,
   lastSyncAt: null,
 }
 
@@ -210,13 +217,23 @@ describe('TodoSettingsSummary — importing local tasks', () => {
     makeTask({ id: 'b', title: 'Another one' }),
   ]
 
-  it('offers the import with a count and a destination', async () => {
+  it('offers the import with a count and the instance it would write to', async () => {
     mount(VIKUNJA, locals)
 
-    // `count`, so i18next can pick the plural form the language needs.
+    // `count`, so i18next can pick the plural form the language needs. The
+    // destination falls back to the host: this connection's project cache
+    // holds no board yet, so there is no friendlier name to use.
     expect(screen.getByTestId('todo-import-action').textContent).toContain(
-      'integrations.import.action {"count":2,"scope":"Probe"}',
+      'integrations.import.action {"count":2,"scope":"vikunja.example"}',
     )
+  })
+
+  it('names the board a new task would go to once the cache knows it', async () => {
+    mount({ ...VIKUNJA, projects: [{ id: '1', name: 'Probe', pillClassName: null }] }, locals)
+
+    // Which is what the picker reads for this backend: its boards *are* its
+    // projects, and the default one is where an import lands.
+    expect(screen.getByTestId('todo-import-action').textContent).toContain('"scope":"Probe"')
   })
 
   it('does not offer it for a backend that imports on its own', () => {
@@ -249,7 +266,13 @@ describe('TodoSettingsSummary — importing local tasks', () => {
   it('does not offer it when every task is already linked', () => {
     mount(VIKUNJA, [
       makeTask({
-        remoteRef: { taskId: 3, identifier: '#3', bucketId: 1, updated: '2024-01-01T00:00:00Z' },
+        remoteRef: {
+          taskId: 3,
+          projectId: 1,
+          identifier: '#3',
+          bucketId: 1,
+          updated: '2024-01-01T00:00:00Z',
+        },
       }),
     ])
 
@@ -303,9 +326,57 @@ describe('TodoSettingsSummary — the error line', () => {
   })
 })
 
+describe('TodoSettingsSummary — what the generic block shows', () => {
+  it('names the board and its mapping for a backend that keeps them on the slice', () => {
+    mount(TRELLO)
+
+    expect(screen.getByText('integrations.trello.summary.boardLabel')).toBeTruthy()
+    expect(screen.getByText('Board')).toBeTruthy()
+    expect(screen.getByText('integrations.trello.summary.mappingLabel')).toBeTruthy()
+  })
+
+  it('shows neither for a backend that keeps them per board', () => {
+    mount(VIKUNJA)
+
+    // Nothing generic to tabulate: the mapping is per board…
+    expect(screen.queryByText('integrations.vikunja.summary.mappingLabel')).toBeNull()
+    // …and the generic "Board" line has nothing to name either — the boards
+    // are listed by the backend's own section, which is where 'Probe' is.
+    expect(screen.queryByText('integrations.vikunja.summary.boardLabel')).toBeNull()
+    expect(screen.getByText('integrations.vikunja.summary.boards')).toBeTruthy()
+    expect(screen.getByTestId('todo-summary-board').textContent).toContain('Probe')
+  })
+})
+
+describe('TodoSettingsSummary — who owns the setup buttons', () => {
+  it('keeps the shared ones for a backend that brings no UI of its own', () => {
+    mount(TRELLO)
+
+    expect(screen.getByRole('button', { name: 'integrations.trello.mapping.title' })).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: 'integrations.trello.summary.rePickBoard' }),
+    ).toBeTruthy()
+  })
+
+  it('leaves them to the backend’s own section when it has one', () => {
+    mount(VIKUNJA)
+
+    // Vikunja's section offers the same two actions per board ("Columns")
+    // and for the list ("Change boards"); showing both would ask the user to
+    // choose between a button naming their board and one naming "the" board.
+    expect(screen.queryByRole('button', { name: 'integrations.vikunja.mapping.title' })).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: 'integrations.vikunja.summary.rePickBoard' }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'integrations.vikunja.summary.editBoards' }),
+    ).toBeTruthy()
+  })
+})
+
 describe('TodoSettingsSummary — flat mode', () => {
   it('names the statuses that never leave the extension', () => {
-    mount({ ...VIKUNJA, config: { ...VIKUNJA.config, kanbanMapping: false } })
+    mount({ ...VIKUNJA, config: withDefaultBoardPatch(VIKUNJA.config, { kanbanMapping: false }) })
 
     expect(screen.getByTestId('todo-summary-flat-mode')).toBeTruthy()
     expect(screen.getByText('integrations.vikunja.mapping.flatNotice')).toBeTruthy()

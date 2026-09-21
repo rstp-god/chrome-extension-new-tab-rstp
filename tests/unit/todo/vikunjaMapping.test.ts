@@ -5,17 +5,15 @@ import {
   VIKUNJA_MAX_TITLE_LENGTH,
 } from '@/background/vikunja/messages.ts'
 import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.ts'
+import { getVikunjaBoardPillClass } from '@/widgets/Todo/integrations/vikunja/projectStyles.ts'
+import { projectPillClassForHue } from '@/widgets/Todo/utils/projectPillPalette.ts'
 import {
   clampForVikunja,
   htmlToText,
-  isReservedLabel,
-  labelToProject,
   localIdForTask,
   textToHtml,
   vikunjaTaskToTodo,
 } from '@/widgets/Todo/integrations/vikunja/mapping.ts'
-import { vikunjaHueFor } from '@/widgets/Todo/integrations/vikunja/projectStyles.ts'
-import { DEFAULT_PROJECT_PILL_CLASS } from '@/widgets/Todo/utils/projectPillPalette.ts'
 
 import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
 import type { StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
@@ -40,7 +38,6 @@ function pulled(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
     bucketId: 1,
     created: '2026-09-20T17:00:00+03:00',
     updated: '2026-09-20T17:30:00+03:00',
-    labelIds: [],
     ...overrides,
   }
 }
@@ -51,7 +48,7 @@ function context(overrides: Partial<VikunjaTaskContext> = {}): VikunjaTaskContex
     localIdByTaskId: new Map(),
     knownStatuses: {},
     flat: false,
-    projectIds: new Set<string>(),
+    boardProjectId: 1,
     ...overrides,
   }
 }
@@ -144,53 +141,39 @@ describe('textToHtml', () => {
   })
 })
 
-describe('labels', () => {
-  it.each(['energy:1', 'ENERGY:3', ' mood:low', 'mood:'])('treats %s as reserved', (title) => {
-    expect(isReservedLabel(title)).toBe(true)
+describe('getVikunjaBoardPillClass', () => {
+  it('paints one board the same colour every time', () => {
+    // Derived from the id rather than cached, so the pill survives a reload,
+    // a new device and a config the user never re-saves.
+    expect(getVikunjaBoardPillClass(8)).toBe(getVikunjaBoardPillClass(8))
+    expect(getVikunjaBoardPillClass(8)).toEqual(expect.any(String))
   })
 
-  it.each(['work', 'energetic', 'moody', 'my energy:1'])('leaves %s alone', (title) => {
-    expect(isReservedLabel(title)).toBe(false)
+  it('gives neighbouring ids different colours', () => {
+    // Two boards created one after the other are the common case, and two
+    // pills the user cannot tell apart would defeat the point of having them.
+    expect(getVikunjaBoardPillClass(8)).not.toBe(getVikunjaBoardPillClass(9))
   })
 
-  it('maps a label to a Project with a pill class', () => {
-    expect(labelToProject({ id: 7, title: 'work', hexColor: '0ead69' })).toEqual({
-      id: '7',
-      name: 'work',
-      pillClassName: expect.stringContaining('emerald'),
-    })
+  it('falls back to the neutral pill for an id that is not a number', () => {
+    // Belt and braces: the persisted schema forbids one, and a NaN would
+    // otherwise index outside the palette.
+    const neutral = getVikunjaBoardPillClass(Number.NaN)
+    expect(neutral).toBe(getVikunjaBoardPillClass(Number.POSITIVE_INFINITY))
+    expect(neutral).toEqual(expect.any(String))
   })
 
-  it('falls back to the muted pill for a label with no colour', () => {
-    expect(labelToProject({ id: 7, title: 'work', hexColor: null }).pillClassName).toBe(
-      DEFAULT_PROJECT_PILL_CLASS,
-    )
-  })
-})
-
-describe('vikunjaHueFor', () => {
-  it.each([
-    // The three colours the recon run actually saw on the instance.
-    ['efbdeb', 'pink'],
-    ['0ead69', 'green'],
-    ['ff006e', 'pink'],
-    ['#ff0000', 'red'],
-    ['ffa500', 'orange'],
-    ['ffff00', 'yellow'],
-    ['00bfff', 'sky'],
-    ['1d4ed8', 'blue'],
-    ['7c3aed', 'purple'],
-    ['#0f0', 'green'],
-  ])('maps %s to %s', (hex, hue) => {
-    expect(vikunjaHueFor(hex)).toBe(hue)
-  })
-
-  it.each(['808080', '111111', 'eeeeee'])('treats the greyscale %s as black', (hex) => {
-    expect(vikunjaHueFor(hex)).toBe('black')
-  })
-
-  it.each([null, '', 'not-a-colour', '#12345'])('answers null for %j', (hex) => {
-    expect(vikunjaHueFor(hex)).toBeNull()
+  it('never paints a board in the colour of "no colour found"', () => {
+    // The neutral pill is what an unplaceable colour looks like. A board's
+    // hue is derived and always succeeds, so none of them may look like a
+    // failure — whatever id the rotation lands on.
+    const neutral = getVikunjaBoardPillClass(Number.NaN)
+    const grey = projectPillClassForHue('black')
+    for (let projectId = 1; projectId <= 40; projectId += 1) {
+      const painted = getVikunjaBoardPillClass(projectId)
+      expect(painted).not.toBe(neutral)
+      expect(painted).not.toBe(grey)
+    }
   })
 })
 
@@ -218,6 +201,9 @@ describe('vikunjaTaskToTodo — identity', () => {
 
     expect(task.remoteRef).toEqual({
       taskId: 4,
+      // The board the pull was for, so the task can be found again once
+      // there is more than one.
+      projectId: 1,
       identifier: '#3',
       bucketId: 1,
       updated: '2026-09-20T14:57:12.000Z',
@@ -330,12 +316,15 @@ describe('vikunjaTaskToTodo — fields', () => {
     expect(Number.isFinite(task.statusChangedAt)).toBe(true)
   })
 
-  it('picks the first label that is a known project', () => {
-    const ctx = context({ projectIds: new Set(['7']) })
+  it('makes the board the task’s project, for every task of it', () => {
+    // A Vikunja task lives *in* a project, and that project is the board it
+    // was pulled from — labels are somebody else's vocabulary.
+    const ctx = context({ boardProjectId: 8 })
 
-    expect(vikunjaTaskToTodo(pulled({ labelIds: [1, 7] }), ctx).projectId).toBe('7')
-    expect(vikunjaTaskToTodo(pulled({ labelIds: [1] }), ctx).projectId).toBeNull()
-    expect(vikunjaTaskToTodo(pulled({ labelIds: [] }), ctx).projectId).toBeNull()
+    expect(vikunjaTaskToTodo(pulled(), ctx).projectId).toBe('8')
+    expect(vikunjaTaskToTodo(pulled({ id: 9 }), ctx).projectId).toBe('8')
+    // The same id the ref records, and the same one `Project.id` uses.
+    expect(vikunjaTaskToTodo(pulled(), ctx).remoteRef).toMatchObject({ projectId: 8 })
   })
 
   it('comes back clean and unlinked', () => {

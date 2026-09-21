@@ -3,7 +3,11 @@ import { focusOrOpenTab, LinkableTab } from '@/services/chrome/tabs.ts'
 import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
 import {
   getIntegrationDescriptor,
+  getProjectPolicy,
+  isReadyToSync,
+  taskBelongsToBoard,
   TODO_STATUSES,
+  type BoardStatePatch,
   type IntegrationDescriptor,
   type IntegrationErrorKey,
   type IntegrationOutcome,
@@ -42,6 +46,7 @@ export type {
   TodoSyncState,
   TodoTask,
   TrelloConfig,
+  VikunjaBoard,
   VikunjaConfig,
 } from './schema.ts'
 export { TODO_STATUSES, todoEnvelopeSchema, todoHandoverSchema }
@@ -56,6 +61,22 @@ export function resolveScope(integration: IntegrationState | null): RemoteScope 
   const descriptor = getIntegrationDescriptor(integration.name)
   if (!descriptor) return null
   return descriptor.getScope(integration.config)
+}
+
+/**
+ * Is there enough configured for a sync to mean anything? The companion of
+ * `resolveScope`, and for the same reason: the answer is the descriptor's
+ * (`isReadyToSync`), and this is the one place the widget's components ask
+ * for it.
+ *
+ * Every "the integration is set up" test in the UI goes through here — the
+ * mount sync, the remote-change subscription, the back-online flush, the
+ * footer's sync button and its badge — so none of them has to know that a
+ * mapping used to live on the slice.
+ */
+export function isIntegrationReady(integration: IntegrationState | null): boolean {
+  if (!integration) return false
+  return isReadyToSync(getIntegrationDescriptor(integration.name), integration)
 }
 
 interface AddTaskInput {
@@ -92,15 +113,36 @@ interface TodoWidgetState {
   openOrFocusLinkedTab: (id: string) => Promise<void>
 
   connectIntegration: (name: string, config: unknown) => Promise<void>
+  /**
+   * Stores the scope the user picked, plus what the picker read about it.
+   *
+   * Async because a backend whose projects *are* its scopes has to be asked
+   * again once the pick has landed — see the body.
+   */
   pickScope: (
     scope: RemoteScope,
     scopeName: string,
     containers: RemoteContainer[],
     projects: Project[],
-  ) => void
+  ) => Promise<void>
   setMapping: (mapping: StatusListMapping) => Promise<void>
   updateIntegrationConfig: (config: unknown) => boolean
   refreshContainers: () => Promise<boolean>
+  /**
+   * Forgets every task of a project the connection stops syncing.
+   *
+   * The settings step that drops a board is the caller: a board that leaves
+   * the schedule takes its tasks with it, because nothing would read or write
+   * them afterwards — no pull visits that project any more, and no board
+   * carries the mapping their pushes would need. Nothing is deleted remotely;
+   * the records stay in the tracker and only the widget's copy goes, which is
+   * what the confirmation says.
+   *
+   * Matches on both sides of the same fact: the project the task names and
+   * the one its own ref was written against (they differ only for a task
+   * whose ref this backend does not own, which is left alone).
+   */
+  dropTasksOfProject: (projectId: string) => void
   clearIntegration: () => Promise<void>
   /**
    * Leaves a handover snapshot behind, then drops the integration.
@@ -208,6 +250,55 @@ function getActive(state: TodoWidgetState): ActiveIntegration | null {
   return { integration, descriptor, adapter: descriptor.create(integration.config) }
 }
 
+/**
+ * The slice fields a single-scope backend keeps its cached scope state in.
+ *
+ * Only the fields a caller actually knows about are passed: picking a scope
+ * knows all three, saving a mapping knows the mapping, refreshing the columns
+ * knows the columns — and an absent one must keep whatever the slice holds.
+ */
+interface SliceMirror {
+  boardName?: string | null
+  lists?: RemoteContainer[]
+  mapping?: StatusListMapping | null
+}
+
+/**
+ * What a descriptor with `withBoardState` gets on the slice: nothing.
+ *
+ * `boardName` / `lists` / `mapping` are the single-scope fields, and for a
+ * backend that keeps them per board they are dead — every reader in the
+ * widget now goes through the descriptor (`getSetupStep`, `isReadyToSync`) or
+ * through the board itself. They are written as empty rather than left alone
+ * so a record cannot carry a stale mirror of a board that has since changed,
+ * which is exactly the copy a future reader would trust by mistake.
+ */
+const DEAD_MIRROR = { boardName: null, lists: [], mapping: null } as const
+
+/**
+ * A candidate integration slice with what the store has just learned about
+ * the scope written where this backend keeps it.
+ *
+ * Two answers, one per kind of backend. A descriptor with `withBoardState`
+ * keeps it inside the config, per board — `config.boards` for Vikunja — and
+ * its slice mirror is emptied (see `DEAD_MIRROR`). One without the hook has
+ * nowhere else to keep it: the mirror *is* its storage, so `mirror` lands on
+ * the slice and the config comes back exactly as it was (Trello).
+ *
+ * Returned as a candidate rather than set, because every caller re-validates
+ * it against the schema that guards storage before it reaches the store.
+ */
+function withBoardState(
+  integration: IntegrationState,
+  config: unknown,
+  patch: BoardStatePatch,
+  mirror: SliceMirror,
+): Record<string, unknown> {
+  const descriptor = getIntegrationDescriptor(integration.name)
+  if (!descriptor?.withBoardState) return { ...integration, config, ...mirror }
+  return { ...integration, config: descriptor.withBoardState(config, patch), ...DEAD_MIRROR }
+}
+
 function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): TodoTask[] {
   return tasks.map((t) => (t.id === id ? { ...t, ...patch } : t))
 }
@@ -232,6 +323,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
     // config holds apiKey/token, so we keep everything device-local: secrets
     // never reach `storage.sync`. Local list (no integration) → sync the tasks.
     area: (state) => (state.integration ? 'local' : 'sync'),
+    // This store's schema upgrades what it parses (`upgrade.ts`: the
+    // single-board Vikunja config becomes `boards[]`), and the service worker
+    // reads the very same record for its background pull — so the upgraded
+    // shape has to reach storage without waiting for the user's next edit.
+    persistTransformedEnvelope: true,
     // No debounce: task actions are discrete (add/status/project), never
     // slider-frequency, and dedup skips writes on non-persisted changes
     // (loading/errorKey). Persisting immediately also avoids a pending write
@@ -342,10 +438,9 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
     const pushTaskAsync = async (taskId: string, op: IntegrationPushOp): Promise<void> => {
       const state = get()
       const active = getActive(state)
-      const mapping = active?.integration.mapping ?? null
-      const scope = active ? active.descriptor.getScope(active.integration.config) : null
-      if (!active || !mapping || !scope) {
-        // No active integration or mapping — clear the dirty flag, nothing to push.
+      if (!active || !isReadyToSync(active.descriptor, active.integration)) {
+        // Nothing connected, or not finished being connected — clear the
+        // dirty flag, there is nothing to push to.
         set({
           tasks: patchTask(get().tasks, taskId, { syncState: 'clean' }),
         })
@@ -355,9 +450,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       const task = state.tasks.find((t) => t.id === taskId)
       if (!task) return
 
+      // Both passed as the store resolved them; a backend that keeps its
+      // scopes and mappings per board ignores them (see `PushContext`).
       const out = await active.adapter.pushTask(task, op, {
-        scope,
-        mapping,
+        scope: active.descriptor.getScope(active.integration.config),
+        mapping: active.integration.mapping,
         knownRef: task.remoteRef,
       })
 
@@ -382,12 +479,19 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       if (!active) return
       const { adapter, descriptor, integration } = active
 
-      const scope = descriptor.getScope(integration.config)
-      const mapping = integration.mapping
-      if (!scope || !mapping) {
+      // The one question about whether a sync can mean anything, and the
+      // descriptor's to answer: a backend with several boards is ready when
+      // every one of them is mapped, not when a slice field happens to be
+      // filled in (see `isReadyToSync`).
+      if (!isReadyToSync(descriptor, integration)) {
         set({ errorKey: 'mappingIncomplete' })
         return
       }
+
+      // Passed through to the adapter as they are — `null` included, for a
+      // backend that keeps neither on the slice.
+      const scope = descriptor.getScope(integration.config)
+      const mapping = integration.mapping
 
       // A silent run clears the previous error but never touches `loading`:
       // the spinner belongs to whoever started a sync on purpose.
@@ -426,17 +530,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           knownStatuses[task.id] = task.status
         }
 
-        // Read from the current slice, not from this run's snapshot: the
-        // mapping wizard's `refreshContainers` can land mid-sync, and its
-        // freshly read projects are the better answer.
-        const knownProjectIds = (get().integration?.projects ?? []).map((project) => project.id)
-
         const pull = await adapter.pullTasks({
           scope,
           mapping,
           knownRefs,
           knownStatuses,
-          knownProjectIds,
           force,
         })
         if (!pull.ok) {
@@ -474,14 +572,32 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         if (!normalizedTitle) return
 
         const now = Date.now()
-        const hasIntegration = Boolean(get().integration?.mapping)
+        const integration = get().integration
+        const descriptor = getIntegrationDescriptor(integration?.name)
+        const canPush = isIntegrationReady(integration)
+
+        /**
+         * A task the user gave no project lands in the backend's default one
+         * when the backend insists on having one: for Vikunja a task lives
+         * *in* a project (that is what a board is), so "no project" is not a
+         * state it can represent, and creating the task without one would
+         * either fail or land it somewhere the widget did not choose.
+         *
+         * The add dialog preselects the same id, so this is the fallback for
+         * the paths that have no dialog behind them (a cached project list
+         * that is empty, a programmatic `addTask`).
+         */
+        const policy = getProjectPolicy(descriptor)
+        const resolvedProjectId =
+          projectId ??
+          (integration && policy.required ? policy.defaultId(integration.config) : null)
 
         const nextTask: TodoTask = {
           id: crypto.randomUUID(),
           title: normalizedTitle,
           description: normalizeDescription(description),
           status: 'input',
-          projectId: projectId ?? null,
+          projectId: resolvedProjectId,
           createdAt: now,
           statusChangedAt: now,
           completedAt: null,
@@ -493,14 +609,14 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
               }
             : null,
           remoteRef: null,
-          syncState: hasIntegration ? 'dirty' : 'clean',
+          syncState: canPush ? 'dirty' : 'clean',
         }
 
         set((state) => ({
           tasks: [nextTask, ...state.tasks],
         }))
 
-        if (hasIntegration) {
+        if (canPush) {
           void pushTaskAsync(nextTask.id, { kind: 'create' })
         }
       },
@@ -510,7 +626,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         if (!previousTask || previousTask.status === status) return
 
         const now = Date.now()
-        const hasIntegration = Boolean(get().integration?.mapping)
+        const canPush = isIntegrationReady(get().integration)
 
         set((state) => ({
           tasks: state.tasks.map((task) =>
@@ -518,13 +634,13 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
               ? {
                   ...task,
                   ...applyStatusTimestamps(task, status, now),
-                  syncState: hasIntegration ? 'dirty' : 'clean',
+                  syncState: canPush ? 'dirty' : 'clean',
                 }
               : task,
           ),
         }))
 
-        if (hasIntegration) {
+        if (canPush) {
           void pushTaskAsync(id, { kind: 'status', previous: previousTask.status })
         }
       },
@@ -533,7 +649,18 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         const previousTask = get().tasks.find((t) => t.id === id)
         if (!previousTask || previousTask.projectId === projectId) return
 
-        const hasIntegration = Boolean(get().integration?.mapping)
+        const integration = get().integration
+        const descriptor = getIntegrationDescriptor(integration?.name)
+        /**
+         * Some backends have no such move. A Vikunja task lives *in* a
+         * project — changing it would mean recreating the task on another
+         * board, with a new id and a new ref — so the policy says the project
+         * is not changeable and this does nothing at all rather than writing
+         * a local value no sync could ever honour.
+         */
+        if (!getProjectPolicy(descriptor).changeable) return
+
+        const canPush = isIntegrationReady(integration)
 
         set((state) => ({
           tasks: state.tasks.map((task) =>
@@ -541,13 +668,13 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
               ? {
                   ...task,
                   projectId,
-                  syncState: hasIntegration ? 'dirty' : 'clean',
+                  syncState: canPush ? 'dirty' : 'clean',
                 }
               : task,
           ),
         }))
 
-        if (hasIntegration) {
+        if (canPush) {
           void pushTaskAsync(id, { kind: 'project', previous: previousTask.projectId })
         }
       },
@@ -631,7 +758,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         await removeArea('sync', TODO_STORAGE_KEY)
       },
 
-      pickScope: (scope, scopeName, containers, projects) => {
+      pickScope: async (scope, scopeName, containers, projects) => {
         const integration = get().integration
         if (!integration) return
         const descriptor = getIntegrationDescriptor(integration.name)
@@ -641,32 +768,66 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         // Only the descriptor knows where the scope lives inside its config,
-        // so the write goes through `withScope` and the result is re-checked
-        // against the persisted schema before it reaches the store.
-        const parsed = integrationSchema.safeParse({
-          ...integration,
-          config: descriptor.withScope(integration.config, scope),
-          boardName: scopeName,
-          lists: containers,
-          projects,
+        // so the write goes through `withScope` — and what the picker just
+        // read about the scope goes through `withBoardState`, which puts it
+        // on the board (Vikunja) or on the slice (Trello), never on both. The
+        // result is re-checked against the persisted schema before it reaches
+        // the store.
+        const scoped = withBoardState(
+          integration,
+          descriptor.withScope(integration.config, scope),
           // Picking a new scope invalidates the previous mapping.
-          mapping: null,
-        })
+          { name: scopeName, containers, mapping: null },
+          { boardName: scopeName, lists: containers, mapping: null },
+        )
+        const parsed = integrationSchema.safeParse({ ...scoped, projects })
         if (!parsed.success) {
           set({ errorKey: 'unknown' })
           return
         }
 
         set({ integration: parsed.data, errorKey: null })
+
+        // The picker read the projects through an adapter built from the
+        // config *before* this pick, which is the wrong answer for a backend
+        // whose projects are its scopes: Vikunja's are its boards, and the
+        // board the user has just chosen was not in the config yet — so a
+        // fresh connection cached an empty list. Re-read them now that it is.
+        //
+        // Only for a descriptor that keeps per-scope state (the same ones
+        // whose slice mirror is dead): for Trello the picker's answer is
+        // already about the board it was read for.
+        if (!descriptor.withBoardState) return
+
+        const rescanned = await descriptor.create(parsed.data.config).listProjects(scope)
+        // A failure is not worth an error: the projects are a cache for pills
+        // and for the add dialog, the mapping step is what comes next, and
+        // `refreshContainers` (or the next pick) reads them again.
+        if (!rescanned.ok) return
+
+        const current = get().integration
+        if (current === null) return
+
+        const reparsed = integrationSchema.safeParse({ ...current, projects: rescanned.value })
+        if (reparsed.success) set({ integration: reparsed.data })
       },
 
       setMapping: async (mapping) => {
         const integration = get().integration
         if (!integration) return
-        set({
-          integration: { ...integration, mapping },
-          errorKey: null,
-        })
+
+        // The mapping is per board for a backend with several of them, so
+        // where it lands is the descriptor's business — and validated, like
+        // every other config write.
+        const parsed = integrationSchema.safeParse(
+          withBoardState(integration, integration.config, { mapping }, { mapping }),
+        )
+        if (!parsed.success) {
+          set({ errorKey: 'unknown' })
+          return
+        }
+
+        set({ integration: parsed.data, errorKey: null })
         await get().syncNow()
       },
 
@@ -746,8 +907,12 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         const parsed = integrationSchema.safeParse({
-          ...current,
-          lists: containers.value,
+          ...withBoardState(
+            current,
+            current.config,
+            { containers: containers.value },
+            { lists: containers.value },
+          ),
           projects: projects.value,
         })
         if (!parsed.success) {
@@ -757,6 +922,26 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
         set({ integration: parsed.data, loading: false, errorKey: null })
         return true
+      },
+
+      dropTasksOfProject: (projectId) => {
+        const descriptor = getIntegrationDescriptor(get().integration?.name)
+        // The same predicate the settings step counted with, so the number in
+        // the confirmation is the number that goes.
+        const ownsRef = descriptor?.ownsRef ?? (() => false)
+        const doomed = new Set(
+          get()
+            .tasks.filter((task) => taskBelongsToBoard(task, projectId, ownsRef))
+            .map((task) => task.id),
+        )
+        if (doomed.size === 0) return
+
+        set((current) => ({
+          tasks: current.tasks.filter((task) => !doomed.has(task.id)),
+          // A conflict badge for a task that no longer exists would outlive
+          // the only thing that could clear it.
+          conflictTaskIds: current.conflictTaskIds.filter((id) => !doomed.has(id)),
+        }))
       },
 
       clearIntegration: async () => {

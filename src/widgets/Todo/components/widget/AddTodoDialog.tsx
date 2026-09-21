@@ -23,7 +23,7 @@ import {
   TODO_DESCRIPTION_MAX_LENGTH,
   TODO_TITLE_MAX_LENGTH,
 } from '@/widgets/Todo/constants.ts'
-import type { Project } from '@/widgets/Todo/integrations/index.ts'
+import type { Project, ProjectPolicy } from '@/widgets/Todo/integrations/index.ts'
 import { LinkedTab } from '@/widgets/Todo/store/store.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import { GlobeIcon, LinkIcon } from 'lucide-react'
@@ -34,6 +34,19 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   projects: Project[]
+  /**
+   * What the active backend expects of a task's project. Only `required` is
+   * read here: it decides whether "No project" is an option at all.
+   */
+  projectPolicy: ProjectPolicy
+  /**
+   * The project a fresh form starts on, or `null` when there is none.
+   *
+   * Resolved by the caller rather than through `projectPolicy.defaultId`: the
+   * policy reads the persisted config, and this dialog is prop-driven — it
+   * has never seen a config and should not start now.
+   */
+  defaultProjectId: string | null
   onSubmit: (input: {
     title: string
     description: string
@@ -42,7 +55,14 @@ interface Props {
   }) => void
 }
 
-export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props) {
+export function AddTodoDialog({
+  open,
+  onOpenChange,
+  projects,
+  projectPolicy,
+  defaultProjectId,
+  onSubmit,
+}: Props) {
   const { t } = useTranslation('todoWidget')
   const { t: common } = useTranslation('common')
   const [title, setTitle] = useState('')
@@ -51,7 +71,28 @@ export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props)
   const [availableTabs, setAvailableTabs] = useState<LinkableTab[]>([])
   const [selectedTabUrl, setSelectedTabUrl] = useState<string>()
   const [tabError, setTabError] = useState<string | null>(null)
-  const [projectValue, setProjectValue] = useState<string>(NO_PROJECT_VALUE)
+  /**
+   * Where the project select starts.
+   *
+   * A backend that requires a project (Vikunja: a task lives on a board) gets
+   * its default one preselected and no "No project" option — offering one
+   * would promise something the sync cannot do. A backend that does not
+   * (Trello) starts where it always has.
+   *
+   * `undefined` — which renders the placeholder — is the answer when a
+   * required project cannot be *named*: the cache holds no such project (a
+   * connection whose scopes have not been read since) and a value pointing at
+   * an option that does not exist would leave the trigger blank with nothing
+   * to explain it. `NO_PROJECT_VALUE` is not that answer either: it is an
+   * option this form does not offer, and it would submit "no project" for a
+   * backend that has no such state.
+   */
+  const initialProjectValue = projectPolicy.required
+    ? projects.some((project) => project.id === defaultProjectId)
+      ? (defaultProjectId as string)
+      : undefined
+    : NO_PROJECT_VALUE
+  const [projectValue, setProjectValue] = useState<string | undefined>(initialProjectValue)
 
   const selectedTab = useMemo(
     () => availableTabs.find((tab) => tab.url === selectedTabUrl),
@@ -65,7 +106,7 @@ export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props)
     setAvailableTabs([])
     setSelectedTabUrl(undefined)
     setTabError(null)
-    setProjectValue(NO_PROJECT_VALUE)
+    setProjectValue(initialProjectValue)
   }
 
   useEffect(() => {
@@ -76,6 +117,19 @@ export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props)
       setSelectedTabUrl((current) => current ?? tabs[0]?.url)
     })
   }, [open])
+
+  /**
+   * Keeps the closed form on the current default.
+   *
+   * The default comes out of `chrome.storage`, which can settle long after
+   * this dialog was mounted — and `resetState` only runs when a form that was
+   * opened closes again. While the dialog is open the selection is the
+   * user's, so it is deliberately left alone there.
+   */
+  useEffect(() => {
+    if (open) return
+    setProjectValue(initialProjectValue)
+  }, [open, initialProjectValue])
 
   const handleOpenChange = (nextOpen: boolean) => {
     onOpenChange(nextOpen)
@@ -90,7 +144,10 @@ export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props)
       title,
       description,
       linkedTab,
-      projectId: projectValue === NO_PROJECT_VALUE ? null : projectValue,
+      // Nothing named (the placeholder) means the same as "no project" to the
+      // store, which fills the backend's default when it requires one.
+      projectId:
+        projectValue === undefined || projectValue === NO_PROJECT_VALUE ? null : projectValue,
     })
     handleOpenChange(false)
   }
@@ -154,7 +211,9 @@ export function AddTodoDialog({ open, onOpenChange, projects, onSubmit }: Props)
                   <SelectValue placeholder={t('form.projectNone')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NO_PROJECT_VALUE}>{t('form.projectNone')}</SelectItem>
+                  {!projectPolicy.required && (
+                    <SelectItem value={NO_PROJECT_VALUE}>{t('form.projectNone')}</SelectItem>
+                  )}
                   {projects.map((project) => (
                     <SelectItem key={project.id} value={project.id}>
                       {project.name}

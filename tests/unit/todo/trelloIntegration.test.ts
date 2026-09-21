@@ -219,7 +219,13 @@ describe('trello descriptor scope + ref helpers', () => {
       descriptor.ownsRef({ cardId: 'c', shortLink: null, listId: 'list-input', etag: null }),
     ).toBe(true)
     expect(
-      descriptor.ownsRef({ taskId: 1, identifier: '#1', bucketId: null, updated: 'now' }),
+      descriptor.ownsRef({
+        taskId: 1,
+        projectId: 1,
+        identifier: '#1',
+        bucketId: null,
+        updated: 'now',
+      }),
     ).toBe(false)
   })
 })
@@ -463,7 +469,7 @@ describe('TrelloIntegration.pushTask', () => {
 
     const out = await makeIntegration().pushTask(task, op, {
       ...pushCtx,
-      mapping: { ...pushCtx.mapping, struggle: [] },
+      mapping: { ...listMappingFixture, struggle: [] },
       knownRef: op.kind === 'create' ? null : task.remoteRef,
     })
 
@@ -526,7 +532,13 @@ describe('TrelloIntegration.pushTask', () => {
   it('re-links a task carrying a foreign ref via createCard instead of failing', async () => {
     fakeCreateCard.mockResolvedValueOnce(ok(captureCardResponse()))
     const task = makeTask({
-      remoteRef: { taskId: 7, identifier: '#7', bucketId: null, updated: '2024-01-01T00:00:00Z' },
+      remoteRef: {
+        taskId: 7,
+        projectId: 1,
+        identifier: '#7',
+        bucketId: null,
+        updated: '2024-01-01T00:00:00Z',
+      },
     })
     const out = await makeIntegration().pushTask(
       task,

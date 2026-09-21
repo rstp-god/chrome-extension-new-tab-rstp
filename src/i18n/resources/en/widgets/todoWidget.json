@@ -172,7 +172,7 @@
     },
     "vikunja": {
       "title": "Vikunja",
-      "description": "Two-way sync with a self-hosted Vikunja project.",
+      "description": "Two-way sync with your self-hosted Vikunja — one board or several.",
       "connect": {
         "title": "Connect Vikunja",
         "description": "Point the widget at your Vikunja instance and paste a personal API token.",
@@ -190,15 +190,29 @@
         "versionWarning": "Tested with Vikunja 2.6; other versions may behave differently."
       },
       "board": {
-        "title": "Pick a project",
-        "description": "Choose the project whose kanban view this widget will sync with.",
-        "pickLabel": "Project",
-        "empty": "No projects with a kanban view on this account."
+        "title": "Boards",
+        "description": "Choose the boards to sync; one of them is the default for new tasks."
+      },
+      "boards": {
+        "loading": "Reading the boards…",
+        "empty": "No boards with a kanban view on this account.",
+        "default": "Default board",
+        "defaultHint": "New tasks are created here.",
+        "continue": "Save boards",
+        "removeTitle": "Stop syncing these boards?",
+        "removeBody_one": "{{name}}: {{count}} task disappears from the widget (it stays in Vikunja).",
+        "removeBody_other": "{{name}}: {{count}} tasks disappear from the widget (they stay in Vikunja).",
+        "removeDirty_one": "{{count}} of them has a change that never reached Vikunja — it will be lost.",
+        "removeDirty_other": "{{count}} of them have changes that never reached Vikunja — they will be lost.",
+        "keepOne": "At least one board has to stay — disconnect the integration to sync nothing at all."
       },
       "mapping": {
         "title": "Map buckets to statuses",
         "description": "Each status can pull from multiple buckets. The first bucket in each row is where new tasks land.",
         "suggestedHint": "Buckets are pre-matched by name — check the rows and fix anything that looks off.",
+        "boardHeader": "Board {{n}} of {{total}} — {{name}}",
+        "copyFrom": "Same as {{name}}",
+        "boardGone": "That board is no longer part of this connection — go back and pick it again.",
         "addBucket": "Add bucket",
         "emptyHint": "Pick at least one bucket",
         "conflict": "One bucket is mapped to two statuses. A task in it would have no single status — remove one of them.",
@@ -211,19 +225,22 @@
         "created": "Columns created.",
         "skipFlat": "Skip — flat mode",
         "flatNotice": "In flat mode In progress / Struggle / Deleted are visible only in the extension; only Completed syncs to Vikunja.",
-        "flatActive": "Flat mode is active. The rows above are a suggestion — saving them switches this project to full bucket sync.",
+        "flatActive": "Flat mode is active. The rows above are a suggestion — saving them switches this board to full bucket sync.",
         "columnStruggle": "Struggle",
         "columnTrash": "Trash"
       },
       "summary": {
         "title": "Vikunja",
-        "boardLabel": "Project",
-        "mappingLabel": "Mapping",
+        "boards": "Boards",
+        "modeKanban": "kanban",
+        "modeFlat": "flat",
+        "defaultBadge": "default",
+        "columns": "Columns",
+        "editBoards": "Change boards",
         "lastSync": "Last sync",
         "neverSynced": "never",
         "disconnect": "Disconnect",
         "disconnectConfirm": "Disconnect Vikunja? The todos stay in the widget and stop syncing. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
-        "rePickBoard": "Change project",
         "switch": "Switch integration",
         "switchConfirm": "Disconnect Vikunja and pick another integration? The todos stay in the widget, unlinked. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
         "localOnlyLabel": "Only inside the extension",

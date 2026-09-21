@@ -49,8 +49,10 @@ export interface VikunjaWire {
  * record and write the whole thing back; every field listed here is a field
  * the user's own instance can lose to a bug, and none of the rest
  * (`due_date`, `priority`, `percent_done`, assignees, reminders) is something
- * the widget can even show, let alone edit. Labels are not here either: they
- * have their own endpoints (`setLabels`) and are not part of the task body.
+ * the widget can even show, let alone edit. Labels are not here either — and
+ * nowhere else in the bridge: they live behind their own endpoints, the widget
+ * stopped surfacing them as projects (a task's project is the board it lives
+ * in), and nothing writes one any more.
  *
  * `description` is **HTML**, already produced by the widget's `textToHtml` —
  * Vikunja stores rich text in this field and would render an escaped string
@@ -91,17 +93,6 @@ export interface VikunjaTaskWrite {
   updated: string
 }
 
-/**
- * What `setLabels` actually changed — not what it was asked to change. A
- * reserved label (see `isReservedVikunjaLabel`) is never removed and a label
- * the task does not carry is not removed twice, so the two lists can be
- * shorter than the request's.
- */
-export interface VikunjaSetLabelsResult {
-  added: number[]
-  removed: number[]
-}
-
 /** `DELETE /tasks/:id` carries no payload worth forwarding. */
 export interface VikunjaDeleteResult {
   deleted: true
@@ -120,7 +111,6 @@ export type VikunjaRequest =
       viewId: number
       title: string
     }
-  | { type: 'vikunja'; op: 'listLabels'; cfg: VikunjaWire }
   | {
       type: 'vikunja'
       op: 'pull'
@@ -142,6 +132,22 @@ export type VikunjaRequest =
        * about it.
        */
       force?: boolean
+      /**
+       * How many boards this connection syncs, so the snapshot the worker
+       * writes takes its share of the connection's total budget and not the
+       * whole per-board cap.
+       *
+       * The page has to say it: the worker serves a pull for one view and has
+       * no idea how many others the caller is about to ask for — while the
+       * alarm, which walks the schedule itself, counts them for its own
+       * pulls. Without it the two paths would disagree about the size of the
+       * same snapshot, and the first board the *page* pulled would take the
+       * budget the alarm had divided.
+       *
+       * Optional, and anything unusable falls back to one board, which is the
+       * per-board cap — the budget can only shrink from here, never grow.
+       */
+      boardCount?: number
     }
   | { type: 'vikunja'; op: 'create'; cfg: VikunjaWire; projectId: number; payload: TaskPayload }
   | {
@@ -162,14 +168,6 @@ export type VikunjaRequest =
       bucketId: number
     }
   | { type: 'vikunja'; op: 'delete'; cfg: VikunjaWire; taskId: number }
-  | {
-      type: 'vikunja'
-      op: 'setLabels'
-      cfg: VikunjaWire
-      taskId: number
-      add: number[]
-      remove: number[]
-    }
 
 /**
  * Runtime allowlist of the ops above. `isVikunjaRequest` checks against it,
@@ -183,13 +181,11 @@ export const VIKUNJA_OPS = [
   'listProjects',
   'listBuckets',
   'createBucket',
-  'listLabels',
   'pull',
   'create',
   'update',
   'moveToBucket',
   'delete',
-  'setLabels',
 ] as const satisfies readonly VikunjaRequest['op'][]
 
 export type VikunjaOp = VikunjaRequest['op']
@@ -248,14 +244,6 @@ export interface VikunjaBucketSummary {
   isDefault: boolean
 }
 
-/** A label, which the Todo widget surfaces as a "project". */
-export interface VikunjaLabelSummary {
-  id: number
-  title: string
-  /** `hex_color` without a leading `#`, or `null` when the label has none. */
-  hexColor: string | null
-}
-
 /**
  * Ceilings on the two free-text fields a pulled task carries.
  *
@@ -272,27 +260,20 @@ export interface VikunjaLabelSummary {
 export const VIKUNJA_MAX_TITLE_LENGTH = 1024
 export const VIKUNJA_MAX_DESCRIPTION_LENGTH = 16_384
 
-/**
- * Label prefixes that belong to another feature of the user's own workflow.
+/*
+ * There is deliberately no "reserved label" list here any more.
  *
- * The instance this integration was built against already uses `energy:*` and
- * `mood:*` labels for something else (recon Q13). The widget pretends not to
- * see them — surfacing them as Todo "projects" would bury the real ones — and,
- * more importantly, the **write path must never strip one off a task it
- * edits**: a sync that quietly deletes someone's labels is worse than no sync.
+ * It used to name the `energy:*` / `mood:*` prefixes another feature of the
+ * user's own workflow owns (recon Q13), because the widget surfaced labels as
+ * its projects and the write path had to promise never to strip one off a
+ * task it edited. Nothing writes a label now — a Vikunja task's project is
+ * the board it lives in — so the promise is kept by there being no label
+ * endpoint reachable from here at all, which is a stronger guarantee than a
+ * prefix check was.
  *
- * Shared vocabulary rather than a widget constant because both sides enforce
- * it: the widget hides them, and the worker drops them from a `setLabels`
- * removal list — a renderer asking for a reserved id is refused there, not
- * trusted. One list, so the two checks cannot disagree.
+ * A plain block comment, not a doc comment: it documents an absence, and a
+ * `/**` here would attach itself to whatever declaration came next.
  */
-export const VIKUNJA_RESERVED_LABEL_PREFIXES = ['energy:', 'mood:'] as const
-
-/** Is this one of the labels another feature owns (see the list above)? */
-export function isReservedVikunjaLabel(title: string): boolean {
-  const normalized = title.trim().toLowerCase()
-  return VIKUNJA_RESERVED_LABEL_PREFIXES.some((prefix) => normalized.startsWith(prefix))
-}
 
 /**
  * One task as the pull hands it over.
@@ -303,6 +284,13 @@ export function isReservedVikunjaLabel(title: string): boolean {
  * `updated` is already normalised to whole seconds (see
  * `normalizeVikunjaTimestamp`), so it can be compared with the etag stored on
  * the local task without a false conflict on every other edit.
+ *
+ * A task's **labels are not here**. They used to travel as `labelIds`, from
+ * back when the widget surfaced the instance's labels as its projects; a
+ * task's project is the board it lives in now, so no reader was left — and
+ * carrying them anyway meant a `structuredClone` and a snapshot write per
+ * pull for a field nothing read. The raw task schema still parses `labels`,
+ * because the read-modify-write in `client.ts` must hand them back untouched.
  */
 export interface VikunjaPulledTask {
   id: number
@@ -316,7 +304,6 @@ export interface VikunjaPulledTask {
   bucketId: number
   created: string
   updated: string
-  labelIds: number[]
 }
 
 /**
@@ -590,4 +577,34 @@ export function vikunjaHostPattern(baseUrl: string): string | null {
   if (url.protocol !== 'https:') return null
   if (!isLiteralHostname(url.hostname)) return null
   return `https://${url.hostname}/*`
+}
+
+/**
+ * Which of the configured boards is "the board" for a caller that has not
+ * been told: the one `defaultProjectId` names, the first one when it names
+ * nothing (or names a board no longer in the list), and `null` when none is
+ * connected.
+ *
+ * Structural on purpose — it asks for `projectId` and answers with whatever
+ * was passed in — so a caller may hand it the full `VikunjaBoard` or the
+ * three fields the worker's schedule schema keeps, without the two sides
+ * sharing a type.
+ *
+ * The background pull does not ask: it walks every board of the schedule, so
+ * "the default one" means nothing to it. What does depend on this rule is the
+ * persisted config's own meaning — `defaultProjectId` is the board a new task
+ * is created in, and the board the settings UI stars — and that meaning
+ * belongs beside the schema it is part of, in the one module both sides may
+ * import (see the boundary rule at the top of this file), rather than in a
+ * widget helper the worker could not read.
+ */
+export function defaultVikunjaBoard<TBoard extends { projectId: number }>(config: {
+  boards: readonly TBoard[]
+  defaultProjectId: number | null
+}): TBoard | null {
+  const [first] = config.boards
+  if (first === undefined) return null
+  if (config.defaultProjectId === null) return first
+
+  return config.boards.find((board) => board.projectId === config.defaultProjectId) ?? first
 }

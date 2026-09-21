@@ -288,7 +288,7 @@ describe('5xx backoff', () => {
   })
 })
 
-// ---------- read path (task 5) ----------
+// ---------- read path ----------
 
 const VIEW_PATH = '/projects/1/views/4'
 const VIEW_BASE = `https://vikunja.example/api/v1${VIEW_PATH}`
@@ -395,16 +395,6 @@ describe('paged collections', () => {
 
     await expect(client().getProjects()).resolves.toMatchObject({ ok: true })
     expect(fetchMock).toHaveBeenCalledTimes(1)
-  })
-
-  it('pages /labels the same way', async () => {
-    const label = { id: 1, title: 'energy:1', hex_color: 'efbdeb' }
-    const fetchMock = stubFetch(async () => pagedResponse([label], 1))
-
-    await expect(client().getLabels()).resolves.toEqual({ ok: true, value: [label] })
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'https://vikunja.example/api/v1/labels?per_page=50&page=1',
-    )
   })
 
   it('propagates a failure from any page and stops paging', async () => {
@@ -550,7 +540,7 @@ describe('getViewTasks', () => {
   })
 })
 
-// ---------- write path (task 6) ----------
+// ---------- write path ----------
 
 const TASKS_BASE = 'https://vikunja.example/api/v1/tasks'
 
@@ -807,27 +797,7 @@ describe('moveToBucket', () => {
   })
 })
 
-describe('labels and delete', () => {
-  it('attaches a label with PUT and a label_id body', async () => {
-    const fetchMock = stubStatus(201, { label_id: 3, created: '2026-09-20T17:00:00+03:00' })
-
-    await expect(client().addLabel(4, 3)).resolves.toMatchObject({ ok: true })
-
-    expect(fetchMock.mock.calls[0][0]).toBe(`${TASKS_BASE}/4/labels`)
-    expect(initOf(fetchMock).method).toBe('PUT')
-    expect(bodyOf(fetchMock, 0)).toEqual({ label_id: 3 })
-  })
-
-  it('detaches a label with DELETE and the id in the path, no body', async () => {
-    const fetchMock = stubStatus(200, { message: 'Successfully deleted.' })
-
-    await expect(client().removeLabel(4, 3)).resolves.toMatchObject({ ok: true })
-
-    expect(fetchMock.mock.calls[0][0]).toBe(`${TASKS_BASE}/4/labels/3`)
-    expect(initOf(fetchMock).method).toBe('DELETE')
-    expect(initOf(fetchMock).body).toBeUndefined()
-  })
-
+describe('delete', () => {
   it('deletes a task', async () => {
     const fetchMock = stubStatus(200, { message: 'Successfully deleted.' })
 

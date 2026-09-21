@@ -49,13 +49,11 @@ describe('VikunjaRequest union', () => {
       | 'listProjects'
       | 'listBuckets'
       | 'createBucket'
-      | 'listLabels'
       | 'pull'
       | 'create'
       | 'update'
       | 'moveToBucket'
       | 'delete'
-      | 'setLabels'
     >()
   })
 
@@ -73,6 +71,10 @@ describe('VikunjaRequest union', () => {
       // Optional, so a caller that never heard of the snapshot cache gets the
       // cheap answer rather than a forced read of the user's instance.
       force?: boolean
+      // Optional for the same reason, and unusable values read as one board:
+      // the count can only shrink this snapshot's share of the connection's
+      // budget, never grow it past a single board's cap.
+      boardCount?: number
     }>()
   })
 

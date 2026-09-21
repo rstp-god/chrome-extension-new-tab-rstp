@@ -27,11 +27,9 @@ import {
   vikunjaBucketSchema,
   vikunjaBucketWithTasksSchema,
   vikunjaInfoSchema,
-  vikunjaLabelSchema,
   vikunjaMessageSchema,
   vikunjaProjectSchema,
   vikunjaTaskBucketSchema,
-  vikunjaTaskLabelSchema,
   vikunjaTaskSchema,
   vikunjaUserSchema,
   vikunjaViewSchema,
@@ -47,11 +45,9 @@ import type {
   VikunjaBucket,
   VikunjaBucketWithTasks,
   VikunjaInfo,
-  VikunjaLabel,
   VikunjaMessage,
   VikunjaProject,
   VikunjaTask,
-  VikunjaTaskLabel,
   VikunjaUser,
   VikunjaView,
 } from '@/background/vikunja/schema.ts'
@@ -222,11 +218,6 @@ export class VikunjaClient {
   /** The kanban columns of a view, in board order. */
   getBuckets(projectId: number, viewId: number): Promise<VikunjaResponse<VikunjaBucket[]>> {
     return this.get(`${this.viewPath(projectId, viewId)}/buckets`, z.array(vikunjaBucketSchema))
-  }
-
-  /** Every label on the instance; labels are global, not per project. */
-  getLabels(): Promise<VikunjaResponse<VikunjaLabel[]>> {
-    return this.getAllPages('/labels', vikunjaLabelSchema)
   }
 
   /**
@@ -437,20 +428,6 @@ export class VikunjaClient {
     )
   }
 
-  /** Attaches one label (recon Q13: `PUT`, answers 201 with the id). */
-  addLabel(taskId: number, labelId: number): Promise<VikunjaResponse<VikunjaTaskLabel>> {
-    return enqueue(taskId, () =>
-      this.put(`${this.taskPath(taskId)}/labels`, vikunjaTaskLabelSchema, { label_id: labelId }),
-    )
-  }
-
-  /** Detaches one label. The id is in the path, not in a body. */
-  removeLabel(taskId: number, labelId: number): Promise<VikunjaResponse<VikunjaMessage>> {
-    return enqueue(taskId, () =>
-      this.request('DELETE', `${this.taskPath(taskId)}/labels/${labelId}`, vikunjaMessageSchema),
-    )
-  }
-
   // ---------- internals ----------
 
   /** Built in one place for the same reason as `viewPath`. */
@@ -484,7 +461,7 @@ export class VikunjaClient {
   }
 
   /**
-   * Reads a plain paginated collection (`/projects`, `/labels`) to the end.
+   * Reads a plain paginated collection (`/projects`) to the end.
    *
    * Unlike the view endpoint, these report an honest
    * `x-pagination-total-pages`, so the header is the stop condition. A

@@ -27,7 +27,7 @@ function makeEmptyMapping(): StatusListMapping {
  * but — living in the settings layer rather than being reached through a
  * descriptor — it may read the store directly and ignores most of them.
  */
-export function TodoSettingsMapping({ onBack }: MappingStepProps) {
+export function TodoSettingsMapping({ onBack, onDone }: MappingStepProps) {
   const { t } = useTranslation('todoWidget')
   const { integration, setMapping, errorKey, hasExistingTasks } = useTodoStore(
     useShallow((state) => ({
@@ -95,8 +95,11 @@ export function TodoSettingsMapping({ onBack }: MappingStepProps) {
   const handleSave = async () => {
     if (!isValid) return
     setBusy(true)
+    // `setMapping` persists *and* syncs, so there is nothing left for this
+    // step to do but hand the dialog back its own step machine.
     await setMapping(draft)
     setBusy(false)
+    onDone()
   }
 
   return (

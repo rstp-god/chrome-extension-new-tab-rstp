@@ -3,7 +3,7 @@ import { cleanup, render } from '@testing-library/react'
 import { act } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { RemoteChangeEvent, RemoteScope } from '@/widgets/Todo/integrations/index.ts'
+import type { RemoteChangeEvent } from '@/widgets/Todo/integrations/index.ts'
 import type { IntegrationState } from '@/widgets/Todo/store/store.ts'
 
 /**
@@ -35,7 +35,9 @@ vi.mock('@/services/chrome/storage.ts', () => ({
 const fakePullTasks = vi.hoisted(() => vi.fn())
 const fakePushTask = vi.hoisted(() => vi.fn())
 const fakeSubscribe = vi.hoisted(() =>
-  vi.fn<(scope: RemoteScope, onEvent: (event: RemoteChangeEvent) => void) => () => void>(),
+  vi.fn<
+    (integration: IntegrationState, onEvent: (event: RemoteChangeEvent) => void) => () => void
+  >(),
 )
 
 vi.mock('@/widgets/Todo/integrations/index.ts', async (importOriginal) => {
@@ -65,29 +67,56 @@ vi.mock('@/widgets/Todo/integrations/index.ts', async (importOriginal) => {
 import { TodoWidget } from '@/widgets/Todo/TodoWidget.tsx'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 
+const MAPPING = {
+  input: ['1'],
+  inprogress: ['1'],
+  struggle: ['1'],
+  completed: ['3'],
+  deleted: ['1'],
+}
+
+/**
+ * A finished connection: one board, mapped. Everything about it that decides
+ * whether the widget syncs lives on the board — the slice's own fields are
+ * written empty for this backend.
+ */
 const VIKUNJA: IntegrationState = {
   name: 'vikunja',
   config: {
     baseUrl: 'https://vikunja.example',
     token: 'tk_super-secret-value',
-    projectId: 1,
-    viewId: 4,
-    kanbanMapping: true,
+    boards: [
+      {
+        projectId: 1,
+        viewId: 4,
+        name: 'Probe',
+        containers: [
+          { id: '1', name: 'To-Do', isDefault: true },
+          { id: '3', name: 'Done', isTerminal: true },
+        ],
+        mapping: MAPPING,
+        kanbanMapping: true,
+      },
+    ],
+    defaultProjectId: 1,
   },
-  boardName: 'Probe',
-  lists: [
-    { id: '1', name: 'To-Do', isDefault: true },
-    { id: '3', name: 'Done', isTerminal: true },
-  ],
+  boardName: null,
+  lists: [],
   projects: [],
-  mapping: {
-    input: ['1'],
-    inprogress: ['1'],
-    struggle: ['1'],
-    completed: ['3'],
-    deleted: ['1'],
-  },
+  mapping: null,
   lastSyncAt: null,
+}
+
+/** The same connection with the board's wizard unfinished. */
+function unmapped(): IntegrationState {
+  if (VIKUNJA.name !== 'vikunja') throw new Error('expected the vikunja branch')
+  return {
+    ...VIKUNJA,
+    config: {
+      ...VIKUNJA.config,
+      boards: [{ ...VIKUNJA.config.boards[0], mapping: null }],
+    },
+  }
 }
 
 /** The captured `onEvent` of the one subscription the widget made. */
@@ -116,19 +145,21 @@ afterEach(() => {
 })
 
 describe('TodoWidget — remote change subscription', () => {
-  it('subscribes with the integration’s scope once it has one', async () => {
+  it('subscribes with the whole integration once it is ready to sync', async () => {
     useTodoStore.setState({ integration: VIKUNJA })
 
     await act(async () => {
       render(<TodoWidget />)
     })
 
+    // The slice, not a scope: which views are worth listening to is the
+    // descriptor's reading of its own config.
     expect(fakeSubscribe).toHaveBeenCalledTimes(1)
-    expect(fakeSubscribe.mock.calls[0][0]).toEqual({ projectId: 1, viewId: 4 })
+    expect(fakeSubscribe.mock.calls[0][0]).toBe(VIKUNJA)
   })
 
   it('does not subscribe while the mapping is unfinished', async () => {
-    useTodoStore.setState({ integration: { ...VIKUNJA, mapping: null } })
+    useTodoStore.setState({ integration: unmapped() })
 
     await act(async () => {
       render(<TodoWidget />)
@@ -202,26 +233,41 @@ describe('TodoWidget — remote change subscription', () => {
     expect(useTodoStore.getState().loading).toBe(false)
   })
 
-  it('re-subscribes for the new view when the user re-picks a project', async () => {
+  it('re-subscribes when the boards change', async () => {
     const unsubscribe = vi.fn()
     fakeSubscribe.mockReturnValue(unsubscribe)
     useTodoStore.setState({ integration: VIKUNJA })
     await act(async () => {
       render(<TodoWidget />)
     })
-    expect(fakeSubscribe.mock.calls[0][0]).toEqual({ projectId: 1, viewId: 4 })
+    expect(fakeSubscribe.mock.calls[0][0]).toBe(VIKUNJA)
 
+    const next: IntegrationState = {
+      ...VIKUNJA,
+      config: {
+        ...VIKUNJA.config,
+        boards: [
+          {
+            projectId: 7,
+            viewId: 9,
+            name: 'Work',
+            containers: [],
+            mapping: MAPPING,
+            kanbanMapping: true,
+          },
+        ],
+        defaultProjectId: 7,
+      },
+    }
     await act(async () => {
-      useTodoStore.setState({
-        integration: { ...VIKUNJA, config: { ...VIKUNJA.config, projectId: 7, viewId: 9 } },
-      })
+      useTodoStore.setState({ integration: next })
     })
 
-    // Otherwise the listener would keep filtering broadcasts for the project
-    // the widget no longer shows.
+    // Otherwise the listener would keep filtering broadcasts for the boards
+    // this connection no longer syncs.
     expect(unsubscribe).toHaveBeenCalledTimes(1)
     expect(fakeSubscribe).toHaveBeenCalledTimes(2)
-    expect(fakeSubscribe.mock.calls[1][0]).toEqual({ projectId: 7, viewId: 9 })
+    expect(fakeSubscribe.mock.calls[1][0]).toBe(next)
   })
 
   it('does not re-subscribe when an unrelated part of the slice changes', async () => {

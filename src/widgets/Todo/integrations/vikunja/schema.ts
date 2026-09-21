@@ -19,11 +19,9 @@ import type {
   VikunjaBucketSummary,
   VikunjaConnectInfo,
   VikunjaDeltaCounts,
-  VikunjaLabelSummary,
   VikunjaProjectSummary,
   VikunjaPullResult,
   VikunjaPulledTask,
-  VikunjaSetLabelsResult,
   VikunjaTaskWrite,
 } from '@/background/vikunja/messages.ts'
 
@@ -61,14 +59,6 @@ export const vikunjaBucketSummarySchema: z.ZodType<VikunjaBucketSummary> = z.obj
 
 export const vikunjaBucketSummaryListSchema = z.array(vikunjaBucketSummarySchema)
 
-export const vikunjaLabelSummarySchema: z.ZodType<VikunjaLabelSummary> = z.object({
-  id: z.number(),
-  title: z.string(),
-  hexColor: z.string().nullable(),
-})
-
-export const vikunjaLabelSummaryListSchema = z.array(vikunjaLabelSummarySchema)
-
 export const vikunjaPulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
   id: z.number(),
   identifier: z.string(),
@@ -82,7 +72,6 @@ export const vikunjaPulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
   bucketId: z.number(),
   created: z.string(),
   updated: z.string(),
-  labelIds: z.array(z.number()),
 })
 
 export const vikunjaPullResultSchema: z.ZodType<VikunjaPullResult> = z.object({
@@ -136,9 +125,4 @@ export const vikunjaTaskWriteSchema: z.ZodType<VikunjaTaskWrite> = z.object({
   done: z.boolean(),
   doneAt: z.string().nullable(),
   updated: z.string(),
-})
-
-export const vikunjaSetLabelsResultSchema: z.ZodType<VikunjaSetLabelsResult> = z.object({
-  added: z.array(z.number()),
-  removed: z.array(z.number()),
 })
