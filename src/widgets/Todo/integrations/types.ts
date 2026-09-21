@@ -152,6 +152,21 @@ export type IntegrationOutcome<T> =
       ref?: RemoteTaskRef
     }
 
+/**
+ * What a backend that can watch itself reports, as little as the widget needs
+ * to act:
+ *
+ * - `changed` — something moved remotely; the store answers with a silent
+ *   sync, which is the only thing it could usefully do with any finer
+ *   description;
+ * - `failed` — the watcher itself hit a wall the user has to know about (a
+ *   revoked token, a withdrawn host permission), observed while no UI was
+ *   looking.
+ */
+export type RemoteChangeEvent =
+  | { kind: 'changed' }
+  | { kind: 'failed'; errorKey: IntegrationErrorKey }
+
 export interface PullContext {
   scope: RemoteScope
   mapping: StatusListMapping
@@ -167,6 +182,18 @@ export interface PullContext {
    * otherwise reset every task to `input` on every sync.
    */
   knownStatuses: Record<string, TodoStatus>
+  /**
+   * Read the backend for real instead of answering from whatever the adapter
+   * (or the service worker behind it) has cached.
+   *
+   * Set for a pull the user asked for and for the one a freshly mounted
+   * widget makes; left off for a background refresh, which is usually a
+   * reaction to the backend having *just* been read — Vikunja's worker
+   * broadcasts a change and then serves the following sync from the very
+   * snapshot the broadcast was about, so one remote read covers every open
+   * tab. A backend with no cache of its own (Trello) ignores it.
+   */
+  force?: boolean
 }
 
 export interface PushContext {
@@ -312,6 +339,26 @@ export interface IntegrationDescriptor {
    * changes how many requests are in the air, not what a failure means.
    */
   pushConcurrency?: number
+  /**
+   * Watch the backend and call `onEvent` when it moves, returning the
+   * unsubscribe.
+   *
+   * Optional, because "notice a remote change" is not something an adapter
+   * can invent: it needs a push channel. Vikunja has one — its service
+   * worker pulls on a `chrome.alarms` schedule and broadcasts what changed —
+   * so the descriptor implements it and the widget stops being a page that
+   * only knows what it last asked for. Trello does not implement it: polling
+   * from the page would be the very thing the worker exists to avoid.
+   *
+   * The implementation must be inert where there is no channel (the showcase
+   * build, tests, a stripped `chrome`) and must tolerate being called for a
+   * scope it then filters out — a broadcast about another project is not this
+   * subscriber's business.
+   */
+  subscribeRemoteChanges?(
+    scope: RemoteScope,
+    onEvent: (event: RemoteChangeEvent) => void,
+  ): () => void
   /**
    * Reads the scope out of a persisted config, or `null` while the user
    * hasn't picked one. The scope is deliberately *not* a separate persisted

@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test'
 import type { BrowserContext, Page } from '@playwright/test'
 
-import { launchExtensionContext, openExtensionNewTab } from '../helpers/extension'
+import {
+  clearExtensionStorage,
+  launchExtensionContext,
+  openExtensionNewTab,
+} from '../helpers/extension'
 
 /**
  * Acceptance tests for the New Tab ↔ service worker bridge: the page really
@@ -99,6 +103,94 @@ test('the bridge answers a ping that cold-starts the service worker', async () =
     expect(pong).toMatchObject({ ok: true, value: { pong: true } })
     expect(typeof pong.value.at).toBe('number')
   } finally {
+    await context.close()
+  }
+})
+
+/**
+ * The Todo envelope as `withChromeSync` writes it, with a Vikunja
+ * integration the background pull can actually schedule: a scope, a full
+ * mapping, and a non-default period so the assertion cannot pass by accident.
+ *
+ * Written from the page rather than through the UI on purpose — this test is
+ * about the worker reacting to `chrome.storage.onChanged`, not about the
+ * connect wizard. The credentials are fictional and the host is never
+ * granted, so nothing is ever sent anywhere.
+ */
+const VIKUNJA_ENVELOPE = {
+  meta: { originId: 'playwright', rev: 1, ts: 1_700_000_000_000 },
+  state: {
+    tasks: [],
+    integration: {
+      name: 'vikunja',
+      config: {
+        baseUrl: 'https://vikunja.example',
+        token: 'tk_not-a-real-token',
+        projectId: 1,
+        viewId: 4,
+        kanbanMapping: true,
+        pullPeriodMin: 15,
+      },
+      boardName: 'Probe',
+      lists: [
+        { id: '1', name: 'To-Do', isDefault: true },
+        { id: '3', name: 'Done', isTerminal: true },
+      ],
+      projects: [],
+      mapping: {
+        input: ['1'],
+        inprogress: ['1'],
+        struggle: ['1'],
+        completed: ['3'],
+        deleted: ['1'],
+      },
+      lastSyncAt: null,
+    },
+  },
+}
+
+/** `chrome.alarms.get` from the page, polled until it settles either way. */
+async function pullAlarmPeriod(page: Page): Promise<number | null> {
+  return page.evaluate(async () => {
+    const alarm = await chrome.alarms.get('vikunja-pull')
+    return alarm?.periodInMinutes ?? null
+  })
+}
+
+test('the worker schedules and clears the background pull from stored config', async () => {
+  const context = await launchExtensionContext()
+  // Kept out here so the cleanup below has the extension page rather than the
+  // context's initial `about:blank`, where `chrome.storage` is undefined.
+  let opened: Page | null = null
+
+  try {
+    const page = await context.newPage()
+    opened = page
+    await openExtensionNewTab(page)
+    await clearExtensionStorage(page)
+
+    // The bridge answering proves the worker is up and its top-level
+    // listeners — including `storage.onChanged` — are registered.
+    expect(await ping(page)).toMatchObject({ ok: true })
+
+    await page.evaluate(
+      (envelope) => chrome.storage.local.set({ 'todo-widget:v1': envelope }),
+      VIKUNJA_ENVELOPE,
+    )
+
+    await expect
+      .poll(() => pullAlarmPeriod(page), { timeout: 10_000 })
+      .toBe(VIKUNJA_ENVELOPE.state.integration.config.pullPeriodMin)
+
+    // Disconnecting wipes the local envelope; the worker must clean up after
+    // itself rather than keep pulling a project nobody is linked to.
+    await page.evaluate(() => chrome.storage.local.remove('todo-widget:v1'))
+
+    await expect.poll(() => pullAlarmPeriod(page), { timeout: 10_000 }).toBeNull()
+  } finally {
+    // Other specs assume an empty profile: the envelope above would otherwise
+    // resurrect a connected integration in the Todo widget.
+    if (opened) await clearExtensionStorage(opened)
     await context.close()
   }
 })

@@ -469,6 +469,10 @@ export const descriptor: IntegrationDescriptor = {
   }),
   // Ваш ли это remoteRef: чужие стор не выбрасывает, а перепривязывает.
   ownsRef: (ref) => 'myServiceId' in ref,
+  // Необязательный: подписка на изменения на бэкенде — вызывайте onEvent и
+  // верните отписку. Есть только у Vikunja (service worker пуллит по
+  // chrome.alarms и рассылает дельту); без канала push'а просто не реализуйте.
+  // subscribeRemoteChanges: (scope, onEvent) => () => {},
 }
 ```
 
@@ -1031,6 +1035,10 @@ export const descriptor: IntegrationDescriptor = {
   }),
   // Is this remoteRef yours? Foreign refs are re-linked, never dropped.
   ownsRef: (ref) => 'myServiceId' in ref,
+  // Optional: watch the backend — call onEvent and return the unsubscribe.
+  // Only Vikunja has it (its service worker pulls on chrome.alarms and
+  // broadcasts the delta); leave it out when there is no push channel.
+  // subscribeRemoteChanges: (scope, onEvent) => () => {},
 }
 ```
 

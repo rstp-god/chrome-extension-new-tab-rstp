@@ -191,7 +191,10 @@
         "columnTrash": "Trash"
       },
       "summary": {
-        "title": "Vikunja"
+        "title": "Vikunja",
+        "pullPeriodLabel": "Background sync",
+        "pullPeriodOption": "Every {{minutes}} min",
+        "pullPeriodHint": "Changes made in Vikunja reach the widget within this interval."
       }
     }
   }

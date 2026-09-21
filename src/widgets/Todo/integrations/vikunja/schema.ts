@@ -9,15 +9,18 @@
 import { z } from 'zod'
 
 import {
+  VIKUNJA_ERROR_KEYS,
   VIKUNJA_MAX_DESCRIPTION_LENGTH,
   VIKUNJA_MAX_TITLE_LENGTH,
 } from '@/background/vikunja/messages.ts'
 
 import type {
+  VikunjaBroadcast,
   VikunjaBucketSummary,
   VikunjaConnectInfo,
   VikunjaLabelSummary,
   VikunjaProjectSummary,
+  VikunjaPullDelta,
   VikunjaPullResult,
   VikunjaPulledTask,
   VikunjaSetLabelsResult,
@@ -82,10 +85,43 @@ export const vikunjaPulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
   labelIds: z.array(z.number()),
 })
 
+export const vikunjaPullDeltaSchema: z.ZodType<VikunjaPullDelta> = z.object({
+  added: z.array(z.number()),
+  changed: z.array(z.number()),
+  removed: z.array(z.number()),
+})
+
 export const vikunjaPullResultSchema: z.ZodType<VikunjaPullResult> = z.object({
   tasks: z.array(vikunjaPulledTaskSchema),
   pulledAt: z.number(),
+  delta: vikunjaPullDeltaSchema,
 })
+
+/**
+ * What the worker's background pull broadcasts, validated on arrival.
+ *
+ * `isVikunjaBroadcast` only proves the `type`; this is what makes the ids and
+ * the error key safe to act on. The channel is shared with the Tab Rules
+ * traffic and with our own content scripts, so "the worker sent it" is an
+ * assumption, not a fact — and a `projectId` that is not a number would leak
+ * straight into the subscriber's scope filter.
+ */
+export const vikunjaBroadcastSchema: z.ZodType<VikunjaBroadcast> = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('vikunja/pulled'),
+    projectId: z.number(),
+    viewId: z.number(),
+    at: z.number(),
+    delta: vikunjaPullDeltaSchema,
+  }),
+  z.object({
+    type: z.literal('vikunja/pull-failed'),
+    projectId: z.number(),
+    viewId: z.number(),
+    at: z.number(),
+    errorKey: z.enum(VIKUNJA_ERROR_KEYS),
+  }),
+])
 
 /**
  * What every mutation answers with. Parsed even though the worker built it:

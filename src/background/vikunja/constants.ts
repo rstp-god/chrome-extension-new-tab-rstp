@@ -58,3 +58,59 @@ export const VIKUNJA_PAGE_SIZE = 50
  * far past any real board, and still a bounded number of round trips.
  */
 export const VIKUNJA_MAX_PULL_PAGES = 40
+
+/**
+ * Name of the periodic `chrome.alarms` job that pulls the configured view in
+ * the background. One alarm for the whole feature: the widget holds at most
+ * one active integration, so a second name could only ever be a leak.
+ */
+export const VIKUNJA_PULL_ALARM = 'vikunja-pull'
+
+/**
+ * How long a snapshot counts as fresh enough to answer a non-forced pull
+ * without touching the network.
+ *
+ * This is what makes the broadcast cheap: the alarm reads the view, writes
+ * the snapshot and tells the pages; each page then runs its own sync, which
+ * lands here within milliseconds and is served from that very snapshot. A
+ * window shorter than a round trip to a slow self-hosted instance would
+ * defeat it, and a long one would make a user-triggered sync stale — but a
+ * user-triggered sync is forced and never reaches this check.
+ */
+export const VIKUNJA_SNAPSHOT_FRESH_MS = 15_000
+
+/**
+ * Ceiling on how many tasks one snapshot may hold.
+ *
+ * `chrome.storage.local`'s quota is shared by every widget, and a snapshot is
+ * written on every background pull. Title and description are already
+ * truncated at the edge (`VIKUNJA_MAX_TITLE_LENGTH` /
+ * `VIKUNJA_MAX_DESCRIPTION_LENGTH`), so the remaining unbounded dimension is
+ * the task count. 2000 is far past any board a person reads in a widget, and
+ * the delta a truncated snapshot produces is wrong only about tasks the
+ * widget was never going to show.
+ */
+export const VIKUNJA_SNAPSHOT_MAX_TASKS = 2000
+
+/**
+ * The Todo widget's envelope key in `chrome.storage.local`.
+ *
+ * Spelled out here rather than imported from `src/widgets/Todo/store/store.ts`:
+ * the worker must not import widget code (see the boundary rule in
+ * `messages.ts`), and the alarm has no other way to learn which project to
+ * pull — the worker keeps no state between wake-ups.
+ * `tests/extension/vikunjaBridge.spec.ts` writes that key and asserts the
+ * alarm appears, which is what keeps this literal honest.
+ */
+export const VIKUNJA_TODO_STORAGE_KEY = 'todo-widget:v1'
+
+/**
+ * Re-exported so the worker has one constants surface: both numbers are
+ * shared vocabulary and live in `messages.ts` (the widget needs them too, and
+ * nothing under `src/widgets/` may import this file).
+ */
+export {
+  VIKUNJA_MUTATION_CONCURRENCY,
+  VIKUNJA_PULL_PERIOD_MIN,
+  VIKUNJA_PULL_PERIODS_MIN,
+} from '@/background/vikunja/messages.ts'

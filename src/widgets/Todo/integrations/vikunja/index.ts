@@ -1,8 +1,10 @@
+import { VIKUNJA_MUTATION_CONCURRENCY } from '@/background/vikunja/messages.ts'
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 
 import { sendVikunjaMessage } from './bridge.ts'
 import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
 import { pushVikunjaTask } from './push.ts'
+import { scopePair } from './scope.ts'
 import {
   vikunjaBucketSummaryListSchema,
   vikunjaBucketSummarySchema,
@@ -11,6 +13,7 @@ import {
   vikunjaProjectSummaryListSchema,
   vikunjaPullResultSchema,
 } from './schema.ts'
+import { subscribeVikunjaRemoteChanges } from './subscribe.ts'
 import { VikunjaConnectForm } from './VikunjaConnectForm.tsx'
 import { VikunjaMappingStep } from './VikunjaMappingStep.tsx'
 
@@ -38,29 +41,6 @@ import type { z } from 'zod'
 
 /** A scope that does not address a project *and* a view addresses nothing. */
 const NO_SCOPE: IntegrationOutcome<never> = { ok: false, errorKey: 'notFound' }
-
-/**
- * `RemoteScope` is an open record, so a Vikunja scope may arrive with a
- * missing, string or unparseable id. Total by construction: anything that is
- * not a finite number yields `null` rather than `NaN` travelling into a
- * persisted config.
- */
-function scopeNumber(raw: unknown): number | null {
-  const parsed = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw.trim()) : NaN
-  // Vikunja ids start at 1, so a zero, a negative or a fractional value is a
-  // corrupt scope rather than an unusual one — and `Number('')` is 0, which
-  // would otherwise sail through as a valid id.
-  if (!Number.isInteger(parsed) || parsed <= 0) return null
-  return parsed
-}
-
-/** Both halves of a Vikunja scope, or `null` if either is unusable. */
-function scopePair(scope: RemoteScope): { projectId: number; viewId: number } | null {
-  const projectId = scopeNumber(scope.projectId)
-  const viewId = scopeNumber(scope.viewId)
-  if (projectId === null || viewId === null) return null
-  return { projectId, viewId }
-}
 
 /**
  * Vikunja adapter.
@@ -148,8 +128,10 @@ export class VikunjaIntegration implements TodoIntegration {
     const labels = await this.listLabels()
     if (!labels.ok) return labels
 
+    // `force` decides whether the worker reads the instance or answers from
+    // the snapshot it broadcast a moment ago — see `PullContext.force`.
     const pull = await this.send(
-      { type: 'vikunja', op: 'pull', cfg: this.wire(), ...pair },
+      { type: 'vikunja', op: 'pull', cfg: this.wire(), ...pair, force: ctx.force === true },
       vikunjaPullResultSchema,
     )
     if (!pull.ok) return pull
@@ -303,7 +285,13 @@ export const descriptor: IntegrationDescriptor = {
    * dozen dirty tasks is a visible wait. Deliberately small: this is someone's
    * own server, not a CDN.
    */
-  pushConcurrency: 4,
+  pushConcurrency: VIKUNJA_MUTATION_CONCURRENCY,
+  /**
+   * The one backend that can tell the widget it moved: its service worker
+   * pulls on a `chrome.alarms` schedule and broadcasts the delta, so a task
+   * someone changed in Vikunja shows up here without the page polling for it.
+   */
+  subscribeRemoteChanges: subscribeVikunjaRemoteChanges,
   /**
    * The scope is the pair, not either half: a project without a view cannot
    * address a task list, so a half-filled config keeps the user on the

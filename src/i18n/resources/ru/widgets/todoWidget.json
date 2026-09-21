@@ -191,7 +191,10 @@
         "columnTrash": "Корзина"
       },
       "summary": {
-        "title": "Vikunja"
+        "title": "Vikunja",
+        "pullPeriodLabel": "Фоновая синхронизация",
+        "pullPeriodOption": "Каждые {{minutes}} мин",
+        "pullPeriodHint": "Изменения, сделанные в Vikunja, попадают в виджет в пределах этого интервала."
       }
     }
   }

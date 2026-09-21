@@ -666,6 +666,77 @@ describe('todo store — integration: syncNow guards', () => {
   })
 })
 
+describe('todo store — integration: syncNow options', () => {
+  it('a silent sync never touches `loading` and does not force the pull', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+    const seen: boolean[] = []
+    const unsubscribe = useTodoStore.subscribe((state) => seen.push(state.loading))
+
+    await useTodoStore.getState().syncNow({ silent: true })
+    unsubscribe()
+
+    // No spinner at any point: a background refresh the user never asked for
+    // must not look like one they did.
+    expect(seen).not.toContain(true)
+    expect(useTodoStore.getState().loading).toBe(false)
+    // …and the pull is answered from whatever the backend already has, which
+    // for Vikunja is the snapshot the broadcast was about.
+    expect(fakePullTasks).toHaveBeenCalledWith(expect.objectContaining({ force: false }))
+  })
+
+  it('a silent sync leaves a manual sync’s `loading` alone', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), loading: true })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow({ silent: true })
+
+    expect(useTodoStore.getState().loading).toBe(true)
+  })
+
+  it('a plain syncNow keeps its spinner and forces the pull', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+    const seen: boolean[] = []
+    const unsubscribe = useTodoStore.subscribe((state) => seen.push(state.loading))
+
+    await useTodoStore.getState().syncNow()
+    unsubscribe()
+
+    expect(seen).toContain(true)
+    expect(useTodoStore.getState().loading).toBe(false)
+    expect(fakePullTasks).toHaveBeenCalledWith(expect.objectContaining({ force: true }))
+  })
+
+  it('lets `force` be set independently of `silent`', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow({ silent: true, force: true })
+
+    expect(fakePullTasks).toHaveBeenCalledWith(expect.objectContaining({ force: true }))
+  })
+})
+
+describe('todo store — reportRemoteFailure', () => {
+  it('sets the error key without spinning', () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+
+    useTodoStore.getState().reportRemoteFailure('authInvalid')
+
+    expect(useTodoStore.getState().errorKey).toBe('authInvalid')
+    expect(useTodoStore.getState().loading).toBe(false)
+  })
+
+  it('ignores a failure that arrives after the integration was dropped', () => {
+    useTodoStore.setState({ integration: null })
+
+    useTodoStore.getState().reportRemoteFailure('permissionMissing')
+
+    expect(useTodoStore.getState().errorKey).toBeNull()
+  })
+})
+
 describe('todo store — integration: syncNow Phase 1 (push)', () => {
   it('pushes only dirty or remoteRef-less tasks; clean+synced tasks are skipped', async () => {
     useTodoStore.setState({

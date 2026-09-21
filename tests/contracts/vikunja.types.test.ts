@@ -70,6 +70,9 @@ describe('VikunjaRequest union', () => {
       cfg: VikunjaWire
       projectId: number
       viewId: number
+      // Optional, so a caller that never heard of the snapshot cache gets the
+      // cheap answer rather than a forced read of the user's instance.
+      force?: boolean
     }>()
   })
 

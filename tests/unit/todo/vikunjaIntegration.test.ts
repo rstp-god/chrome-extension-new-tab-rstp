@@ -280,9 +280,26 @@ describe('VikunjaIntegration.pullTasks', () => {
     bridge.mockImplementation(async (req) =>
       req.op === 'listLabels'
         ? { ok: true, value: labels }
-        : { ok: true, value: { tasks, pulledAt: 1 } },
+        : {
+            ok: true,
+            // The worker always reports a delta alongside the tasks; the
+            // adapter's schema refuses a payload without one.
+            value: { tasks, pulledAt: 1, delta: { added: [], changed: [], removed: [] } },
+          },
     )
   }
+
+  it.each([
+    ['forwards a forced pull to the worker', true, true],
+    ['sends force: false for a background refresh', false, false],
+    ['defaults to the cheap answer when the caller says nothing', undefined, false],
+  ])('%s', async (_label, force, expected) => {
+    stubPull([])
+
+    await new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, force })
+
+    expect(bridge).toHaveBeenCalledWith(expect.objectContaining({ op: 'pull', force: expected }))
+  })
 
   it('maps every task and reports its ref', async () => {
     stubPull([pulledTask({ bucketId: 2, labelIds: [1, 3] })])
@@ -321,7 +338,10 @@ describe('VikunjaIntegration.pullTasks', () => {
     bridge.mockImplementation(async (req) =>
       req.op === 'listLabels'
         ? { ok: false, errorKey: 'rateLimited' }
-        : { ok: true, value: { tasks: [], pulledAt: 1 } },
+        : {
+            ok: true,
+            value: { tasks: [], pulledAt: 1, delta: { added: [], changed: [], removed: [] } },
+          },
     )
 
     await expect(new VikunjaIntegration(CONFIG).pullTasks(ctx)).resolves.toEqual({

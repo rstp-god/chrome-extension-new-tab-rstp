@@ -121,7 +121,28 @@ export type VikunjaRequest =
       title: string
     }
   | { type: 'vikunja'; op: 'listLabels'; cfg: VikunjaWire }
-  | { type: 'vikunja'; op: 'pull'; cfg: VikunjaWire; projectId: number; viewId: number }
+  | {
+      type: 'vikunja'
+      op: 'pull'
+      cfg: VikunjaWire
+      projectId: number
+      viewId: number
+      /**
+       * Bypass the worker's snapshot cache and really read the view.
+       *
+       * A pull is expensive — one request per page of every bucket against
+       * someone's own server — and the background alarm already refreshes the
+       * snapshot on its own schedule. So a sync the *widget* only started
+       * because the worker told it something changed (`vikunja/pulled`) sends
+       * `false` and is answered from the snapshot the broadcast was about;
+       * a sync the user asked for, or a freshly mounted widget, sends `true`.
+       *
+       * Optional and defaulting to "not forced": an omitted flag is the cheap
+       * answer, which is the safe one to give a caller that never thought
+       * about it.
+       */
+      force?: boolean
+    }
   | { type: 'vikunja'; op: 'create'; cfg: VikunjaWire; projectId: number; payload: TaskPayload }
   | {
       type: 'vikunja'
@@ -298,11 +319,69 @@ export interface VikunjaPulledTask {
   labelIds: number[]
 }
 
+/**
+ * What changed between the previous snapshot of a view and the current one,
+ * as task ids.
+ *
+ * Ids rather than tasks: the delta travels inside a broadcast to every open
+ * New Tab page, and a page that cares reads the tasks out of the pull result
+ * it is about to ask for anyway. The three lists are what the worker can
+ * honestly tell from two full reads —
+ *
+ * - `added`: ids the previous snapshot did not have (everything, on the first
+ *   pull of a view);
+ * - `changed`: ids whose `updated`, `bucketId` or `done` moved;
+ * - `removed`: ids the previous snapshot had and this one does not, which for
+ *   a **full** read of the view means deleted (or moved out of it) remotely.
+ *
+ * `removed` is the reason the pull is always full and never filtered by
+ * `updated` (recon §2.2): an incremental read cannot report a deletion at all.
+ */
+export interface VikunjaPullDelta {
+  added: number[]
+  changed: number[]
+  removed: number[]
+}
+
 export interface VikunjaPullResult {
   tasks: VikunjaPulledTask[]
   /** When the worker finished the read, for the widget's "last synced" line. */
   pulledAt: number
+  /**
+   * How this read differs from the previous snapshot of the same view. Empty
+   * on a cache hit — nothing was read, so nothing was observed to change.
+   */
+  delta: VikunjaPullDelta
 }
+
+/**
+ * How many of a sync's pushes the widget may have in flight at once.
+ *
+ * Shared vocabulary rather than a widget constant because the number is a
+ * statement about the *worker*: its `mutationQueue` serialises writes per task
+ * id (and per project for creates), which is the only reason a pool is safe
+ * here at all. The widget's descriptor spends it as `pushConcurrency`.
+ */
+export const VIKUNJA_MUTATION_CONCURRENCY = 4
+
+/**
+ * Pull periods the user may pick, in minutes, and the one they get when they
+ * never do.
+ *
+ * Both sides need them: the widget's persisted config schema and its select
+ * are built from this list, and the worker refuses anything outside it before
+ * handing a number to `chrome.alarms` — so a hand-edited storage record
+ * cannot turn the background pull into a per-second hammer on someone's
+ * self-hosted instance. One list, so the picker and the validator cannot
+ * disagree. `src/background/vikunja/constants.ts` re-exports them for the
+ * worker side.
+ */
+export const VIKUNJA_PULL_PERIODS_MIN = [1, 5, 15] as const
+
+export type VikunjaPullPeriod = (typeof VIKUNJA_PULL_PERIODS_MIN)[number]
+
+/** Five minutes: often enough to feel live, rare enough to be unnoticeable. */
+export const VIKUNJA_PULL_PERIOD_MIN: VikunjaPullPeriod = 5
 
 /**
  * Truncates an API timestamp to whole seconds.
@@ -332,11 +411,57 @@ export const VIKUNJA_UNKNOWN_FAILURE: VikunjaResponse<never> = Object.freeze({
   errorKey: 'unknown',
 })
 
-export type VikunjaBroadcast = {
-  type: 'vikunja/pulled'
-  projectId: number
-  viewId: number
-  at: number
+/**
+ * What the worker's background pull tells the open New Tab pages, on its own
+ * initiative — the one direction of the bridge that is not a reply.
+ *
+ * Deliberately not a `VikunjaRequest`: it travels the same
+ * `chrome.runtime.sendMessage` channel but in the opposite direction, carries
+ * no credentials, and expects no answer. The `vikunja/…` prefix keeps it out
+ * of `isVikunjaRequest`'s allowlist, so a broadcast can never be mistaken for
+ * an op the worker should run.
+ *
+ * `vikunja/pulled` means "the view moved, ask me for it"; the delta is there
+ * so a page can tell a real change from a no-op without a round trip.
+ * `vikunja/pull-failed` is the counterpart the widget could otherwise never
+ * learn about: the alarm runs while no page is looking, and a revoked token
+ * or a host permission the user withdrew has to reach the UI somehow.
+ */
+export type VikunjaBroadcast =
+  | {
+      type: 'vikunja/pulled'
+      projectId: number
+      viewId: number
+      at: number
+      delta: VikunjaPullDelta
+    }
+  | {
+      type: 'vikunja/pull-failed'
+      projectId: number
+      viewId: number
+      at: number
+      errorKey: VikunjaErrorKey
+    }
+
+export const VIKUNJA_BROADCAST_TYPES = [
+  'vikunja/pulled',
+  'vikunja/pull-failed',
+] as const satisfies readonly VikunjaBroadcast['type'][]
+
+/**
+ * Discriminator for the widget's `onMessage` listener, mirroring
+ * `isVikunjaRequest` on the other side: it tells a broadcast of ours from the
+ * Tab Rules traffic sharing the channel, and nothing more. The payload is
+ * re-validated with Zod by the subscriber before a field is read out of it —
+ * the sender is the worker, but the channel is not exclusively ours.
+ */
+export function isVikunjaBroadcast(msg: unknown): msg is VikunjaBroadcast {
+  if (typeof msg !== 'object' || msg === null) return false
+  const candidate = msg as { type?: unknown }
+  return (
+    typeof candidate.type === 'string' &&
+    (VIKUNJA_BROADCAST_TYPES as readonly string[]).includes(candidate.type)
+  )
 }
 
 /**

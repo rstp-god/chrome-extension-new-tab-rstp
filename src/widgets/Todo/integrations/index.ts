@@ -32,6 +32,7 @@ export type {
   PullContext,
   PullResult,
   PushContext,
+  RemoteChangeEvent,
   RemoteContainer,
   RemoteScope,
   RemoteScopeOption,

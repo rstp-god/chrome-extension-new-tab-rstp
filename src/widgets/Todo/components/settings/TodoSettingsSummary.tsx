@@ -1,5 +1,7 @@
+import { VIKUNJA_PULL_PERIOD_MIN } from '@/background/vikunja/messages.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { TODO_STATUSES } from '@/widgets/Todo/integrations/index.ts'
+import { VikunjaPullPeriodSelect } from '@/widgets/Todo/integrations/vikunja/VikunjaPullPeriodSelect.tsx'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { formatRelative } from '@/widgets/Todo/utils/formatRelative.ts'
 import { RefreshCwIcon } from 'lucide-react'
@@ -14,15 +16,17 @@ interface Props {
 
 export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
   const { t, i18n } = useTranslation('todoWidget')
-  const { integration, loading, errorKey, syncNow, clearIntegration } = useTodoStore(
-    useShallow((state) => ({
-      integration: state.integration,
-      loading: state.loading,
-      errorKey: state.errorKey,
-      syncNow: state.syncNow,
-      clearIntegration: state.clearIntegration,
-    })),
-  )
+  const { integration, loading, errorKey, syncNow, clearIntegration, updateIntegrationConfig } =
+    useTodoStore(
+      useShallow((state) => ({
+        integration: state.integration,
+        loading: state.loading,
+        errorKey: state.errorKey,
+        syncNow: state.syncNow,
+        clearIntegration: state.clearIntegration,
+        updateIntegrationConfig: state.updateIntegrationConfig,
+      })),
+    )
   const [busy, setBusy] = useState(false)
 
   const listNameById = useMemo(() => {
@@ -76,6 +80,18 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
           <span className="font-medium">{lastSyncLabel}</span>
         </div>
       </div>
+
+      {integration.name === 'vikunja' && (
+        <VikunjaPullPeriodSelect
+          value={integration.config.pullPeriodMin ?? VIKUNJA_PULL_PERIOD_MIN}
+          disabled={busy || loading}
+          onChange={(pullPeriodMin) => {
+            // The worker keeps no state: it picks the new period up from
+            // `chrome.storage.onChanged` on this very write.
+            updateIntegrationConfig({ ...integration.config, pullPeriodMin })
+          }}
+        />
+      )}
 
       {flatMode && (
         <p

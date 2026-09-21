@@ -99,7 +99,34 @@ interface TodoWidgetState {
   updateIntegrationConfig: (config: unknown) => boolean
   refreshContainers: () => Promise<boolean>
   clearIntegration: () => void
-  syncNow: () => Promise<void>
+  syncNow: (options?: SyncNowOptions) => Promise<void>
+  /**
+   * Records a failure the widget did not ask for: the backend's own watcher
+   * (Vikunja's background pull) hit a wall while nobody was looking.
+   *
+   * Sets `errorKey` and nothing else — in particular not `loading`, because
+   * there is no operation in flight to spin for.
+   */
+  reportRemoteFailure: (errorKey: IntegrationErrorKey) => void
+}
+
+/**
+ * How a sync differs from the one the user asks for.
+ *
+ * `silent` keeps `loading` alone: a refresh the widget started by itself —
+ * because the worker said the remote moved — must not put the spinner on the
+ * Sync now button or flicker the badge, and must not clear a `loading` that a
+ * manual sync running at the same time owns.
+ *
+ * `force` defaults to `!silent`, which is the honest coupling rather than a
+ * shortcut: a sync the user (or a mounting widget) started is worth a real
+ * read, while one triggered by a broadcast is a reaction to a read that has
+ * just happened and is served from the worker's snapshot. It stays separately
+ * settable because the two are not the same question.
+ */
+export interface SyncNowOptions {
+  silent?: boolean
+  force?: boolean
 }
 
 function normalizeTitle(title: string) {
@@ -579,7 +606,18 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         void removeArea('local', TODO_STORAGE_KEY)
       },
 
-      syncNow: async () => {
+      reportRemoteFailure: (errorKey) => {
+        // Nothing connected → nothing that could have failed remotely. A
+        // broadcast that arrives just after a disconnect must not leave a
+        // banner pointing at an integration the user has already dropped.
+        if (!get().integration) return
+        set({ errorKey })
+      },
+
+      syncNow: async (options) => {
+        const silent = options?.silent === true
+        const force = options?.force ?? !silent
+
         // Phase 1 deliberately iterates this snapshot, not `get()`: tasks
         // added while the sync is in flight belong to the next run.
         const state = get()
@@ -594,7 +632,10 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           return
         }
 
-        set({ loading: true, errorKey: null })
+        // A silent run clears the previous error but never touches `loading`:
+        // the spinner belongs to whoever started a sync on purpose.
+        if (silent) set({ errorKey: null })
+        else set({ loading: true, errorKey: null })
 
         // `finally`, not a `set` per exit: the body has half a dozen early
         // returns and an adapter that may throw despite the contract, and a
@@ -632,7 +673,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
             knownStatuses[task.id] = task.status
           }
 
-          const pull = await adapter.pullTasks({ scope, mapping, knownRefs, knownStatuses })
+          const pull = await adapter.pullTasks({ scope, mapping, knownRefs, knownStatuses, force })
           if (!pull.ok) {
             set({ errorKey: pull.errorKey })
             return
@@ -652,7 +693,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
             conflictTaskIds: merged.conflictTaskIds,
           }))
         } finally {
-          set({ loading: false })
+          if (!silent) set({ loading: false })
         }
       },
     }

@@ -9,6 +9,8 @@ import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
 import { TODO_STATUSES } from '@/widgets/Todo/integrations/types.ts'
 import { z } from 'zod'
 
+import type { VikunjaPullPeriod } from '@/background/vikunja/messages.ts'
+
 const linkedTabSchema = z.object({
   url: z.url(),
   title: z.string().nullable().optional(),
@@ -112,6 +114,19 @@ const trelloIntegrationSchema = z.object({
   lastSyncAt: z.number().nullable(),
 })
 
+/**
+ * How often the service worker pulls the view in the background, in minutes.
+ *
+ * Annotated against the bridge's own `VikunjaPullPeriod` so the three literals
+ * here and the `VIKUNJA_PULL_PERIODS_MIN` list the worker validates against
+ * (and the select offers) cannot drift apart without breaking the build.
+ */
+const vikunjaPullPeriodSchema: z.ZodType<VikunjaPullPeriod> = z.union([
+  z.literal(1),
+  z.literal(5),
+  z.literal(15),
+])
+
 const vikunjaConfigSchema = z.object({
   // https-only: the token travels on every request, and a self-hosted
   // instance reachable over plain http would leak it on the wire. Hostname
@@ -122,6 +137,13 @@ const vikunjaConfigSchema = z.object({
   viewId: z.number().nullable(),
   /** `false` → flat mode: only done ↔ completed, buckets are ignored. */
   kanbanMapping: z.boolean(),
+  /**
+   * Absent means the worker's default (5 min) — deliberately optional rather
+   * than defaulted, so every config written before this setting existed stays
+   * valid without a migration, and a user who never opened the select has
+   * nothing about it in their storage.
+   */
+  pullPeriodMin: vikunjaPullPeriodSchema.optional(),
 })
 
 const vikunjaIntegrationSchema = z.object({

@@ -11,16 +11,15 @@
 
 import { z } from 'zod'
 
-import { VikunjaClient } from '@/background/vikunja/client.ts'
+import { vikunjaWireSchema, withVikunjaClient } from '@/background/vikunja/gate.ts'
 import {
   isReservedVikunjaLabel,
-  normalizeVikunjaBaseUrl,
   normalizeVikunjaTimestamp,
-  vikunjaHostPattern,
   VIKUNJA_MAX_DESCRIPTION_LENGTH,
   VIKUNJA_MAX_TITLE_LENGTH,
   VIKUNJA_UNKNOWN_FAILURE,
 } from '@/background/vikunja/messages.ts'
+import { runPull } from '@/background/vikunja/pull.ts'
 
 import type {
   VikunjaBucketSummary,
@@ -30,7 +29,6 @@ import type {
   VikunjaPing,
   VikunjaProjectSummary,
   VikunjaPullResult,
-  VikunjaPulledTask,
   VikunjaRequest,
   VikunjaResponse,
   VikunjaSetLabelsResult,
@@ -45,77 +43,11 @@ import type {
 } from '@/background/vikunja/schema.ts'
 
 /**
- * The worker's own view of the credentials. The page validates too, but the
- * page is the untrusted side of the bridge — this is the check that counts,
- * and it runs before a single byte reaches the network.
- *
- * https-only (the token travels on every request) and literal-host-only via
- * the shared normaliser, so a config the form wrote and a config the worker
- * accepts can never disagree. The 4096-char ceiling keeps a pathological
- * "token" out of a header.
+ * Re-exported so the gate keeps its historical import path
+ * (`@/background/vikunja/handlers.ts`) after moving to `gate.ts`, where the
+ * background pull can reach it without an import cycle through this file.
  */
-export const vikunjaWireSchema = z.object({
-  baseUrl: z
-    .string()
-    .max(2048)
-    .refine((raw) => normalizeVikunjaBaseUrl(raw) !== null)
-    // Unreachable fallback: `refine` above rejects everything the normaliser
-    // cannot canonicalise.
-    .transform((raw) => normalizeVikunjaBaseUrl(raw) ?? raw),
-  token: z.string().min(1).max(4096),
-})
-
-/**
- * `chrome.permissions` is read through `globalThis` rather than the ambient
- * `chrome` binding so a missing API degrades to "not granted" instead of
- * throwing a ReferenceError wherever `chrome` is absent.
- */
-async function hasHostPermission(pattern: string): Promise<boolean> {
-  const permissions = (globalThis as { chrome?: typeof chrome }).chrome?.permissions
-  if (!permissions?.contains) return false
-  try {
-    return await permissions.contains({ origins: [pattern] })
-  } catch {
-    // A pattern Chrome cannot represent throws rather than answering false.
-    return false
-  }
-}
-
-/**
- * The gate every networked op goes through: validate the config, derive the
- * host pattern, confirm the user actually granted that host, and only then
- * hand a ready client to `run`.
- *
- * It exists as a wrapper rather than as a preamble each handler copies so the
- * ops arriving in tasks 5–7 cannot skip a step. Order matters: a malformed
- * config and a missing host permission both answer without touching the
- * network, so a compromised renderer cannot use the worker as an open proxy
- * to hosts the user never approved.
- *
- * The permission is re-checked on every operation, not once at connect time:
- * the user can revoke an optional host at any moment from `chrome://settings`,
- * and a worker that cached the answer would keep sending the token.
- *
- * `chrome.permissions.request` is deliberately never called from here — it
- * needs a user gesture, which only a page has. The worker may check, never ask.
- */
-export async function withVikunjaClient<T>(
-  cfg: unknown,
-  run: (client: VikunjaClient) => Promise<VikunjaResponse<T>>,
-): Promise<VikunjaResponse<T>> {
-  const parsed = vikunjaWireSchema.safeParse(cfg)
-  if (!parsed.success) return VIKUNJA_UNKNOWN_FAILURE
-
-  const { baseUrl, token } = parsed.data
-  const pattern = vikunjaHostPattern(baseUrl)
-  if (!pattern) return VIKUNJA_UNKNOWN_FAILURE
-
-  if (!(await hasHostPermission(pattern))) {
-    return { ok: false, errorKey: 'permissionMissing' }
-  }
-
-  return run(new VikunjaClient(baseUrl, token))
-}
+export { vikunjaWireSchema, withVikunjaClient }
 
 /**
  * Ids as they arrive from the renderer. The message union types them as
@@ -235,34 +167,6 @@ function toLabelSummary(label: VikunjaLabel): VikunjaLabelSummary {
   return { id: label.id, title: label.title, hexColor: label.hex_color || null }
 }
 
-/**
- * `bucketId` comes from the bucket the task was found in, not from
- * `task.bucket_id`: the latter is only correct inside a view response and is
- * `0` everywhere else (recon Q3), so trusting the field instead of the
- * position would silently unmap every task.
- *
- * `title` and `description` are truncated to the documented ceilings.
- */
-function toPulledTask(task: VikunjaTask, bucketId: number): VikunjaPulledTask {
-  return {
-    id: task.id,
-    identifier: task.identifier,
-    // Bounded here, at the edge: everything downstream — the message clone,
-    // the local store, `chrome.storage.local`'s shared quota — pays for
-    // whatever a single task happens to carry.
-    title: task.title.slice(0, VIKUNJA_MAX_TITLE_LENGTH),
-    description: task.description.slice(0, VIKUNJA_MAX_DESCRIPTION_LENGTH),
-    done: task.done,
-    doneAt: task.done_at,
-    bucketId,
-    created: task.created,
-    // Normalised here, at the single point every pulled task passes through,
-    // so no consumer can forget and compare nanoseconds with seconds.
-    updated: normalizeVikunjaTimestamp(task.updated),
-    labelIds: task.labels.map((label) => label.id),
-  }
-}
-
 /** Every project the token can see, trimmed to what the scope picker needs. */
 export function handleListProjects(
   req: Extract<VikunjaRequest, { op: 'listProjects' }>,
@@ -336,6 +240,13 @@ export function handleCreateBucket(
  * The full pull: every bucket of the view with every task in it, flattened
  * into one list. Done tasks come along for free (recon Q6) — the done bucket
  * is just another bucket in the response.
+ *
+ * The work itself lives in `pull.ts`, because `chrome.alarms` runs the very
+ * same read in the background with no message involved. All this handler adds
+ * is what a bridge op must add: it does not trust the renderer's ids, and it
+ * reads `force` as a boolean rather than as whatever was sent — an unforced
+ * pull may be answered from the worker's snapshot, which is the whole point
+ * of the broadcast-triggered sync.
  */
 export function handlePull(
   req: Extract<VikunjaRequest, { op: 'pull' }>,
@@ -344,15 +255,7 @@ export function handlePull(
   if (!scope.success) return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
   const { projectId, viewId } = scope.data
 
-  return withVikunjaClient(req.cfg, async (client) => {
-    const out = await client.getViewTasks(projectId, viewId)
-    if (!out.ok) return out
-
-    const tasks = out.value.flatMap((bucket) =>
-      (bucket.tasks ?? []).map((task) => toPulledTask(task, bucket.id)),
-    )
-    return { ok: true, value: { tasks, pulledAt: Date.now() } }
-  })
+  return runPull(req.cfg, projectId, viewId, { force: req.force === true })
 }
 
 /**
