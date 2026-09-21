@@ -17,7 +17,12 @@ import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
-  onEditMapping: () => void
+  /**
+   * Opens the mapping step — for one named scope, when the backend's own
+   * section offers a button per scope (Vikunja's list of boards), or for
+   * whatever is waiting when called with nothing.
+   */
+  onEditMapping: (target?: string) => void
   onPickScope: () => void
 }
 
@@ -165,7 +170,12 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
       </div>
 
       {SummaryExtras && (
-        <SummaryExtras integration={integration} actions={{ updateIntegrationConfig }} />
+        <SummaryExtras
+          integration={integration}
+          onEditMapping={onEditMapping}
+          onPickScope={onPickScope}
+          actions={{ updateIntegrationConfig }}
+        />
       )}
 
       {showsMapping && (
@@ -212,7 +222,7 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
           <RefreshCwIcon className={loading || busy ? 'animate-spin' : undefined} />
           {t('actions.syncNow')}
         </Button>
-        <Button type="button" variant="outline" onClick={onEditMapping}>
+        <Button type="button" variant="outline" onClick={() => onEditMapping()}>
           {t(`integrations.${integration.name}.mapping.title`)}
         </Button>
         <Button type="button" variant="outline" onClick={onPickScope}>

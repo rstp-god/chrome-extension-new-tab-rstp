@@ -633,6 +633,71 @@ describe('todo store — integration: setMapping', () => {
   })
 })
 
+describe('todo store — integration: dropTasksOfProject', () => {
+  /** A Vikunja ref, which is the kind that names a project. */
+  function vikunjaRef(projectId: number, taskId: number): VikunjaRemoteRef {
+    return {
+      taskId,
+      projectId,
+      identifier: `#${taskId}`,
+      bucketId: null,
+      updated: '2024-01-01T00:00:00.000Z',
+    }
+  }
+
+  beforeEach(() => {
+    useTodoStore.setState({ integration: makeVikunjaIntegrationState() })
+  })
+
+  it('forgets the tasks of that project, by the project they name and by their ref', () => {
+    useTodoStore.setState({
+      tasks: [
+        makeTask({ id: 'named', projectId: '8' }),
+        makeTask({ id: 'linked', projectId: null, remoteRef: vikunjaRef(8, 81) }),
+        makeTask({ id: 'other-board', projectId: '1', remoteRef: vikunjaRef(1, 11) }),
+        makeTask({ id: 'local', projectId: null }),
+      ],
+    })
+
+    useTodoStore.getState().dropTasksOfProject('8')
+
+    expect(useTodoStore.getState().tasks.map((task) => task.id)).toEqual(['other-board', 'local'])
+  })
+
+  it('clears the conflict badges of the tasks it dropped and keeps the rest', () => {
+    useTodoStore.setState({
+      tasks: [makeTask({ id: 'gone', projectId: '8' }), makeTask({ id: 'stays', projectId: '1' })],
+      conflictTaskIds: ['gone', 'stays'],
+    })
+
+    useTodoStore.getState().dropTasksOfProject('8')
+
+    expect(useTodoStore.getState().conflictTaskIds).toEqual(['stays'])
+  })
+
+  it('leaves a task whose ref this backend does not own', () => {
+    // A Trello ref carries no project at all, and a task that merely *names*
+    // another project is not this board's either.
+    useTodoStore.setState({
+      tasks: [makeTask({ id: 'trello', projectId: null, remoteRef: makeRemoteRef() })],
+    })
+
+    useTodoStore.getState().dropTasksOfProject('8')
+
+    expect(useTodoStore.getState().tasks.map((task) => task.id)).toEqual(['trello'])
+  })
+
+  it('touches nothing when no task belongs to that project', () => {
+    const tasks = [makeTask({ id: 'a', projectId: '1' })]
+    useTodoStore.setState({ tasks })
+
+    useTodoStore.getState().dropTasksOfProject('8')
+
+    // The same array, so nothing re-renders for a no-op.
+    expect(useTodoStore.getState().tasks).toBe(tasks)
+  })
+})
+
 describe('todo store — integration: clearIntegration', () => {
   it('drops integration and clears remoteRef + syncState on every task', async () => {
     useTodoStore.setState({

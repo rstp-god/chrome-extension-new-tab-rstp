@@ -323,12 +323,28 @@ export interface ConnectFormProps {
  * a mapping step writes the mapping and the mode.
  */
 export interface SettingsStepActions {
-  /** Persists the mapping and kicks off a sync. */
+  /** Persists the mapping of the default scope and kicks off a sync. */
   setMapping: (mapping: StatusListMapping) => Promise<void>
   /** Replaces the integration's config; `false` when it did not validate. */
   updateIntegrationConfig: (config: unknown) => boolean
-  /** Re-reads containers and projects, keeping the mapping; `false` on failure. */
+  /** Re-reads containers and projects of the default scope, keeping the mapping. */
   refreshContainers: () => Promise<boolean>
+  /**
+   * Forgets every local task that belongs to a project the connection no
+   * longer syncs — by `task.projectId` and by the project its own `remoteRef`
+   * names.
+   *
+   * For the scope step of a backend that syncs a *list* of boards: unchecking
+   * one is the user saying "stop showing me this board", and the tasks it
+   * pulled in would otherwise stay in the widget forever — never refreshed
+   * (no pull reads that board any more) and never pushed (no board carries
+   * their mapping). Deleting nothing on the backend is the point: the records
+   * stay in the tracker, and only the widget's copy goes.
+   *
+   * Returns nothing and is not awaited: it is a local edit of the task list,
+   * with no request behind it.
+   */
+  dropTasksOfProject: (projectId: string) => void
 }
 
 /**
@@ -353,6 +369,16 @@ export interface MappingStepProps {
   scope: RemoteScope
   /** Current store-level error, if any. */
   errorKey: IntegrationErrorKey | null
+  /**
+   * Which of the backend's scopes the user asked to map, as a key only the
+   * descriptor gives meaning to (Vikunja: `String(projectId)`).
+   *
+   * Absent means "whatever is waiting to be mapped", which is the wizard a
+   * fresh connection walks through. It is set by the summary's per-scope
+   * button, where the user named one — the dialog keeps it beside the step
+   * override and drops it with it.
+   */
+  target?: string
   actions: SettingsStepActions
 }
 
@@ -376,6 +402,13 @@ export interface ScopeStepProps {
   integration: IntegrationState
   /** Adapter built from that slice by the settings layer. */
   adapter: TodoIntegration
+  /**
+   * The widget's tasks, for a step that has to say what dropping a scope
+   * would cost: "12 tasks of this board disappear from the widget" is a
+   * sentence only the task list can produce, and a step reached through a
+   * descriptor may not read the store to find it out.
+   */
+  tasks: TodoTask[]
   /** Current store-level error, if any. */
   errorKey: IntegrationErrorKey | null
   actions: SettingsStepActions
@@ -396,6 +429,14 @@ export interface SummaryExtrasActions {
  */
 export interface SummaryExtrasProps {
   integration: IntegrationState
+  /**
+   * Open the mapping step for one of the backend's scopes, named the way
+   * `MappingStepProps.target` reads it — or for whatever is waiting, with no
+   * argument.
+   */
+  onEditMapping: (target?: string) => void
+  /** Open the scope step — for a backend whose section offers its own way in. */
+  onPickScope: () => void
   actions: SummaryExtrasActions
 }
 

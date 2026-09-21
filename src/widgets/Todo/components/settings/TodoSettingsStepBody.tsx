@@ -19,7 +19,9 @@ interface Props {
   onCancelConnect: () => void
   onLeaveScopePicker: () => void
   onLeaveMapping: () => void
-  onEditMapping: () => void
+  /** Which scope the mapping step was opened for, or `null` for "whatever is waiting". */
+  mappingTarget: string | null
+  onEditMapping: (target?: string) => void
   onPickScope: () => void
 }
 
@@ -39,27 +41,37 @@ export function TodoSettingsStepBody({
   onCancelConnect,
   onLeaveScopePicker,
   onLeaveMapping,
+  mappingTarget,
   onEditMapping,
   onPickScope,
 }: Props) {
-  const { integration, errorKey, setMapping, updateIntegrationConfig, refreshContainers } =
-    useTodoStore(
-      useShallow((state) => ({
-        integration: state.integration,
-        errorKey: state.errorKey,
-        setMapping: state.setMapping,
-        updateIntegrationConfig: state.updateIntegrationConfig,
-        refreshContainers: state.refreshContainers,
-      })),
-    )
+  const {
+    integration,
+    tasks,
+    errorKey,
+    setMapping,
+    updateIntegrationConfig,
+    refreshContainers,
+    dropTasksOfProject,
+  } = useTodoStore(
+    useShallow((state) => ({
+      integration: state.integration,
+      tasks: state.tasks,
+      errorKey: state.errorKey,
+      setMapping: state.setMapping,
+      updateIntegrationConfig: state.updateIntegrationConfig,
+      refreshContainers: state.refreshContainers,
+      dropTasksOfProject: state.dropTasksOfProject,
+    })),
+  )
   const descriptor = integration ? getIntegrationDescriptor(integration.name) : null
 
   // A descriptor's UI is prop-driven (it must not import the store), so the
   // actions its steps may call are bundled here once — one bundle for both,
   // since a scope step and a mapping step need the same three.
   const stepActions = useMemo(
-    () => ({ setMapping, updateIntegrationConfig, refreshContainers }),
-    [setMapping, updateIntegrationConfig, refreshContainers],
+    () => ({ setMapping, updateIntegrationConfig, refreshContainers, dropTasksOfProject }),
+    [setMapping, updateIntegrationConfig, refreshContainers, dropTasksOfProject],
   )
 
   const adapter = useMemo<TodoIntegration | null>(() => {
@@ -92,6 +104,7 @@ export function TodoSettingsStepBody({
           onBack={onLeaveScopePicker}
           integration={integration}
           adapter={adapter}
+          tasks={tasks}
           errorKey={errorKey}
           actions={stepActions}
         />
@@ -111,6 +124,7 @@ export function TodoSettingsStepBody({
           adapter={adapter}
           scope={scope}
           errorKey={errorKey}
+          target={mappingTarget ?? undefined}
           actions={stepActions}
         />
       )

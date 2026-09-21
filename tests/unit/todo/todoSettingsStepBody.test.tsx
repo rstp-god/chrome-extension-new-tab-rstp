@@ -82,6 +82,7 @@ function renderMappingStep(integration: IntegrationState) {
       onCancelConnect={vi.fn()}
       onLeaveScopePicker={vi.fn()}
       onLeaveMapping={vi.fn()}
+      mappingTarget={null}
       onEditMapping={vi.fn()}
       onPickScope={vi.fn()}
     />,
@@ -125,6 +126,7 @@ describe('TodoSettingsStepBody — the mapping step', () => {
         onCancelConnect={vi.fn()}
         onLeaveScopePicker={vi.fn()}
         onLeaveMapping={vi.fn()}
+        mappingTarget={null}
         onEditMapping={vi.fn()}
         onPickScope={vi.fn()}
       />,

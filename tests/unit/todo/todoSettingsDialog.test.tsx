@@ -105,8 +105,12 @@ function unmapped() {
 
 const back = () => screen.getByRole('button', { name: 'integrations.actions.back' })
 
-/** The picker's own label, which is also the select's placeholder. */
-const onScopePicker = () => screen.getAllByText('integrations.vikunja.board.pickLabel').length > 0
+/**
+ * Vikunja brings its own scope step — the multi-select of boards — so "is the
+ * user on the scope step" is that step's own marker rather than the generic
+ * picker's select.
+ */
+const onScopePicker = () => screen.queryByTestId('todo-boards-step') !== null
 
 async function click(element: HTMLElement) {
   await act(async () => {
@@ -160,15 +164,15 @@ describe('TodoSettingsDialog — which step the descriptor says it is on', () =>
     expect(screen.getByTestId('todo-mapping-step')).toBeTruthy()
   })
 
-  it('shows the scope picker while no board is picked', async () => {
+  it('shows the boards step while no board is picked', async () => {
     await open(vikunja({ config: { ...vikunja().config, boards: [], defaultProjectId: null } }))
 
     expect(onScopePicker()).toBe(true)
   })
 })
 
-describe('TodoSettingsDialog — leaving the scope picker', () => {
-  it('returns to the summary when the picker was opened from it', async () => {
+describe('TodoSettingsDialog — leaving the boards step', () => {
+  it('returns to the summary when the boards step was opened from it', async () => {
     await open(vikunja())
     // The summary is the computed step for a fully configured integration.
     expect(screen.getByTestId('todo-summary-switch')).toBeTruthy()
@@ -184,7 +188,39 @@ describe('TodoSettingsDialog — leaving the scope picker', () => {
     expect(screen.getByTestId('todo-summary-switch')).toBeTruthy()
   })
 
-  it('disconnects when the picker is the freshly connected integration’s first step', async () => {
+  it('returns to the summary after the wizard was opened for one board', async () => {
+    // Two mapped boards: the computed step is the summary, and the only way
+    // onto the mapping step is the summary's per-board "Columns".
+    const base = vikunja()
+    await open({
+      ...base,
+      config: {
+        ...base.config,
+        boards: [
+          base.config.boards[0],
+          { ...base.config.boards[0], projectId: 2, viewId: 5, name: 'Second' },
+        ],
+      },
+    })
+
+    await click(screen.getAllByRole('button', { name: 'integrations.vikunja.summary.columns' })[1])
+
+    // The step knows which board it was opened for, even though it is one.
+    expect(
+      screen.getByText(
+        'integrations.vikunja.mapping.boardHeader {"n":1,"total":1,"name":"Second"}',
+      ),
+    ).toBeTruthy()
+
+    await click(back())
+
+    // Nothing is waiting to be mapped, so "Back" is out of the override and
+    // onto the summary — not down to the boards step.
+    expect(screen.getByTestId('todo-summary-switch')).toBeTruthy()
+    expect(onScopePicker()).toBe(false)
+  })
+
+  it('disconnects when the boards step is the freshly connected integration’s first step', async () => {
     // No scope yet — the state right after the connect form.
     await open(vikunja({ config: { ...vikunja().config, boards: [], defaultProjectId: null } }))
     expect(onScopePicker()).toBe(true)

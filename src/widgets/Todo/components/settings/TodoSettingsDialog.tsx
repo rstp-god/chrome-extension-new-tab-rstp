@@ -47,6 +47,15 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
 
   const [pickedIntegrationName, setPickedIntegrationName] = useState<string | null>(null)
   const [stepOverride, setStepOverride] = useState<DialogStep | null>(null)
+  /**
+   * Which scope the mapping step was opened for, when the user named one.
+   *
+   * Transient beside `stepOverride` and cleared with it, because it describes
+   * the very same intent: "map *this* board" is a step override plus its
+   * subject, and an override that outlived its purpose would take a stale
+   * subject with it.
+   */
+  const [mappingTarget, setMappingTarget] = useState<string | null>(null)
   const previousIntegration = useRef(integration)
 
   const computedStep: DialogStep = useMemo(() => {
@@ -65,6 +74,7 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
     if (!open) {
       setPickedIntegrationName(null)
       setStepOverride(null)
+      setMappingTarget(null)
       return
     }
     if (integration && pickedIntegrationName) {
@@ -79,6 +89,7 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
       (stepOverride === computedStep || previousIntegration.current !== integration)
     ) {
       setStepOverride(null)
+      setMappingTarget(null)
     }
     previousIntegration.current = integration
   }, [open, integration, pickedIntegrationName, stepOverride, computedStep])
@@ -128,8 +139,25 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
               // dialog shows follows from the state, which is already set.
               void useTodoStore.getState().clearIntegration()
             }}
-            onLeaveMapping={() => setStepOverride('board')}
-            onEditMapping={() => setStepOverride('mapping')}
+            onLeaveMapping={() => {
+              setMappingTarget(null)
+              // Same rule as the scope picker's "Back": it undoes the step
+              // that led here. Opened from the summary for one board — or
+              // reached by a wizard that has just mapped the last board — the
+              // state is settled, so back is out of the override and onto the
+              // summary the computed step now answers. Otherwise a board is
+              // still unmapped and the step behind this one is the board list.
+              if (computedStep === 'summary') {
+                setStepOverride(null)
+                return
+              }
+              setStepOverride('board')
+            }}
+            mappingTarget={mappingTarget}
+            onEditMapping={(target) => {
+              setStepOverride('mapping')
+              setMappingTarget(target ?? null)
+            }}
             onPickScope={() => setStepOverride('board')}
           />
         )}

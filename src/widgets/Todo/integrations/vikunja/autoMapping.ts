@@ -14,6 +14,7 @@ import type {
   StatusListMapping,
   TodoStatus,
 } from '@/widgets/Todo/integrations/types.ts'
+import type { VikunjaBoard } from '@/widgets/Todo/store/store.ts'
 
 /**
  * Patterns that give a status away, in both languages the extension ships.
@@ -41,8 +42,13 @@ function emptyMapping(): StatusListMapping {
   return { input: [], inprogress: [], struggle: [], completed: [], deleted: [] }
 }
 
+/** One spelling for a column name: trimmed and case-folded. */
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase()
+}
+
 function matchesHint(name: string, status: Exclude<TodoStatus, 'completed'>): boolean {
-  const normalized = name.trim().toLowerCase()
+  const normalized = normalizeName(name)
   return NAME_HINTS[status].some((hint) => hint.test(normalized))
 }
 
@@ -175,4 +181,73 @@ export function flatModeMapping(containers: RemoteContainer[]): StatusListMappin
     completed: [terminal.id],
     deleted: [fallback.id],
   }
+}
+
+/** What copying one board's mapping onto another's columns produced. */
+export interface CopiedMapping {
+  /**
+   * The mapping, with a row left **empty** wherever the target board has no
+   * column by that name. Deliberately partial: a wizard row the user still
+   * has to fill is exactly what `validateMapping` already reports, and
+   * inventing a column for it would map a status onto a bucket the user never
+   * chose.
+   */
+  mapping: StatusListMapping
+  /** The statuses whose row came back empty — the same list, said plainly. */
+  missing: TodoStatus[]
+}
+
+/**
+ * Carries a board's mapping over to another board by **column name**.
+ *
+ * The case it exists for: two boards built from the same template. Their
+ * buckets are called the same things and mean the same things, but the ids
+ * are per board, so the mapping cannot simply be copied — every id has to be
+ * translated through the name it belongs to.
+ *
+ * Matching is case-insensitive and trimmed, which is as forgiving as a name
+ * match can be without guessing ("Done " and "done" are the same column to a
+ * person, "Doing" and "In progress" are not — for those there are the name
+ * *hints* of `suggestMapping`, which this deliberately does not fall back to:
+ * a copy that quietly invented a different answer would be worse than an
+ * empty row the user can see).
+ *
+ * The terminal bucket is the one exception, and it is the same exception as
+ * everywhere else: entering it sets `done` server-side, so it can only mean
+ * `completed` — whatever it is called on either board, and even when the
+ * source mapped `completed` to something else entirely.
+ */
+export function copyMappingByNames(
+  source: VikunjaBoard,
+  targetContainers: RemoteContainer[],
+): CopiedMapping {
+  const sourceNameById = new Map(
+    source.containers.map((container) => [container.id, normalizeName(container.name)]),
+  )
+  const targetIdByName = new Map<string, string>()
+  for (const container of targetContainers) {
+    // First one wins: two columns with the same name are indistinguishable
+    // here, and picking the later one would depend on the board's order.
+    const name = normalizeName(container.name)
+    if (!targetIdByName.has(name)) targetIdByName.set(name, container.id)
+  }
+
+  const terminal = terminalContainer(targetContainers)
+  const mapping = emptyMapping()
+
+  for (const status of TODO_STATUSES) {
+    for (const id of source.mapping?.[status] ?? []) {
+      const name = sourceNameById.get(id)
+      const matched = name === undefined ? undefined : targetIdByName.get(name)
+      // The terminal bucket belongs to `completed` and to nothing else, so a
+      // row that matched it by name anywhere else is dropped rather than
+      // carried over into a conflict the user would have to undo.
+      if (matched === undefined || matched === terminal?.id) continue
+      if (!mapping[status].includes(matched)) mapping[status].push(matched)
+    }
+  }
+
+  if (terminal) mapping.completed = [terminal.id]
+
+  return { mapping, missing: TODO_STATUSES.filter((status) => mapping[status].length === 0) }
 }

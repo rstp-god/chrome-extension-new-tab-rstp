@@ -17,6 +17,7 @@ import {
   vikunjaPullResultSchema,
 } from './schema.ts'
 import { subscribeVikunjaRemoteChanges } from './subscribe.ts'
+import { VikunjaBoardsStep } from './VikunjaBoardsStep.tsx'
 import { VikunjaConnectForm } from './VikunjaConnectForm.tsx'
 import { VikunjaMappingStep } from './VikunjaMappingStep.tsx'
 import { VikunjaSummaryExtras } from './VikunjaSummaryExtras.tsx'
@@ -437,7 +438,14 @@ export const descriptor: IntegrationDescriptor = {
    * needs either new columns or flat mode.
    */
   MappingStep: VikunjaMappingStep,
-  /** The board, the background-pull period, and the flat-mode caveat. */
+  /**
+   * The generic picker chooses *a* scope; this connection keeps a list of
+   * them, with one marked as the board new tasks are created in — and
+   * unchecking one has a cost (its tasks leave the widget) that only a step
+   * of its own can state.
+   */
+  ScopeStep: VikunjaBoardsStep,
+  /** The boards, the background-pull period, and the flat-mode caveat. */
   SummaryExtras: VikunjaSummaryExtras,
   /**
    * Which screen a connection is waiting on, read off the boards rather than

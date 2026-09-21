@@ -4,8 +4,13 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button.tsx'
 import { TestId } from '@tests/constants/testIds.ts'
 
-import { flatModeMapping, suggestMapping, validateMapping } from './autoMapping.ts'
-import { defaultBoard, withDefaultBoardPatch } from './boards.ts'
+import {
+  copyMappingByNames,
+  flatModeMapping,
+  suggestMapping,
+  validateMapping,
+} from './autoMapping.ts'
+import { defaultBoard, withBoardPatch } from './boards.ts'
 import { VIKUNJA_MISSING_COLUMN_TITLES } from './constants.ts'
 import { VikunjaFlatModeSection } from './VikunjaFlatModeSection.tsx'
 import { VikunjaMappingProblems } from './VikunjaMappingProblems.tsx'
@@ -18,16 +23,45 @@ import type {
   StatusListMapping,
   TodoStatus,
 } from '@/widgets/Todo/integrations/types.ts'
+import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 import type { MissingColumn } from './VikunjaMissingColumnsPanel.tsx'
 
 /**
- * Vikunja's own mapping step.
+ * The boards this run of the wizard is about, in order.
+ *
+ * Three cases, and they are the three ways the step is reached: the user
+ * named a board from the summary (`target`), the connection has boards
+ * waiting to be mapped (a fresh connect, or a board just added), or neither
+ * — in which case the wizard is being re-opened for the board the settings UI
+ * is showing.
+ */
+function mappingQueue(config: VikunjaConfig, target: string | undefined): VikunjaBoard[] {
+  if (target !== undefined) {
+    const named = config.boards.filter((board) => String(board.projectId) === target)
+    if (named.length > 0) return named
+  }
+
+  const unmapped = config.boards.filter((board) => board.mapping === null)
+  if (unmapped.length > 0) return unmapped
+
+  const fallback = defaultBoard(config)
+  return fallback ? [fallback] : []
+}
+
+/**
+ * Vikunja's own mapping step, walked once per board.
  *
  * It differs from the generic table in three ways, all of them forced by the
  * backend: entering the view's done bucket sets `done` server-side (so that
  * bucket can only mean `completed`), a typical board has no `struggle` or
  * `deleted` column at all, and a user who does not want such columns in their
  * tracker needs a way out — flat mode.
+ *
+ * With several boards it is also a queue: every board has its own buckets, so
+ * the same status maps to a different id on each, and the step saves one
+ * board and moves to the next rather than asking for one answer that would
+ * only be right for one of them. Two boards built from the same template are
+ * the common case, which is what "same as ..." is for.
  *
  * Prop-driven, like every component a descriptor points at: it never imports
  * the store (see `MappingStepProps`).
@@ -36,19 +70,34 @@ export function VikunjaMappingStep({
   onBack,
   integration,
   adapter,
-  scope,
   errorKey,
+  target,
   actions,
 }: MappingStepProps) {
   const { t } = useTranslation('todoWidget')
 
+  const config = integration.name === 'vikunja' ? integration.config : null
+  const queue = useMemo(() => (config ? mappingQueue(config, target) : []), [config, target])
+
   /**
-   * Everything this step is about belongs to the board, not to the connection
-   * — its buckets, its mapping and whether the buckets are used at all. The
-   * slice's own copies are gone (task 2), and the default board is the one
-   * the widget syncs until task 4 makes this step iterate them.
+   * Which board of the queue is on screen. An index rather than an id: the
+   * queue is computed from the config, and saving a board's mapping removes
+   * it from the "unmapped" queue — so the index is the only thing that keeps
+   * its meaning across that write (see `board` below, which reads the queue
+   * as it was when the step mounted).
    */
-  const board = integration.name === 'vikunja' ? defaultBoard(integration.config) : null
+  const [position, setPosition] = useState(0)
+  /**
+   * The queue as it looked when the wizard started.
+   *
+   * Frozen on purpose: `mappingQueue` answers "what is still unmapped", which
+   * changes under the step's feet on every save. Walking the live answer
+   * would renumber the header mid-wizard ("Board 2 of 2" becoming "Board 1 of
+   * 1") and skip boards.
+   */
+  const [plan] = useState(queue)
+  const board = plan[position] ?? null
+
   const lists = board?.containers ?? []
   const wasFlat = board !== null && !board.kanbanMapping
 
@@ -72,7 +121,17 @@ export function VikunjaMappingStep({
    */
   const [createErrorKey, setCreateErrorKey] = useState<IntegrationErrorKey | null>(null)
 
-  const problems = useMemo(() => validateMapping(draft, lists), [draft, lists])
+  /**
+   * The buckets this step read for itself after creating columns.
+   *
+   * `actions.refreshContainers` re-reads the *default* board, which is not
+   * necessarily the one on screen, so the step asks the adapter directly and
+   * writes the answer onto the board it is mapping.
+   */
+  const [freshLists, setFreshLists] = useState<Record<number, typeof lists>>({})
+  const buckets = board !== null ? (freshLists[board.projectId] ?? lists) : []
+
+  const problems = useMemo(() => validateMapping(draft, buckets), [draft, buckets])
 
   /** Only the two the wizard can actually build (see the constant). */
   const missingColumns: MissingColumn[] = problems.missing
@@ -85,7 +144,17 @@ export function VikunjaMappingStep({
    * The flat fallback, or `null` on a view with no done bucket — where not
    * even "done" could round-trip, so the option is not offered at all.
    */
-  const flat = useMemo(() => flatModeMapping(lists), [lists])
+  const flat = useMemo(() => flatModeMapping(buckets), [buckets])
+
+  /**
+   * A board whose mapping this one could be copied from: another board of the
+   * same connection that has been through the wizard already. The first one
+   * is enough — a menu of boards to copy from would be a second wizard.
+   */
+  const source =
+    config?.boards.find(
+      (candidate) => candidate.projectId !== board?.projectId && candidate.mapping !== null,
+    ) ?? null
 
   // A local failure wins: it is the most recent thing that happened.
   const shownErrorKey = createErrorKey ?? errorKey
@@ -118,6 +187,12 @@ export function VikunjaMappingStep({
     }))
   }
 
+  /** Writes a patch onto the board on screen, never onto the default one. */
+  const patchBoard = (patch: Partial<VikunjaBoard>): boolean => {
+    if (!config || !board) return false
+    return actions.updateIntegrationConfig(withBoardPatch(config, board.projectId, patch))
+  }
+
   /**
    * Creates the missing columns one at a time, then re-reads the buckets and
    * points the empty rows at the new ids. Sequential rather than parallel:
@@ -131,8 +206,9 @@ export function VikunjaMappingStep({
    */
   const handleCreateColumns = async () => {
     const createContainer = adapter.createContainer
-    if (!createContainer) return
+    if (!createContainer || !board) return
 
+    const scope = { projectId: board.projectId, viewId: board.viewId }
     setBusy(true)
     setCreateErrorKey(null)
     const created: Partial<Record<TodoStatus, string>> = {}
@@ -149,7 +225,11 @@ export function VikunjaMappingStep({
       }
 
       if (Object.keys(created).length > 0) {
-        await actions.refreshContainers()
+        const reread = await adapter.listContainers(scope)
+        if (reread.ok) {
+          setFreshLists((current) => ({ ...current, [board.projectId]: reread.value }))
+          patchBoard({ containers: reread.value })
+        }
         setCreatedNote(failure === null)
         setDraft((current) => {
           const next = { ...current }
@@ -165,50 +245,79 @@ export function VikunjaMappingStep({
     }
   }
 
-  /** Accepts flat mode: only "done" round-trips, the rest stays local. */
-  const handleSkipToFlat = async () => {
-    if (integration.name !== 'vikunja' || !flat) return
-
-    setBusy(true)
-    try {
-      // Bail before the mapping if the config write was refused: a flat
-      // mapping under a kanban config would sync four statuses into one
-      // bucket.
-      //
-      // Both writes land on the board: the mode here, and the mapping through
-      // `setMapping` below — the store routes it there for a descriptor that
-      // keeps its state per board.
-      const next = withDefaultBoardPatch(integration.config, { kanbanMapping: false })
-      if (!actions.updateIntegrationConfig(next)) return
-      setCreatedNote(false)
-      await actions.setMapping(flat)
-    } finally {
-      setBusy(false)
+  /** Moves to the next board, or hands the dialog back its own step machine. */
+  const advance = () => {
+    const next = position + 1
+    if (next >= plan.length) {
+      onBack()
+      return
     }
+    const upcoming = plan[next]
+    setPosition(next)
+    setConfirmCompleted(false)
+    setCreatedNote(false)
+    setCreateErrorKey(null)
+    setDraft(
+      upcoming.kanbanMapping && upcoming.mapping
+        ? upcoming.mapping
+        : suggestMapping(upcoming.containers),
+    )
   }
 
-  const handleSave = async () => {
+  /** Accepts flat mode for this board: only "done" round-trips. */
+  const handleSkipToFlat = () => {
+    if (!flat) return
+    // Both halves in one write: a flat mapping under a kanban flag would sync
+    // four statuses into one bucket, and the flag without the mapping would
+    // describe a mode the board is not in.
+    if (!patchBoard({ kanbanMapping: false, mapping: flat })) return
+    advance()
+  }
+
+  const handleSave = () => {
     if (blocked) return
-
-    setBusy(true)
-    try {
-      // Saving a real bucket mapping leaves flat mode behind — and if that
-      // write is refused, the mapping must not be saved either.
-      if (wasFlat && integration.name === 'vikunja') {
-        const next = withDefaultBoardPatch(integration.config, { kanbanMapping: true })
-        if (!actions.updateIntegrationConfig(next)) return
-      }
-      await actions.setMapping(draft)
-    } finally {
-      setBusy(false)
-    }
+    // Saving a real bucket mapping leaves flat mode behind.
+    if (!patchBoard({ kanbanMapping: true, mapping: draft })) return
+    advance()
   }
+
+  /** "Same as <board>": the other board's mapping, translated by column name. */
+  const handleCopyFrom = () => {
+    if (!source) return
+    setCreatedNote(false)
+    setDraft(copyMappingByNames(source, buckets).mapping)
+  }
+
+  if (!board) return null
 
   return (
     <div data-testid={TestId.TodoMappingStep} className="grid gap-4">
-      <p className="text-sm text-muted-foreground">
-        {t('integrations.vikunja.mapping.suggestedHint')}
-      </p>
+      {(plan.length > 1 || target !== undefined) && (
+        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          {t('integrations.vikunja.mapping.boardHeader', {
+            n: position + 1,
+            total: plan.length,
+            name: board.name,
+          })}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {t('integrations.vikunja.mapping.suggestedHint')}
+        </p>
+        {source && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={handleCopyFrom}
+            disabled={busy}
+          >
+            {t('integrations.vikunja.mapping.copyFrom', { name: source.name })}
+          </Button>
+        )}
+      </div>
 
       {shownErrorKey && (
         <p
@@ -220,7 +329,7 @@ export function VikunjaMappingStep({
       )}
 
       <VikunjaMappingRows
-        buckets={lists}
+        buckets={buckets}
         draft={draft}
         onAdd={addBucketToStatus}
         onRemove={removeBucketFromStatus}
@@ -250,14 +359,14 @@ export function VikunjaMappingStep({
         active={wasFlat}
         available={flat !== null}
         busy={busy}
-        onSkip={() => void handleSkipToFlat()}
+        onSkip={handleSkipToFlat}
       />
 
       <div className="flex items-center justify-between gap-2">
         <Button type="button" variant="outline" onClick={onBack} disabled={busy}>
           {t('integrations.actions.back')}
         </Button>
-        <Button type="button" onClick={() => void handleSave()} disabled={blocked || busy}>
+        <Button type="button" onClick={handleSave} disabled={blocked || busy}>
           {t('integrations.mapping.save')}
         </Button>
       </div>

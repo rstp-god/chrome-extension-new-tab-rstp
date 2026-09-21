@@ -127,6 +127,21 @@ interface TodoWidgetState {
   setMapping: (mapping: StatusListMapping) => Promise<void>
   updateIntegrationConfig: (config: unknown) => boolean
   refreshContainers: () => Promise<boolean>
+  /**
+   * Forgets every task of a project the connection stops syncing.
+   *
+   * The settings step that drops a board is the caller: a board that leaves
+   * the schedule takes its tasks with it, because nothing would read or write
+   * them afterwards — no pull visits that project any more, and no board
+   * carries the mapping their pushes would need. Nothing is deleted remotely;
+   * the records stay in the tracker and only the widget's copy goes, which is
+   * what the confirmation says.
+   *
+   * Matches on both sides of the same fact: the project the task names and
+   * the one its own ref was written against (they differ only for a task
+   * whose ref this backend does not own, which is left alone).
+   */
+  dropTasksOfProject: (projectId: string) => void
   clearIntegration: () => Promise<void>
   /**
    * Leaves a handover snapshot behind, then drops the integration.
@@ -281,6 +296,20 @@ function withBoardState(
   const descriptor = getIntegrationDescriptor(integration.name)
   if (!descriptor?.withBoardState) return { ...integration, config, ...mirror }
   return { ...integration, config: descriptor.withBoardState(config, patch), ...DEAD_MIRROR }
+}
+
+/**
+ * The project a ref was written against, as a string, or `null` for a ref
+ * that names none.
+ *
+ * Deliberately structural rather than a `isVikunjaRef` branch: "which project
+ * does this record live in" is a question about the ref's own shape, and the
+ * store has no business knowing which backend answers it. A ref without the
+ * field (Trello's) answers `null` and can never match.
+ */
+function refProjectId(ref: RemoteTaskRef): string | null {
+  const raw = (ref as { projectId?: unknown }).projectId
+  return typeof raw === 'number' || typeof raw === 'string' ? String(raw) : null
 }
 
 function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): TodoTask[] {
@@ -906,6 +935,32 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
         set({ integration: parsed.data, loading: false, errorKey: null })
         return true
+      },
+
+      dropTasksOfProject: (projectId) => {
+        const descriptor = getIntegrationDescriptor(get().integration?.name)
+        const doomed = new Set(
+          get()
+            .tasks.filter(
+              (task) =>
+                task.projectId === projectId ||
+                // A foreign ref is not this backend's to interpret: its
+                // `projectId` (if it has one) belongs to another instance's
+                // numbering, so only a ref the descriptor claims can match.
+                (task.remoteRef !== null &&
+                  descriptor?.ownsRef(task.remoteRef) === true &&
+                  refProjectId(task.remoteRef) === projectId),
+            )
+            .map((task) => task.id),
+        )
+        if (doomed.size === 0) return
+
+        set((current) => ({
+          tasks: current.tasks.filter((task) => !doomed.has(task.id)),
+          // A conflict badge for a task that no longer exists would outlive
+          // the only thing that could clear it.
+          conflictTaskIds: current.conflictTaskIds.filter((id) => !doomed.has(id)),
+        }))
       },
 
       clearIntegration: async () => {

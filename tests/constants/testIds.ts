@@ -26,6 +26,7 @@ export enum TestId {
   TodoStatusBanner = 'todo-status-banner',
   TodoStatusBannerAction = 'todo-status-banner-action',
   TodoSettingsDialogContent = 'todo-settings-dialog-content',
+  TodoBoardsStep = 'todo-boards-step',
   TodoMappingStep = 'todo-mapping-step',
   TodoMissingColumnsPanel = 'todo-missing-columns-panel',
   TodoFlatModeSection = 'todo-flat-mode-section',

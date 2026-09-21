@@ -340,10 +340,11 @@ describe('TodoSettingsSummary — what the generic block shows', () => {
 
     // Nothing generic to tabulate: the mapping is per board…
     expect(screen.queryByText('integrations.vikunja.summary.mappingLabel')).toBeNull()
-    // …and the board is named exactly once, by the backend's own section
-    // (twice would mean the generic line rendered as well).
-    expect(screen.getAllByText('integrations.vikunja.summary.boardLabel')).toHaveLength(1)
-    expect(screen.getByTestId('todo-summary-board').textContent).toBe('Probe')
+    // …and the generic "Board" line has nothing to name either — the boards
+    // are listed by the backend's own section, which is where 'Probe' is.
+    expect(screen.queryByText('integrations.vikunja.summary.boardLabel')).toBeNull()
+    expect(screen.getByText('integrations.vikunja.summary.boards')).toBeTruthy()
+    expect(screen.getByTestId('todo-summary-board').textContent).toContain('Probe')
   })
 })
 

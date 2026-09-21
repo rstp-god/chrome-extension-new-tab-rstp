@@ -560,6 +560,11 @@ export const descriptor: IntegrationDescriptor = {
   // MappingStep: MyMappingStep,
   // Необязательный: свой шаг выбора scope вместо общего пикера — нужен
   // бэкенду, у которого scope не один (`ScopeStepProps`, те же правила).
+  // Оба шага получают один набор действий стора (`SettingsStepActions`):
+  // setMapping, updateIntegrationConfig, refreshContainers и
+  // dropTasksOfProject — последний убирает из виджета задачи отключённого
+  // проекта (в трекере они остаются); шаг маппинга ещё получает `target` —
+  // какой scope просили разметить, если пользователь назвал его в сводке.
   // ScopeStep: MyScopeStep,
   // Необязательный: на каком шаге настроек стоит подключение
   // ('board' | 'mapping' | 'summary'). Отсутствие = обычное правило: нет
@@ -1281,6 +1286,11 @@ export const descriptor: IntegrationDescriptor = {
   // MappingStep: MyMappingStep,
   // Optional: your own scope step instead of the generic picker — for a
   // backend whose scope is not a single one (`ScopeStepProps`, same rules).
+  // Both steps get one bundle of store actions (`SettingsStepActions`):
+  // setMapping, updateIntegrationConfig, refreshContainers and
+  // dropTasksOfProject — the last one takes the tasks of a project you stop
+  // syncing out of the widget (they stay in the tracker); the mapping step
+  // also gets `target`, the scope the user named in the summary, if any.
   // ScopeStep: MyScopeStep,
   // Optional: which settings step this connection is on ('board' | 'mapping'
   // | 'summary'). Absent means the usual rule: no scope → 'board', no mapping

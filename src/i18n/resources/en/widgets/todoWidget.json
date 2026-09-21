@@ -190,15 +190,32 @@
         "versionWarning": "Tested with Vikunja 2.6; other versions may behave differently."
       },
       "board": {
-        "title": "Pick a project",
-        "description": "Choose the project whose kanban view this widget will sync with.",
+        "title": "Boards",
+        "description": "Choose the projects to sync; one of them is the default for new tasks.",
         "pickLabel": "Project",
         "empty": "No projects with a kanban view on this account."
+      },
+      "boards": {
+        "title": "Projects to sync",
+        "description": "Every checked project syncs both ways. New tasks are created in the starred one.",
+        "loading": "Reading the projects…",
+        "empty": "No projects with a kanban view on this account.",
+        "default": "Default board",
+        "defaultHint": "New tasks are created here.",
+        "continue": "Save boards",
+        "removeTitle": "Stop syncing these boards?",
+        "removeBody_one": "{{name}}: {{count}} task disappears from the widget (it stays in Vikunja).",
+        "removeBody_other": "{{name}}: {{count}} tasks disappear from the widget (they stay in Vikunja).",
+        "removeDirty_one": "{{count}} of them has a change that never reached Vikunja — it will be lost.",
+        "removeDirty_other": "{{count}} of them have changes that never reached Vikunja — they will be lost.",
+        "keepOne": "At least one board has to stay — disconnect the integration to sync none."
       },
       "mapping": {
         "title": "Map buckets to statuses",
         "description": "Each status can pull from multiple buckets. The first bucket in each row is where new tasks land.",
         "suggestedHint": "Buckets are pre-matched by name — check the rows and fix anything that looks off.",
+        "boardHeader": "Board {{n}} of {{total}} — {{name}}",
+        "copyFrom": "Same as {{name}}",
         "addBucket": "Add bucket",
         "emptyHint": "Pick at least one bucket",
         "conflict": "One bucket is mapped to two statuses. A task in it would have no single status — remove one of them.",
@@ -218,6 +235,12 @@
       "summary": {
         "title": "Vikunja",
         "boardLabel": "Project",
+        "boards": "Boards",
+        "modeKanban": "kanban",
+        "modeFlat": "flat",
+        "defaultBadge": "default",
+        "columns": "Columns",
+        "editBoards": "Change boards",
         "mappingLabel": "Mapping",
         "lastSync": "Last sync",
         "neverSynced": "never",

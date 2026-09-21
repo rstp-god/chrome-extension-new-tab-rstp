@@ -51,12 +51,39 @@ export function boardForProject(config: VikunjaConfig, projectId: number): Vikun
 }
 
 /**
+ * A copy of the config with `patch` applied to the board `projectId` names.
+ *
+ * Returns the config unchanged when no board answers to that id: the callers
+ * write per-board state (the wizard's mapping and flat-mode flag, the buckets
+ * it re-read after creating a column), and inventing a board to hold it would
+ * put a scope in the config the user never picked.
+ *
+ * The wizard is the caller that needs this rather than
+ * `withDefaultBoardPatch`: with several boards it walks them one at a time,
+ * and the board it is on is usually not the default one.
+ */
+export function withBoardPatch(
+  config: VikunjaConfig,
+  projectId: number,
+  patch: Partial<VikunjaBoard>,
+): VikunjaConfig {
+  if (!config.boards.some((board) => board.projectId === projectId)) return config
+
+  return {
+    ...config,
+    boards: config.boards.map((current) =>
+      current.projectId === projectId ? { ...current, ...patch } : current,
+    ),
+  }
+}
+
+/**
  * A copy of the config with `patch` applied to the default board.
  *
- * Returns the config unchanged when there is no board to patch: the callers
- * write per-board state (the wizard's flat-mode flag, the store's cached
- * name/containers/mapping), and inventing a board to hold it would put a
- * scope in the config the user never picked.
+ * Returns the config unchanged when there is no board to patch, for the same
+ * reason as `withBoardPatch` — which is also where the writing happens; this
+ * is the store's entry point (`withBoardState`), which knows only "the board
+ * the settings UI is about".
  */
 export function withDefaultBoardPatch(
   config: VikunjaConfig,
@@ -65,12 +92,7 @@ export function withDefaultBoardPatch(
   const board = defaultBoard(config)
   if (!board) return config
 
-  return {
-    ...config,
-    boards: config.boards.map((current) =>
-      current.projectId === board.projectId ? { ...current, ...patch } : current,
-    ),
-  }
+  return withBoardPatch(config, board.projectId, patch)
 }
 
 /**
