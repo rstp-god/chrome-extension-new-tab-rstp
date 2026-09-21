@@ -227,20 +227,6 @@ export interface PullContext {
    */
   knownStatuses: Record<string, TodoStatus>
   /**
-   * The project ids the store already has cached (`integration.projects`),
-   * for an adapter that would otherwise have to read them again to tell a
-   * task's project from something else.
-   *
-   * Vikunja needs it: a task carries label *ids*, and the adapter has to know
-   * which of them are real projects rather than the reserved `energy:` /
-   * `mood:` ones — a question it used to answer by listing every label on the
-   * instance, on every sync, including the cheap non-forced ones the
-   * background pull triggers. The cache is refreshed on a forced pull and by
-   * the scope picker / `refreshContainers`, which is exactly when the answer
-   * can have changed. A backend that does not need it (Trello) ignores it.
-   */
-  knownProjectIds?: readonly string[]
-  /**
    * Read the backend for real instead of answering from whatever the adapter
    * (or the service worker behind it) has cached.
    *
@@ -481,27 +467,18 @@ export interface IntegrationDescriptor {
    *
    * Optional, and absent means the rule the widget has always had: no scope
    * yet → pick one, no mapping yet → map it, otherwise the summary (see
-   * `getSetupStep` in `integrations/setup.ts`, which is the one place either
+   * `getSetupStep` in `integrations/setup.ts`, which is the one place this
    * answer is read). A backend that keeps a *list* of scopes implements it
    * because the question is no longer about "the" scope: Vikunja is waiting
    * on the mapping step while *any* of its boards is unmapped, and the
    * default one may not be that board.
+   *
+   * It answers a second question through `isReadyToSync`, which is `summary`
+   * and nothing else: a connection still being configured is precisely one a
+   * sync cannot do anything useful with, so the two are one hook rather than
+   * two that must agree.
    */
   getSetupStep?: (integration: IntegrationState) => SetupStep
-  /**
-   * Is there enough configured for a sync to mean anything?
-   *
-   * The gate on every sync the store starts, and on everything the widget
-   * shows about syncing (the footer's badge and button). Absent means the
-   * historical rule — a scope and a mapping on the slice — and a backend that
-   * keeps both per board answers from its boards instead.
-   *
-   * Deliberately a separate hook from `getSetupStep`: "which screen is the
-   * user on" and "may a sync run" agree for every backend today, and would
-   * still be two different questions for one that could sync a partially
-   * configured connection.
-   */
-  isReadyToSync?: (integration: IntegrationState) => boolean
   /**
    * The backend's own part of the settings summary — whatever the shared
    * summary cannot know about. Vikunja puts its background-pull period and
@@ -641,8 +618,11 @@ export interface IntegrationDescriptor {
    *
    * Pure, like `withScope`: it returns a copy of the config, and the store
    * re-validates that copy against the persisted schema before it lands.
-   * Writing the slice fields stays the store's own business — a descriptor
-   * that implements this hook does not stop them being written.
+   *
+   * Implementing it is also what retires the slice fields: the store writes
+   * `boardName` / `lists` / `mapping` **empty** for such a descriptor, since
+   * the board is now the only copy and a second one nobody updates is one a
+   * later reader would trust by mistake.
    */
   withBoardState?: (config: unknown, patch: BoardStatePatch) => unknown
   /** Pure counterpart of `getScope`: returns a copy of the config with the scope written in. */

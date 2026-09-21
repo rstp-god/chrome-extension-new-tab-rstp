@@ -9,13 +9,11 @@ import {
   clampForVikunja,
   htmlToText,
   isReservedLabel,
-  labelToProject,
   localIdForTask,
   textToHtml,
   vikunjaTaskToTodo,
 } from '@/widgets/Todo/integrations/vikunja/mapping.ts'
 import { vikunjaHueFor } from '@/widgets/Todo/integrations/vikunja/projectStyles.ts'
-import { DEFAULT_PROJECT_PILL_CLASS } from '@/widgets/Todo/utils/projectPillPalette.ts'
 
 import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
 import type { StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
@@ -51,7 +49,6 @@ function context(overrides: Partial<VikunjaTaskContext> = {}): VikunjaTaskContex
     localIdByTaskId: new Map(),
     knownStatuses: {},
     flat: false,
-    projectIds: new Set<string>(),
     boardProjectId: 1,
     ...overrides,
   }
@@ -152,20 +149,6 @@ describe('labels', () => {
 
   it.each(['work', 'energetic', 'moody', 'my energy:1'])('leaves %s alone', (title) => {
     expect(isReservedLabel(title)).toBe(false)
-  })
-
-  it('maps a label to a Project with a pill class', () => {
-    expect(labelToProject({ id: 7, title: 'work', hexColor: '0ead69' })).toEqual({
-      id: '7',
-      name: 'work',
-      pillClassName: expect.stringContaining('emerald'),
-    })
-  })
-
-  it('falls back to the muted pill for a label with no colour', () => {
-    expect(labelToProject({ id: 7, title: 'work', hexColor: null }).pillClassName).toBe(
-      DEFAULT_PROJECT_PILL_CLASS,
-    )
   })
 })
 
@@ -334,12 +317,15 @@ describe('vikunjaTaskToTodo — fields', () => {
     expect(Number.isFinite(task.statusChangedAt)).toBe(true)
   })
 
-  it('picks the first label that is a known project', () => {
-    const ctx = context({ projectIds: new Set(['7']) })
+  it('makes the board the task’s project, whatever its labels say', () => {
+    // A Vikunja task lives *in* a project, and that project is the board it
+    // was pulled from — labels are somebody else's vocabulary.
+    const ctx = context({ boardProjectId: 8 })
 
-    expect(vikunjaTaskToTodo(pulled({ labelIds: [1, 7] }), ctx).projectId).toBe('7')
-    expect(vikunjaTaskToTodo(pulled({ labelIds: [1] }), ctx).projectId).toBeNull()
-    expect(vikunjaTaskToTodo(pulled({ labelIds: [] }), ctx).projectId).toBeNull()
+    expect(vikunjaTaskToTodo(pulled({ labelIds: [1, 7] }), ctx).projectId).toBe('8')
+    expect(vikunjaTaskToTodo(pulled({ labelIds: [] }), ctx).projectId).toBe('8')
+    // The same id the ref records, and the same one `Project.id` uses.
+    expect(vikunjaTaskToTodo(pulled(), ctx).remoteRef).toMatchObject({ projectId: 8 })
   })
 
   it('comes back clean and unlinked', () => {

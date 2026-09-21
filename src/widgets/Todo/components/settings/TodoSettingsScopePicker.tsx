@@ -82,7 +82,9 @@ export function TodoSettingsScopePicker({ adapter, integration, onBack }: ScopeS
       setBusy(false)
       return
     }
-    pickScope(option.scope, option.name, containersOut.value, projectsOut.value)
+    // Awaited: for a backend whose projects are its scopes the store asks
+    // again once the pick has landed, and the button stays busy until it has.
+    await pickScope(option.scope, option.name, containersOut.value, projectsOut.value)
     setBusy(false)
   }
 

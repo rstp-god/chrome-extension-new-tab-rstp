@@ -103,18 +103,15 @@ describe('isReadyToSync — the default rule', () => {
   })
 })
 
-describe('isReadyToSync — the descriptor’s own answer', () => {
-  it('may be ready with no mapping on the slice at all', () => {
-    // Which is exactly Vikunja after task 2: the mapping is on the board.
+describe('isReadyToSync — the setup step, by another name', () => {
+  it('follows the descriptor’s step: summary means ready, anything else does not', () => {
+    // One hook, not two that must agree: a connection still on the board or
+    // the mapping screen is exactly one a sync cannot do anything with.
     const integration = slice({ mapping: null })
-    const isReady = vi.fn(() => true)
 
-    expect(isReadyToSync(descriptor({ isReadyToSync: isReady }), integration)).toBe(true)
-    expect(isReady).toHaveBeenCalledWith(integration)
-  })
-
-  it('may refuse a slice the default rule would accept', () => {
-    expect(isReadyToSync(descriptor({ isReadyToSync: () => false }), slice())).toBe(false)
+    expect(isReadyToSync(descriptor({ getSetupStep: () => 'summary' }), integration)).toBe(true)
+    expect(isReadyToSync(descriptor({ getSetupStep: () => 'mapping' }), integration)).toBe(false)
+    expect(isReadyToSync(descriptor({ getSetupStep: () => 'board' }), slice())).toBe(false)
   })
 })
 

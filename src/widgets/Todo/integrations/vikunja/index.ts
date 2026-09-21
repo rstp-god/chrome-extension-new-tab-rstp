@@ -4,7 +4,7 @@ import { urlHost } from '@/widgets/Todo/utils/url.ts'
 
 import { defaultBoard, hasUnmappedBoard, withDefaultBoardPatch } from './boards.ts'
 import { sendVikunjaMessage } from './bridge.ts'
-import { isReservedLabel, vikunjaTaskToTodo } from './mapping.ts'
+import { vikunjaTaskToTodo } from './mapping.ts'
 import { recoverVikunjaPermission } from './permission.ts'
 import { getVikunjaBoardPillClass } from './projectStyles.ts'
 import { pushVikunjaTask } from './push.ts'
@@ -13,7 +13,6 @@ import {
   vikunjaBucketSummaryListSchema,
   vikunjaBucketSummarySchema,
   vikunjaConnectInfoSchema,
-  vikunjaLabelSummaryListSchema,
   vikunjaProjectSummaryListSchema,
   vikunjaPullResultSchema,
 } from './schema.ts'
@@ -156,15 +155,13 @@ export class VikunjaIntegration implements TodoIntegration {
   }
 
   /**
-   * One full read of the view: every bucket, every task, done included.
+   * One full read of the view: every bucket, every task, done included — and
+   * exactly one message on the wire.
    *
-   * The labels are fetched alongside it on a **forced** pull, because a task
-   * carries only label *ids* and the adapter has to know which of them are
-   * real projects rather than the reserved `energy:` / `mood:` ones. A
-   * failure there is propagated instead of defaulting to "everything
-   * counts": defaulting would stamp a reserved label onto tasks as their
-   * project, which is precisely what the reserved list exists to prevent. A
-   * non-forced pull spends no request on them at all — see the body.
+   * It used to read the instance's labels alongside it, to tell which of a
+   * task's label ids was meant to be its project. There is nothing to ask any
+   * more: a task's project is the board it lives in, which the caller already
+   * knows before it sends anything.
    */
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
     // The board, not `ctx.scope`: with a list of boards there is no single
@@ -176,22 +173,6 @@ export class VikunjaIntegration implements TodoIntegration {
     // looks at one.
     if (board.kanbanMapping && board.mapping === null) return NO_MAPPING
     const pair = { projectId: board.projectId, viewId: board.viewId }
-
-    /**
-     * Labels are read only when the pull is a real read of the instance.
-     *
-     * They are needed to tell a task's project from a reserved label, and
-     * they are instance-wide — so re-listing them on every sync meant a
-     * second request to someone's own server for an answer that had not
-     * changed, on every background broadcast. A non-forced pull therefore
-     * uses the ids the store already has (`knownProjectIds`); a forced one —
-     * the user's own sync, a freshly mounted widget — refreshes them, which
-     * is also what puts a newly created label on a card.
-     */
-    const cachedProjectIds = ctx.knownProjectIds
-    const labels =
-      ctx.force === true || cachedProjectIds === undefined ? await this.listLabels() : null
-    if (labels && !labels.ok) return labels
 
     // `force` decides whether the worker reads the instance or answers from
     // the snapshot it broadcast a moment ago — see `PullContext.force`.
@@ -208,9 +189,6 @@ export class VikunjaIntegration implements TodoIntegration {
       if (isVikunjaRef(ref)) localIdByTaskId.set(ref.taskId, localId)
     }
 
-    const projectIds = new Set(
-      labels ? labels.value.map((label) => String(label.id)) : (cachedProjectIds ?? []),
-    )
     const taskContext = {
       // The board's own mapping — `ctx.mapping` is the slice mirror, which
       // this backend stopped keeping (task 2).
@@ -220,8 +198,8 @@ export class VikunjaIntegration implements TodoIntegration {
       // `kanbanMapping: false` means the user skipped the bucket wizard for
       // this board and only `completed` round-trips.
       flat: !board.kanbanMapping,
-      projectIds,
-      // Every ref built below says which board its task lives on.
+      // The board every task here belongs to: what its ref records, and what
+      // its project is.
       boardProjectId: pair.projectId,
     }
 
@@ -311,16 +289,6 @@ export class VikunjaIntegration implements TodoIntegration {
     if (!parsed.success) return { ok: false, errorKey: 'unknown' }
     return { ok: true, value: parsed.data }
   }
-
-  /** Non-reserved labels only — the reserved ones belong to another feature. */
-  private async listLabels() {
-    const out = await this.send(
-      { type: 'vikunja', op: 'listLabels', cfg: this.wire() },
-      vikunjaLabelSummaryListSchema,
-    )
-    if (!out.ok) return out
-    return { ok: true as const, value: out.value.filter((label) => !isReservedLabel(label.title)) }
-  }
 }
 
 /**
@@ -390,16 +358,6 @@ export const descriptor: IntegrationDescriptor = {
     const config = configOf(integration)
     if (!config || config.boards.length === 0) return 'board'
     return hasUnmappedBoard(config) ? 'mapping' : 'summary'
-  },
-  /**
-   * A sync means something once there is at least one board and every one of
-   * them has been through the wizard — the same condition as `getSetupStep`
-   * landing on the summary.
-   */
-  isReadyToSync: (integration) => {
-    const config = configOf(integration)
-    if (!config) return false
-    return config.boards.length > 0 && !hasUnmappedBoard(config)
   },
   /**
    * A Vikunja task lives *in* a project: that is what a board is, so one is

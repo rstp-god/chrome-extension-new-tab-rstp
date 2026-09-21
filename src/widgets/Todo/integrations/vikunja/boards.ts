@@ -33,6 +33,12 @@ export function defaultBoard(config: VikunjaConfig): VikunjaBoard | null {
  * The board a project id addresses, or `null` when this config knows nothing
  * about that project.
  *
+ * Nothing in the widget calls it yet: today the adapter syncs the default
+ * board and reads that one directly. Task 3 is its caller — with every board
+ * being synced, a pull and a push resolve their board from the one the
+ * operation names (`remoteRef.projectId`, the scope of the view being read),
+ * which is exactly this lookup.
+ *
  * Deliberately **not** falling back to the default board. The callers are the
  * adapter's read and write paths, and the board carries the mode and the
  * columns the operation is about: answering with another board's would run

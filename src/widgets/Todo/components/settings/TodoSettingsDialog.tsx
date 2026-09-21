@@ -114,10 +114,10 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
               // integration already has a scope and a settled state to return
               // to, so back is cancel — dropping the whole connection there
               // would be a destructive answer to a button labelled "Back".
-              const hasScope =
-                integration !== null &&
-                getSetupStep(getIntegrationDescriptor(integration.name), integration) !== 'board'
-              if (stepOverride === 'board' && hasScope) {
+              // `computedStep` is the step the *state* is on, whatever the
+              // override shows — so anything but `board` means there is a
+              // scope (and a settled state) to go back to.
+              if (stepOverride === 'board' && computedStep !== 'board') {
                 setStepOverride(null)
                 return
               }

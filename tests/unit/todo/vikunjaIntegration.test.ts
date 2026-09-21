@@ -316,16 +316,15 @@ describe('VikunjaIntegration.pullTasks', () => {
     knownStatuses: {},
   }
 
-  /** Answers `listLabels` first, then `pull` — the order the adapter asks in. */
-  function stubPull(
-    tasks: unknown[],
-    labels: unknown[] = [{ id: 3, title: 'work', hexColor: null }],
-  ) {
-    bridge.mockImplementation(async (req) =>
-      req.op === 'listLabels'
-        ? { ok: true, value: labels }
-        : { ok: true, value: { tasks, pulledAt: 1 } },
-    )
+  /**
+   * Answers a `pull` — and nothing else, so an op this adapter should no
+   * longer send (the labels it used to read) fails the test that sent it.
+   */
+  function stubPull(tasks: unknown[]) {
+    bridge.mockImplementation(async (req) => {
+      if (req.op !== 'pull') throw new Error(`unexpected op ${req.op}`)
+      return { ok: true, value: { tasks, pulledAt: 1 } }
+    })
   }
 
   it.each([
@@ -340,41 +339,33 @@ describe('VikunjaIntegration.pullTasks', () => {
     expect(bridge).toHaveBeenCalledWith(expect.objectContaining({ op: 'pull', force: expected }))
   })
 
-  it('spends no request on the labels when the store already knows the projects', async () => {
+  it.each([
+    ['a forced pull', true],
+    ['a background refresh', false],
+    ['a pull that says nothing about it', undefined],
+  ])('costs exactly one message for %s', async (_label, force) => {
     stubPull([pulledTask({ labelIds: [1, 3] })])
 
-    const out = await new VikunjaIntegration(CONFIG).pullTasks({
-      ...ctx,
-      knownProjectIds: ['3'],
-    })
+    await new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, force })
 
-    // One message, and it is the pull: a background refresh must not cost a
-    // second request to someone's own server for labels that have not moved.
+    // The labels read is gone: a task's project is the board it lives in, so
+    // there is nothing to ask the instance about it — not even once.
     expect(bridge).toHaveBeenCalledTimes(1)
     expect(bridge.mock.calls[0][0]).toMatchObject({ op: 'pull' })
-    // The cached ids still tell a project from a reserved label.
-    expect(out.ok && out.value.tasks[0].projectId).toBe('3')
   })
 
-  it('refreshes the labels on a forced pull', async () => {
-    stubPull([pulledTask()])
+  it.each([
+    ['a forced pull', true],
+    ['a background refresh', false],
+  ])('gives every task the board as its project on %s', async (_label, force) => {
+    stubPull([pulledTask({ labelIds: [1, 3] }), pulledTask({ id: 9, labelIds: [] })])
 
-    await new VikunjaIntegration(CONFIG).pullTasks({
-      ...ctx,
-      knownProjectIds: ['3'],
-      force: true,
-    })
+    const out = await new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, force })
 
-    expect(bridge).toHaveBeenCalledTimes(2)
-    expect(bridge.mock.calls.map(([req]) => req.op).sort()).toEqual(['listLabels', 'pull'])
-  })
-
-  it('reads them anyway when the caller has no cache to offer', async () => {
-    stubPull([pulledTask()])
-
-    await new VikunjaIntegration(CONFIG).pullTasks(ctx)
-
-    expect(bridge).toHaveBeenCalledTimes(2)
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    // `BOARD.projectId` is 1, and labels say nothing about it.
+    expect(out.value.tasks.map((task) => task.projectId)).toStrictEqual(['1', '1'])
   })
 
   it('maps every task and reports its ref', async () => {
@@ -389,8 +380,7 @@ describe('VikunjaIntegration.pullTasks', () => {
       id: 'vikunja:4',
       title: 'Probe',
       status: 'inprogress',
-      // Label 1 is reserved, so the project is the non-reserved one.
-      projectId: '3',
+      projectId: '1',
     })
     expect(out.value.refs['vikunja:4']).toMatchObject({ taskId: 4 })
   })
@@ -453,26 +443,8 @@ describe('VikunjaIntegration.pullTasks', () => {
     expect(out.value.tasks[0].status).toBe('struggle')
   })
 
-  it('refuses to guess the projects when the labels cannot be read', async () => {
-    // Defaulting to "every label is a project" would stamp a reserved
-    // `energy:` label onto tasks — the one thing the reserved list prevents.
-    bridge.mockImplementation(async (req) =>
-      req.op === 'listLabels'
-        ? { ok: false, errorKey: 'rateLimited' }
-        : { ok: true, value: { tasks: [], pulledAt: 1 } },
-    )
-
-    await expect(new VikunjaIntegration(CONFIG).pullTasks(ctx)).resolves.toEqual({
-      ok: false,
-      errorKey: 'rateLimited',
-    })
-    expect(bridge).not.toHaveBeenCalledWith(expect.objectContaining({ op: 'pull' }))
-  })
-
   it('rejects a pull payload that does not match the schema', async () => {
-    bridge.mockImplementation(async (req) =>
-      req.op === 'listLabels' ? { ok: true, value: [] } : { ok: true, value: { tasks: [{}] } },
-    )
+    bridge.mockResolvedValue({ ok: true, value: { tasks: [{}] } })
 
     await expect(new VikunjaIntegration(CONFIG).pullTasks(ctx)).resolves.toEqual({
       ok: false,
@@ -675,16 +647,6 @@ describe('vikunja descriptor', () => {
           lastSyncAt: null,
         }),
       ).toBe('board')
-    })
-
-    it('agrees with isReadyToSync on every one of those states', () => {
-      const ready = (config: VikunjaConfig) => descriptor.isReadyToSync?.(slice(config))
-
-      expect(ready(NO_BOARD)).toBe(false)
-      expect(ready({ ...CONFIG, boards: [{ ...BOARD, mapping: null }] })).toBe(false)
-      expect(ready({ ...CONFIG, boards: [BOARD, unmapped] })).toBe(false)
-      expect(ready(CONFIG)).toBe(true)
-      expect(ready({ ...CONFIG, boards: [BOARD, second] })).toBe(true)
     })
   })
 

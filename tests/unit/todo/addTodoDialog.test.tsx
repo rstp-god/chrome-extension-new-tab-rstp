@@ -65,20 +65,29 @@ type SubmitInput = Parameters<ComponentProps<typeof AddTodoDialog>['onSubmit']>[
 
 let onSubmit: Mock<(input: SubmitInput) => void>
 
-async function open(policy: ProjectPolicy, defaultProjectId: string | null) {
+async function open(
+  policy: ProjectPolicy,
+  defaultProjectId: string | null,
+  projects: Project[] = PROJECTS,
+) {
   onSubmit = vi.fn<(input: SubmitInput) => void>()
   await act(async () => {
     render(
       <AddTodoDialog
         open
         onOpenChange={vi.fn()}
-        projects={PROJECTS}
+        projects={projects}
         projectPolicy={policy}
         defaultProjectId={defaultProjectId}
         onSubmit={onSubmit}
       />,
     )
   })
+}
+
+/** What the closed select shows: a project's name, or the placeholder. */
+function projectTrigger(): string {
+  return screen.getByLabelText('form.projectLabel').textContent ?? ''
 }
 
 /** Fills the title and submits — the shortest path to what was selected. */
@@ -137,6 +146,12 @@ describe('AddTodoDialog — a backend that requires a project', () => {
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ projectId: '8' }))
   })
 
+  it('names the preselected project on the closed trigger', async () => {
+    await open(REQUIRED, '1')
+
+    expect(projectTrigger()).toBe('Inbox')
+  })
+
   it('falls back to no selection when there is no default to preselect', async () => {
     // A connection whose board list has not been read yet: the store's own
     // `addTask` substitutes the default in that case.
@@ -144,6 +159,29 @@ describe('AddTodoDialog — a backend that requires a project', () => {
 
     await submit()
 
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ projectId: null }))
+  })
+
+  it('shows the placeholder rather than an empty trigger when the cache has no such project', async () => {
+    // A value naming an option that does not exist leaves the trigger blank
+    // with nothing to explain it.
+    await open(REQUIRED, '1', [{ id: '8', name: 'Work', pillClassName: null }])
+
+    expect(projectTrigger()).toBe('form.projectNone')
+  })
+
+  it('offers no project field at all while the cache is empty', async () => {
+    await open(REQUIRED, '1', [])
+
+    expect(screen.queryByLabelText('form.projectLabel')).toBeNull()
+  })
+
+  it('submits no project when the default cannot be named', async () => {
+    await open(REQUIRED, '1', [])
+
+    await submit()
+
+    // Which is what the store's `addTask` fills in from the policy.
     expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ projectId: null }))
   })
 })

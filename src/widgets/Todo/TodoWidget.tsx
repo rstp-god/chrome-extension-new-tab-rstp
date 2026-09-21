@@ -98,7 +98,7 @@ export function TodoWidget() {
    * The dialog stays prop-driven, so the id is resolved here — it is the one
    * place that has the config.
    */
-  const projectPolicy = useMemo(() => getProjectPolicy(descriptor), [descriptor])
+  const projectPolicy = getProjectPolicy(descriptor)
   const defaultProjectId = integration ? projectPolicy.defaultId(integration.config) : null
 
   // Same reason as `projectById`: a Set built once per change beats an

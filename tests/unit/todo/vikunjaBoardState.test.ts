@@ -80,10 +80,17 @@ function boards(): VikunjaBoard[] {
   return vikunjaConfig().boards
 }
 
-/** Connect → pick the project → save the mapping, as the wizard does. */
+/**
+ * Connect → pick the project → save the mapping, as the wizard does.
+ *
+ * The picker hands over an *empty* project list on purpose: that is what a
+ * fresh connection really reads, because its own boards are its projects and
+ * the one being picked is not in the config yet. Re-deriving them is the
+ * store's job (see the test below).
+ */
 async function runWizard() {
   await useTodoStore.getState().connectIntegration('vikunja', CONFIG)
-  useTodoStore.getState().pickScope({ projectId: 1, viewId: 4 }, 'Probe', CONTAINERS, [])
+  await useTodoStore.getState().pickScope({ projectId: 1, viewId: 4 }, 'Probe', CONTAINERS, [])
   await useTodoStore.getState().setMapping(MAPPING)
 }
 
@@ -139,6 +146,18 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
     expect(integration?.mapping).toBeNull()
   })
 
+  it('re-derives the projects from the config the pick produced', async () => {
+    await runWizard()
+
+    // The picker asked an adapter built *before* the pick, which for this
+    // backend could only answer with the boards it already had — none. The
+    // store asks again afterwards, so the board the user chose is available
+    // as the project a new task goes to.
+    expect(useTodoStore.getState().integration?.projects).toStrictEqual([
+      { id: '1', name: 'Probe', pillClassName: expect.any(String) },
+    ])
+  })
+
   it('leaves the worker a schedule it can actually pull', async () => {
     await runWizard()
 
@@ -155,7 +174,7 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
 
   it('gives the worker nothing while the mapping step is unfinished', async () => {
     await useTodoStore.getState().connectIntegration('vikunja', CONFIG)
-    useTodoStore.getState().pickScope({ projectId: 1, viewId: 4 }, 'Probe', CONTAINERS, [])
+    await useTodoStore.getState().pickScope({ projectId: 1, viewId: 4 }, 'Probe', CONTAINERS, [])
 
     expect(boards()[0].mapping).toBeNull()
     expect(readVikunjaScheduleFrom(envelope())).toBeNull()
@@ -164,7 +183,7 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
   it('re-picking a project moves the board, its columns and its mapping', async () => {
     await runWizard()
 
-    useTodoStore
+    await useTodoStore
       .getState()
       .pickScope({ projectId: 8, viewId: 21 }, 'Work', [{ id: '9', name: 'Later' }], [])
 
@@ -225,7 +244,7 @@ describe('a backend without per-board state is untouched by the hook', () => {
       },
     })
 
-    useTodoStore.getState().pickScope({ boardId: 'board-9' }, 'Other', [], [])
+    await useTodoStore.getState().pickScope({ boardId: 'board-9' }, 'Other', [], [])
 
     // Trello implements no `withBoardState`, so the only thing that touched
     // its config is its own `withScope`.

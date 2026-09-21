@@ -112,12 +112,18 @@ interface TodoWidgetState {
   openOrFocusLinkedTab: (id: string) => Promise<void>
 
   connectIntegration: (name: string, config: unknown) => Promise<void>
+  /**
+   * Stores the scope the user picked, plus what the picker read about it.
+   *
+   * Async because a backend whose projects *are* its scopes has to be asked
+   * again once the pick has landed — see the body.
+   */
   pickScope: (
     scope: RemoteScope,
     scopeName: string,
     containers: RemoteContainer[],
     projects: Project[],
-  ) => void
+  ) => Promise<void>
   setMapping: (mapping: StatusListMapping) => Promise<void>
   updateIntegrationConfig: (config: unknown) => boolean
   refreshContainers: () => Promise<boolean>
@@ -508,17 +514,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           knownStatuses[task.id] = task.status
         }
 
-        // Read from the current slice, not from this run's snapshot: the
-        // mapping wizard's `refreshContainers` can land mid-sync, and its
-        // freshly read projects are the better answer.
-        const knownProjectIds = (get().integration?.projects ?? []).map((project) => project.id)
-
         const pull = await adapter.pullTasks({
           scope,
           mapping,
           knownRefs,
           knownStatuses,
-          knownProjectIds,
           force,
         })
         if (!pull.ok) {
@@ -742,7 +742,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         await removeArea('sync', TODO_STORAGE_KEY)
       },
 
-      pickScope: (scope, scopeName, containers, projects) => {
+      pickScope: async (scope, scopeName, containers, projects) => {
         const integration = get().integration
         if (!integration) return
         const descriptor = getIntegrationDescriptor(integration.name)
@@ -771,6 +771,29 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         set({ integration: parsed.data, errorKey: null })
+
+        // The picker read the projects through an adapter built from the
+        // config *before* this pick, which is the wrong answer for a backend
+        // whose projects are its scopes: Vikunja's are its boards, and the
+        // board the user has just chosen was not in the config yet — so a
+        // fresh connection cached an empty list. Re-read them now that it is.
+        //
+        // Only for a descriptor that keeps per-scope state (the same ones
+        // whose slice mirror is dead): for Trello the picker's answer is
+        // already about the board it was read for.
+        if (!descriptor.withBoardState) return
+
+        const rescanned = await descriptor.create(parsed.data.config).listProjects(scope)
+        // A failure is not worth an error: the projects are a cache for pills
+        // and for the add dialog, the mapping step is what comes next, and
+        // `refreshContainers` (or the next pick) reads them again.
+        if (!rescanned.ok) return
+
+        const current = get().integration
+        if (current === null) return
+
+        const reparsed = integrationSchema.safeParse({ ...current, projects: rescanned.value })
+        if (reparsed.success) set({ integration: reparsed.data })
       },
 
       setMapping: async (mapping) => {

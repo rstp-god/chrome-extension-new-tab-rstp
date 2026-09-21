@@ -446,12 +446,12 @@ describe('todo store — integration: connect', () => {
 })
 
 describe('todo store — integration: pickScope', () => {
-  it('caches scope fields AND resets mapping to null (scope-switch invalidation)', () => {
+  it('caches scope fields AND resets mapping to null (scope-switch invalidation)', async () => {
     useTodoStore.setState({
       integration: makeIntegrationState({ mapping: mappingFixture }),
       errorKey: 'network',
     })
-    useTodoStore
+    await useTodoStore
       .getState()
       .pickScope({ boardId: 'new-board' }, 'New Board', listsFixture, projectsFixture)
     const integration = useTodoStore.getState().integration
@@ -465,31 +465,43 @@ describe('todo store — integration: pickScope', () => {
     expect(useTodoStore.getState().errorKey).toBeNull()
   })
 
-  it('pickScope writes the scope through the descriptor (store never touches the config shape)', () => {
+  it('pickScope writes the scope through the descriptor (store never touches the config shape)', async () => {
     useTodoStore.setState({ integration: makeIntegrationState() })
-    useTodoStore.getState().pickScope({ boardId: 42 }, 'Numeric', [], [])
+    await useTodoStore.getState().pickScope({ boardId: 42 }, 'Numeric', [], [])
     const integration = useTodoStore.getState().integration
     if (integration?.name !== 'trello') throw new Error('expected the trello integration')
     // `withScope` coerced the numeric scope value; credentials are preserved.
     expect(integration.config).toEqual({ apiKey: 'k', token: 't', boardId: '42' })
   })
 
-  it('pickScope re-validates against the persisted schema and refuses an invalid slice', () => {
+  it('pickScope re-validates against the persisted schema and refuses an invalid slice', async () => {
     const broken = {
       ...makeIntegrationState(),
       config: { apiKey: 'k' },
     } as unknown as IntegrationState
     useTodoStore.setState({ integration: broken })
-    useTodoStore.getState().pickScope({ boardId: 'b' }, 'B', [], [])
+    await useTodoStore.getState().pickScope({ boardId: 'b' }, 'B', [], [])
     const state = useTodoStore.getState()
     expect(state.errorKey).toBe('unknown')
     // no partial write: the slice is left exactly as it was
     expect(state.integration).toBe(broken)
   })
 
-  it('pickScope with no active integration is a no-op', () => {
-    useTodoStore.getState().pickScope({ boardId: 'b' }, 'B', [], [])
+  it('pickScope with no active integration is a no-op', async () => {
+    await useTodoStore.getState().pickScope({ boardId: 'b' }, 'B', [], [])
     expect(useTodoStore.getState().integration).toBeNull()
+  })
+
+  it('never re-reads the projects for a backend that keeps no per-scope state', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+
+    await useTodoStore
+      .getState()
+      .pickScope({ boardId: 'new-board' }, 'New Board', listsFixture, projectsFixture)
+
+    // Trello's picker already read them *for that board*; asking again would
+    // be a second request for the same answer.
+    expect(fakeListProjects).not.toHaveBeenCalled()
   })
 })
 
@@ -1767,10 +1779,11 @@ describe('todo store — the project policy', () => {
 describe('todo store — where the cached scope state is written', () => {
   const containers: RemoteContainer[] = [{ id: '1', name: 'To-Do' }]
 
-  it('writes nothing to the slice for a backend that keeps it per board', () => {
+  it('writes nothing to the slice for a backend that keeps it per board', async () => {
     useTodoStore.setState({ integration: makeVikunjaIntegrationState({ mapping: null }) })
+    fakeListProjects.mockResolvedValue(ok(projectsFixture))
 
-    useTodoStore.getState().pickScope({ projectId: 1, viewId: 4 }, 'Inbox', containers, [])
+    await useTodoStore.getState().pickScope({ projectId: 1, viewId: 4 }, 'Inbox', containers, [])
 
     const integration = useTodoStore.getState().integration
     if (integration?.name !== 'vikunja') throw new Error('expected the vikunja branch')
@@ -1782,10 +1795,10 @@ describe('todo store — where the cached scope state is written', () => {
     expect(integration.mapping).toBeNull()
   })
 
-  it('still writes the slice for a backend that has nowhere else to keep it', () => {
+  it('still writes the slice for a backend that has nowhere else to keep it', async () => {
     useTodoStore.setState({ integration: makeIntegrationState({ mapping: null }) })
 
-    useTodoStore.getState().pickScope({ boardId: 'board-9' }, 'Other board', containers, [])
+    await useTodoStore.getState().pickScope({ boardId: 'board-9' }, 'Other board', containers, [])
 
     const integration = useTodoStore.getState().integration
     expect(integration?.boardName).toBe('Other board')

@@ -117,11 +117,16 @@ function stubBridge(table: Partial<Record<VikunjaRequest['op'], unknown>>) {
   })
 }
 
+/**
+ * Deliberately without `setLabels`: a push never sends one any more (the
+ * task's project is the board it lives in), and `stubBridge` throws on an op
+ * it has no answer for — so a label message coming back would fail the test
+ * that sent it rather than sail through.
+ */
 const HAPPY = {
   create: write({ id: 7 }),
   update: write(),
   moveToBucket: write({ bucketId: 3 }),
-  setLabels: { added: [], removed: [] },
 }
 
 function sent(): VikunjaRequest[] {
@@ -214,26 +219,13 @@ describe('pushTask: create', () => {
     })
   })
 
-  it('attaches the project label after the create and before the move', async () => {
+  it('spends no request on the project — it is the board it was created in', async () => {
     stubBridge(HAPPY)
 
-    await push({ kind: 'create' }, task({ remoteRef: null, projectId: '9' }))
-
-    expect(ops()).toEqual(['create', 'setLabels', 'moveToBucket'])
-    expect(sent()[1]).toEqual({
-      type: 'vikunja',
-      op: 'setLabels',
-      cfg: CFG,
-      taskId: 7,
-      add: [9],
-      remove: [],
-    })
-  })
-
-  it('does not send a label for a project id that is not a Vikunja label', async () => {
-    stubBridge(HAPPY)
-
-    await push({ kind: 'create' }, task({ remoteRef: null, projectId: 'trello-label' }))
+    // `projectId` names the board (`String(board.projectId)`), which the
+    // create above already decided. A label op would write one id space into
+    // another.
+    await push({ kind: 'create' }, task({ remoteRef: null, projectId: '1' }))
 
     expect(ops()).toEqual(['create', 'moveToBucket'])
   })
@@ -298,30 +290,24 @@ describe('pushTask: create', () => {
     expect(bridge).not.toHaveBeenCalled()
   })
 
-  it.each([
-    ['the label step', '9' as string | null, ['create', 'setLabels']],
-    ['the move', null, ['create', 'moveToBucket']],
-  ])(
-    'reports the created ref when %s fails, so a retry cannot duplicate the task',
-    async (_label, projectId, expectedOps) => {
-      bridge.mockImplementation(async (request) =>
-        request.op === 'create'
-          ? { ok: true, value: write({ id: 7 }) }
-          : { ok: false, errorKey: 'rateLimited' },
-      )
+  it('reports the created ref when the move fails, so a retry cannot duplicate the task', async () => {
+    bridge.mockImplementation(async (request) =>
+      request.op === 'create'
+        ? { ok: true, value: write({ id: 7 }) }
+        : { ok: false, errorKey: 'rateLimited' },
+    )
 
-      const out = await push({ kind: 'create' }, task({ remoteRef: null, projectId }))
+    const out = await push({ kind: 'create' }, task({ remoteRef: null }))
 
-      expect(out).toEqual({
-        ok: false,
-        errorKey: 'rateLimited',
-        // The task exists; the store has to remember that much even though
-        // the push as a whole did not succeed.
-        ref: { taskId: 7, projectId: 1, identifier: '#3', bucketId: null, updated: NEXT_ETAG },
-      })
-      expect(ops()).toEqual(expectedOps)
-    },
-  )
+    expect(out).toEqual({
+      ok: false,
+      errorKey: 'rateLimited',
+      // The task exists; the store has to remember that much even though the
+      // push as a whole did not succeed.
+      ref: { taskId: 7, projectId: 1, identifier: '#3', bucketId: null, updated: NEXT_ETAG },
+    })
+    expect(ops()).toEqual(['create', 'moveToBucket'])
+  })
 
   it('reports the created ref when the flat-mode done toggle fails', async () => {
     bridge.mockImplementation(async (request) =>
@@ -502,48 +488,41 @@ describe('pushTask: status', () => {
   })
 })
 
-describe('pushTask: project', () => {
-  it('swaps the labels in one message', async () => {
+describe('pushTask: labels', () => {
+  it('never sends a label message, whatever the op', async () => {
+    // The whole class of bug this replaces: `task.projectId` is a *board* id
+    // now, and a label op would have written it into the instance's label
+    // space — silently mislabelling someone's tasks.
     stubBridge(HAPPY)
 
+    const ops: IntegrationPushOp[] = [
+      { kind: 'create' },
+      { kind: 'update' },
+      { kind: 'status', previous: 'input' },
+      { kind: 'delete' },
+      { kind: 'resync' },
+      { kind: 'project', previous: null },
+    ]
+    for (const op of ops) {
+      await push(op, task({ status: 'inprogress', projectId: '1', remoteRef: ref() }))
+    }
+
+    expect(sent().map((request) => request.op)).not.toContain('setLabels')
+  })
+})
+
+describe('pushTask: project', () => {
+  it('is refused without a request — the project is the board', async () => {
+    stubBridge(HAPPY)
+
+    // Moving a Vikunja task between projects means creating a different task
+    // elsewhere, so there is nothing this op could do to the record it was
+    // handed. The store refuses the move first
+    // (`projectPolicy.changeable: false`); this is what a hand-edited record
+    // or a caller that forgot the policy gets.
     const out = await push({ kind: 'project', previous: '9' }, task({ projectId: '12' }))
 
-    expect(out).toEqual({ ok: true, value: ref() })
-    expect(sent()).toEqual([
-      { type: 'vikunja', op: 'setLabels', cfg: CFG, taskId: 4, add: [12], remove: [9] },
-    ])
-  })
-
-  it('only adds when there was no project before', async () => {
-    stubBridge(HAPPY)
-
-    await push({ kind: 'project', previous: null }, task({ projectId: '12' }))
-
-    expect(sent()[0]).toMatchObject({ add: [12], remove: [] })
-  })
-
-  it('only removes when the project was cleared', async () => {
-    stubBridge(HAPPY)
-
-    await push({ kind: 'project', previous: '9' }, task({ projectId: null }))
-
-    expect(sent()[0]).toMatchObject({ add: [], remove: [9] })
-  })
-
-  it('sends nothing when both sides name the same label', async () => {
-    stubBridge(HAPPY)
-
-    const out = await push({ kind: 'project', previous: '9' }, task({ projectId: '9' }))
-
-    expect(bridge).not.toHaveBeenCalled()
-    expect(out).toEqual({ ok: true, value: ref() })
-  })
-
-  it('sends nothing when neither id is a Vikunja label', async () => {
-    stubBridge(HAPPY)
-
-    await push({ kind: 'project', previous: 'trello-a' }, task({ projectId: 'trello-b' }))
-
+    expect(out).toEqual({ ok: false, errorKey: 'pushFailed' })
     expect(bridge).not.toHaveBeenCalled()
   })
 })
@@ -646,12 +625,14 @@ describe('pushTask: failures', () => {
 })
 
 describe('pushTask: resync', () => {
-  it('moves the task to where its status belongs and re-asserts the project', async () => {
+  it('moves the task to where its status belongs, and nothing else', async () => {
     stubBridge(HAPPY)
 
-    const out = await push({ kind: 'resync' }, task({ status: 'inprogress', projectId: '9' }))
+    const out = await push({ kind: 'resync' }, task({ status: 'inprogress', projectId: '1' }))
 
     expect(out).toMatchObject({ ok: true, value: { bucketId: 3 } })
+    // One message: the bucket is the only thing the widget owns that can
+    // have drifted. The project is the board the task lives on.
     expect(sent()).toEqual([
       {
         type: 'vikunja',
@@ -662,8 +643,6 @@ describe('pushTask: resync', () => {
         viewId: 4,
         bucketId: 2,
       },
-      // Additive only: we do not know what else the task carries.
-      { type: 'vikunja', op: 'setLabels', cfg: CFG, taskId: 4, add: [9], remove: [] },
     ])
   })
 
@@ -701,28 +680,20 @@ describe('pushTask: resync', () => {
     expect(ops()).toEqual(['moveToBucket'])
   })
 
-  it('keeps the post-move ref when the label step then fails', async () => {
-    // The move already rewrote `updated`; storing the pre-move etag would cost
-    // the user a spurious conflict on their next edit.
-    bridge.mockImplementation(async (request) =>
-      request.op === 'moveToBucket'
-        ? { ok: true, value: write({ bucketId: 2, updated: NEXT_ETAG }) }
-        : { ok: false, errorKey: 'rateLimited' },
-    )
+  it('reports the move failure with the ref it started from', async () => {
+    bridge.mockResolvedValue({ ok: false, errorKey: 'rateLimited' })
 
-    const out = await push({ kind: 'resync' }, task({ status: 'inprogress', projectId: '9' }))
+    const local = task({ status: 'inprogress' })
+    const out = await push({ kind: 'resync' }, local)
 
-    expect(out).toEqual({
-      ok: false,
-      errorKey: 'rateLimited',
-      ref: { taskId: 4, projectId: 1, identifier: '#3', bucketId: 2, updated: NEXT_ETAG },
-    })
+    expect(out).toEqual({ ok: false, errorKey: 'rateLimited' })
+    expect(ops()).toEqual(['moveToBucket'])
   })
 
-  it('sends nothing for a project-less task already in place', async () => {
+  it('sends nothing for a task already in place', async () => {
     stubBridge(HAPPY)
 
-    await push({ kind: 'resync' }, task({ status: 'input', projectId: null }))
+    await push({ kind: 'resync' }, task({ status: 'input' }))
 
     expect(bridge).not.toHaveBeenCalled()
   })

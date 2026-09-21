@@ -27,22 +27,20 @@ import {
 import { TrelloConnectForm } from './TrelloConnectForm.tsx'
 import type { TrelloConfig } from './types.ts'
 
-/** A mapping row that names no list cannot address a destination. */
-const NO_DESTINATION: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
-
 /**
- * Neither the scope nor the mapping reached the adapter.
+ * Nothing names a destination for this write.
  *
- * Both are nullable in the contract, because a backend that syncs a list of
- * scopes keeps them per scope and answers from its own config (Vikunja).
- * Trello keeps exactly one of each on the integration slice and needs them
- * both, so it says so instead of reading inside a `null`.
- *
- * Unreachable through the store, which starts no sync and no push before
- * `isReadyToSync` — which, for a descriptor without the hook, is precisely
+ * Three ways in, one answer. A mapping row may be empty (the persisted schema
+ * forbids it, so only a hand-edited record gets there); and the scope and the
+ * mapping are both nullable in the contract, because a backend that syncs a
+ * *list* of scopes keeps them per scope and answers from its own config
+ * (Vikunja) — Trello keeps one of each on the integration slice and needs
+ * them both, so it says so instead of reading inside a `null`. That last case
+ * is unreachable through the store, which starts no sync and no push before
+ * `isReadyToSync`, which for a descriptor without `getSetupStep` is precisely
  * "there is a scope and there is a mapping".
  */
-const NO_SETUP: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
+const NO_DESTINATION: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
 
 /**
  * `RemoteScope` is an open record, so `boardId` may be missing, numeric (other
@@ -104,7 +102,7 @@ export class TrelloIntegration implements TodoIntegration {
 
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
     const { scope, mapping } = ctx
-    if (!scope || !mapping) return NO_SETUP
+    if (!scope || !mapping) return NO_DESTINATION
     const boardId = boardIdOf(scope)
     if (!boardId) return { ok: false, errorKey: 'notFound' }
     const out = await this.client.getBoardCards(boardId)
@@ -138,9 +136,9 @@ export class TrelloIntegration implements TodoIntegration {
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
     // Every write below has to place the card in a list, and only the mapping
-    // says which — see `NO_SETUP`.
+    // says which — see `NO_DESTINATION`.
     const { mapping } = ctx
-    if (!mapping) return NO_SETUP
+    if (!mapping) return NO_DESTINATION
     // A foreign ref (left over from another backend in a hand-edited record)
     // can't address a Trello card — re-link the task by creating one instead
     // of failing every push forever.
@@ -157,9 +155,7 @@ export class TrelloIntegration implements TodoIntegration {
     mapping: StatusListMapping,
   ): Promise<IntegrationOutcome<RemoteTaskRef>> {
     const idList = primaryListIdForStatus(task.status, mapping)
-    // A mapping row with no list names no destination. The persisted schema
-    // forbids one, so this only fires on a hand-edited record — where saying
-    // so beats POSTing `idList=undefined`.
+    // An empty mapping row: saying so beats POSTing `idList=undefined`.
     if (idList === undefined) return NO_DESTINATION
     const desc = buildCardDescription(task, task.description ?? '')
     const out = await this.client.createCard({

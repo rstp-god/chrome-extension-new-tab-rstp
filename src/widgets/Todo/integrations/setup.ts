@@ -61,14 +61,17 @@ export function getSetupStep(
  * through here: the store's `syncNow` and its per-mutation pushes, the
  * widget's mount sync, its remote-change subscription and its back-online
  * flush, and the footer's badge and button.
+ *
+ * Defined as the setup step, rather than as a hook of its own: a connection
+ * that is still on the board or the mapping screen is exactly one a sync
+ * cannot do anything with, and two answers that must always agree are better
+ * written as one.
  */
 export function isReadyToSync(
   descriptor: IntegrationDescriptor | null,
   integration: IntegrationState,
 ): boolean {
-  if (descriptor?.isReadyToSync) return descriptor.isReadyToSync(integration)
-  if (!descriptor) return false
-  return descriptor.getScope(integration.config) !== null && integration.mapping !== null
+  return getSetupStep(descriptor, integration) === 'summary'
 }
 
 /** What this backend expects of a task's project — see `ProjectPolicy`. */

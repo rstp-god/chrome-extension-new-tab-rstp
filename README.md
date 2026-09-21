@@ -561,12 +561,9 @@ export const descriptor: IntegrationDescriptor = {
   // ('board' | 'mapping' | 'summary'). Отсутствие = обычное правило: нет
   // scope → 'board', нет mapping → 'mapping', иначе 'summary'. Нужен тому, у
   // кого scope'ов список: Vikunja отвечает 'mapping', пока не размечена
-  // ЛЮБАЯ из досок.
+  // ЛЮБАЯ из досок. Этот же хук отвечает на «можно ли синхронизировать»:
+  // 'summary' — да, остальное — нет (`isReadyToSync` в integrations/setup.ts).
   // getSetupStep: (integration) => 'summary',
-  // Необязательный: хватает ли настроек, чтобы синхронизация что-то значила.
-  // Это гейт на каждую синхронизацию стора и на всё, что виджет показывает
-  // про неё. Отсутствие = «есть scope и есть mapping на слайсе».
-  // isReadyToSync: (integration) => true,
   // Необязательный: что бэкенд требует от проекта задачи. Отсутствие = ответ
   // Trello: проект необязателен, меняется, дефолта нет. Vikunja: required
   // (задача живёт В проекте), defaultId — дефолтная доска, changeable: false.
@@ -1280,12 +1277,10 @@ export const descriptor: IntegrationDescriptor = {
   // Optional: which settings step this connection is on ('board' | 'mapping'
   // | 'summary'). Absent means the usual rule: no scope → 'board', no mapping
   // → 'mapping', otherwise 'summary'. For a backend with a *list* of scopes:
-  // Vikunja answers 'mapping' while ANY of its boards is unmapped.
+  // Vikunja answers 'mapping' while ANY of its boards is unmapped. The same
+  // hook answers "may a sync run": 'summary' means yes and nothing else does
+  // (`isReadyToSync` in integrations/setup.ts).
   // getSetupStep: (integration) => 'summary',
-  // Optional: is there enough configured for a sync to mean anything? The
-  // gate on every sync the store starts and on everything the widget shows
-  // about syncing. Absent means "a scope and a mapping on the slice".
-  // isReadyToSync: (integration) => true,
   // Optional: what the backend expects of a task's project. Absent means
   // Trello's answer: optional, changeable, no default. Vikunja: required (a
   // task lives *in* a project), defaultId is the default board, not changeable.

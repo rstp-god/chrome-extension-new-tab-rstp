@@ -78,10 +78,21 @@ export function AddTodoDialog({
    * its default one preselected and no "No project" option — offering one
    * would promise something the sync cannot do. A backend that does not
    * (Trello) starts where it always has.
+   *
+   * `undefined` — which renders the placeholder — is the answer when a
+   * required project cannot be *named*: the cache holds no such project (a
+   * connection whose scopes have not been read since) and a value pointing at
+   * an option that does not exist would leave the trigger blank with nothing
+   * to explain it. `NO_PROJECT_VALUE` is not that answer either: it is an
+   * option this form does not offer, and it would submit "no project" for a
+   * backend that has no such state.
    */
-  const initialProjectValue =
-    projectPolicy.required && defaultProjectId !== null ? defaultProjectId : NO_PROJECT_VALUE
-  const [projectValue, setProjectValue] = useState<string>(initialProjectValue)
+  const initialProjectValue = projectPolicy.required
+    ? projects.some((project) => project.id === defaultProjectId)
+      ? (defaultProjectId as string)
+      : undefined
+    : NO_PROJECT_VALUE
+  const [projectValue, setProjectValue] = useState<string | undefined>(initialProjectValue)
 
   const selectedTab = useMemo(
     () => availableTabs.find((tab) => tab.url === selectedTabUrl),
@@ -133,7 +144,10 @@ export function AddTodoDialog({
       title,
       description,
       linkedTab,
-      projectId: projectValue === NO_PROJECT_VALUE ? null : projectValue,
+      // Nothing named (the placeholder) means the same as "no project" to the
+      // store, which fills the backend's default when it requires one.
+      projectId:
+        projectValue === undefined || projectValue === NO_PROJECT_VALUE ? null : projectValue,
     })
     handleOpenChange(false)
   }
