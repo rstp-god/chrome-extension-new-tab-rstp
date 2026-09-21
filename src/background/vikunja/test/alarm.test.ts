@@ -15,6 +15,12 @@ import {
 
 import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
 
+/**
+ * The **single-board** config, which is still what the bytes on disk look
+ * like for anyone who has not reloaded a New Tab page since the update. Most
+ * tests below keep using it on purpose: it is the shape the worker has to go
+ * on reading. `BOARDS_CONFIG` is the current one.
+ */
 const CONFIG = {
   baseUrl: 'https://vikunja.example',
   token: 'tk_super-secret-value',
@@ -32,6 +38,17 @@ const MAPPING = {
   struggle: ['2'],
   completed: ['3'],
   deleted: ['4'],
+}
+
+/** The same connection in the current shape: the boards live in the config. */
+function boardsConfig(overrides: Record<string, unknown> = {}) {
+  return {
+    baseUrl: CONFIG.baseUrl,
+    token: CONFIG.token,
+    boards: [{ projectId: 1, viewId: 4, name: 'Probe', containers: [], mapping: MAPPING }],
+    defaultProjectId: 1,
+    ...overrides,
+  }
 }
 
 /** The Todo widget's envelope as `withChromeSync` writes it. */
@@ -334,6 +351,56 @@ describe('readVikunjaScheduleFromStorage', () => {
     installChrome({ seed: stored === undefined ? {} : { [VIKUNJA_TODO_STORAGE_KEY]: stored } })
 
     await expect(readVikunjaScheduleFromStorage()).resolves.toBeNull()
+  })
+})
+
+/**
+ * The worker reads whatever the page last *wrote*, and the multi-board
+ * upgrade happens when the page *parses*. So both shapes have to answer, or
+ * the background pull stops for everyone who has not reloaded a New Tab page
+ * yet (and starts again for nobody).
+ */
+describe('readVikunjaScheduleFrom — the current, multi-board shape', () => {
+  it('schedules the default board', () => {
+    const raw = vikunjaEnvelope({ config: boardsConfig({ pullPeriodMin: 15 }), mapping: null })
+
+    expect(readVikunjaScheduleFrom(raw)).toEqual({
+      cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
+      projectId: 1,
+      viewId: 4,
+      periodMin: 15,
+    })
+  })
+
+  it('follows defaultProjectId rather than the order of the list', () => {
+    const second = { projectId: 8, viewId: 21, name: 'Work', containers: [], mapping: MAPPING }
+    const raw = vikunjaEnvelope({
+      config: boardsConfig({
+        boards: [boardsConfig().boards[0], second],
+        defaultProjectId: 8,
+      }),
+      mapping: null,
+    })
+
+    expect(readVikunjaScheduleFrom(raw)).toMatchObject({ projectId: 8, viewId: 21 })
+  })
+
+  it('falls back to the first board when no default is named', () => {
+    const raw = vikunjaEnvelope({ config: boardsConfig({ defaultProjectId: null }) })
+
+    expect(readVikunjaScheduleFrom(raw)).toMatchObject({ projectId: 1, viewId: 4 })
+  })
+
+  it.each([
+    ['no board is connected', boardsConfig({ boards: [], defaultProjectId: null })],
+    [
+      'the default board has no mapping yet',
+      boardsConfig({ boards: [{ ...boardsConfig().boards[0], mapping: null }] }),
+    ],
+  ])('answers null when %s', (_label, config) => {
+    // The slice mirror is deliberately filled here: it is the *board* that
+    // decides, not the field the single-board build used.
+    expect(readVikunjaScheduleFrom(vikunjaEnvelope({ config }))).toBeNull()
   })
 })
 

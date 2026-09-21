@@ -42,6 +42,7 @@ export type {
   TodoSyncState,
   TodoTask,
   TrelloConfig,
+  VikunjaBoard,
   VikunjaConfig,
 } from './schema.ts'
 export { TODO_STATUSES, todoEnvelopeSchema, todoHandoverSchema }

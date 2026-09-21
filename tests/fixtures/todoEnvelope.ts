@@ -109,89 +109,198 @@ export function makeTrelloEnvelope(): RawTodoEnvelope {
   }
 }
 
-/** An envelope written by a Vikunja-connected build (kanban mapping on). */
+/** The buckets of the view, with the backend's own terminal/default flags. */
+const VIKUNJA_CONTAINERS = [
+  { id: '8', name: 'Doing' },
+  { id: '9', name: 'Backlog', isDefault: true },
+  { id: '10', name: 'Done', isTerminal: true },
+]
+
+const VIKUNJA_MAPPING = {
+  input: ['9'],
+  inprogress: ['8'],
+  struggle: ['8'],
+  completed: ['10'],
+  deleted: ['10'],
+}
+
+/**
+ * The board every Vikunja fixture below is about, in the persisted
+ * `boards[]` shape: the project, its kanban view, and the cached title,
+ * buckets and mapping that used to live on the integration slice alone.
+ */
+function vikunjaBoard(): Record<string, unknown> {
+  return {
+    projectId: 3,
+    viewId: 11,
+    name: 'Personal project',
+    containers: VIKUNJA_CONTAINERS,
+    mapping: VIKUNJA_MAPPING,
+    kanbanMapping: true,
+  }
+}
+
+/** A second board, so a fixture can show that the list is a list. */
+function vikunjaSecondBoard(): Record<string, unknown> {
+  return {
+    projectId: 8,
+    viewId: 21,
+    name: 'Work',
+    containers: [
+      { id: '30', name: 'Todo', isDefault: true },
+      { id: '31', name: 'Shipped', isTerminal: true },
+    ],
+    // The wizard was never finished for this one, so it runs flat.
+    mapping: null,
+    kanbanMapping: false,
+  }
+}
+
+/**
+ * The three tasks the Vikunja fixtures carry: one linked and bucketed, one
+ * linked in flat mode (`bucketId: null`), one never pushed.
+ *
+ * `refProjectId` is the field the multi-board schema added — `null` produces
+ * the refs an older build wrote, which is what the upgrade has to fill in.
+ */
+function vikunjaTasks(refProjectId: number | null): Record<string, unknown>[] {
+  const onBoard = (ref: Record<string, unknown>) =>
+    refProjectId === null ? ref : { ...ref, projectId: refProjectId }
+
+  return [
+    {
+      id: 'task-v-1',
+      title: 'Vikunja task one',
+      description: 'Pulled from bucket "Doing"',
+      status: 'inprogress',
+      projectId: 'label-7',
+      createdAt: BASE_TS,
+      statusChangedAt: BASE_TS + 60_000,
+      completedAt: null,
+      deletedAt: null,
+      linkedTab: { url: 'https://vikunja.example.com/tasks/42', title: 'Task 42' },
+      remoteRef: onBoard({
+        taskId: 42,
+        identifier: '#42',
+        bucketId: 8,
+        updated: '2024-08-19T12:34:56Z',
+      }),
+      syncState: 'clean',
+    },
+    {
+      id: 'task-v-2',
+      title: 'Vikunja task two',
+      description: null,
+      status: 'completed',
+      projectId: null,
+      createdAt: BASE_TS + 120_000,
+      statusChangedAt: BASE_TS + 180_000,
+      completedAt: BASE_TS + 180_000,
+      deletedAt: null,
+      linkedTab: null,
+      // Flat mode: no bucket, hence `bucketId: null`.
+      remoteRef: onBoard({
+        taskId: 43,
+        identifier: 'PROJ-43',
+        bucketId: null,
+        updated: '2024-08-20T09:00:00Z',
+      }),
+      syncState: 'dirty',
+    },
+    {
+      id: 'task-v-3',
+      title: 'Local-only task',
+      description: null,
+      status: 'input',
+      projectId: null,
+      createdAt: BASE_TS + 240_000,
+      statusChangedAt: BASE_TS + 240_000,
+      completedAt: null,
+      deletedAt: null,
+      linkedTab: null,
+      remoteRef: null,
+      syncState: 'clean',
+    },
+  ]
+}
+
+/**
+ * An envelope in the current shape: one board in `config.boards`, and the
+ * slice fields mirroring it (which is what the upgrade leaves behind and what
+ * every reader in the widget still goes through).
+ */
 export function makeVikunjaEnvelope(): RawTodoEnvelope {
+  const board = vikunjaBoard()
+
   return {
     meta: { originId: 'origin-vikunja-device', rev: 4, ts: BASE_TS + 7_200_000 },
     state: {
-      tasks: [
-        {
-          id: 'task-v-1',
-          title: 'Vikunja task one',
-          description: 'Pulled from bucket "Doing"',
-          status: 'inprogress',
-          projectId: 'label-7',
-          createdAt: BASE_TS,
-          statusChangedAt: BASE_TS + 60_000,
-          completedAt: null,
-          deletedAt: null,
-          linkedTab: { url: 'https://vikunja.example.com/tasks/42', title: 'Task 42' },
-          remoteRef: {
-            taskId: 42,
-            identifier: '#42',
-            bucketId: 8,
-            updated: '2024-08-19T12:34:56Z',
-          },
-          syncState: 'clean',
-        },
-        {
-          id: 'task-v-2',
-          title: 'Vikunja task two',
-          description: null,
-          status: 'completed',
-          projectId: null,
-          createdAt: BASE_TS + 120_000,
-          statusChangedAt: BASE_TS + 180_000,
-          completedAt: BASE_TS + 180_000,
-          deletedAt: null,
-          linkedTab: null,
-          // Flat mode: no bucket, hence `bucketId: null`.
-          remoteRef: {
-            taskId: 43,
-            identifier: 'PROJ-43',
-            bucketId: null,
-            updated: '2024-08-20T09:00:00Z',
-          },
-          syncState: 'dirty',
-        },
-        {
-          id: 'task-v-3',
-          title: 'Local-only task',
-          description: null,
-          status: 'input',
-          projectId: null,
-          createdAt: BASE_TS + 240_000,
-          statusChangedAt: BASE_TS + 240_000,
-          completedAt: null,
-          deletedAt: null,
-          linkedTab: null,
-          remoteRef: null,
-          syncState: 'clean',
-        },
-      ],
+      tasks: vikunjaTasks(3),
       integration: {
         name: 'vikunja',
         config: {
           baseUrl: 'https://vikunja.example.com',
           token: 'tk_vikunja',
-          projectId: 3,
-          viewId: 11,
-          kanbanMapping: true,
+          boards: [board],
+          defaultProjectId: 3,
         },
         boardName: 'Personal project',
-        lists: [
-          { id: '8', name: 'Doing' },
-          { id: '9', name: 'Backlog' },
-          { id: '10', name: 'Done' },
-        ],
+        lists: VIKUNJA_CONTAINERS,
         projects: [{ id: 'label-7', name: 'Urgent', pillClassName: null }],
-        mapping: {
-          input: ['9'],
-          inprogress: ['8'],
-          struggle: ['8'],
-          completed: ['10'],
-          deleted: ['10'],
+        mapping: VIKUNJA_MAPPING,
+        lastSyncAt: BASE_TS + 7_200_000,
+      },
+    },
+  }
+}
+
+/** Two boards, and a task linked to each of them. */
+export function makeMultiBoardVikunjaEnvelope(): RawTodoEnvelope {
+  const raw = makeVikunjaEnvelope()
+  const integration = raw.state.integration as Record<string, unknown>
+  integration.config = {
+    baseUrl: 'https://vikunja.example.com',
+    token: 'tk_vikunja',
+    boards: [vikunjaBoard(), vikunjaSecondBoard()],
+    defaultProjectId: 3,
+    pullPeriodMin: 15,
+  }
+  // The second task lives on the second board.
+  const second = raw.state.tasks[1].remoteRef as Record<string, unknown>
+  second.projectId = 8
+
+  return raw
+}
+
+/**
+ * An envelope written by the single-board build: the scope and the mode sit
+ * in the config, the cached title/buckets/mapping only on the slice, and no
+ * ref knows which board it belongs to.
+ *
+ * `configOverrides` is how a test asks for the other single-board state that
+ * existed — a connection that never picked a project (`projectId: null`).
+ */
+export function makeLegacyVikunjaEnvelope(
+  configOverrides: Record<string, unknown> = {},
+): RawTodoEnvelope {
+  return {
+    meta: { originId: 'origin-vikunja-device', rev: 4, ts: BASE_TS + 7_200_000 },
+    state: {
+      tasks: vikunjaTasks(null),
+      integration: {
+        name: 'vikunja',
+        config: {
+          baseUrl: 'https://vikunja.example.com',
+          token: 'tk_vikunja',
+          projectId: 1,
+          viewId: 4,
+          kanbanMapping: true,
+          ...configOverrides,
         },
+        boardName: 'Inbox',
+        lists: VIKUNJA_CONTAINERS,
+        projects: [{ id: 'label-7', name: 'Urgent', pillClassName: null }],
+        mapping: VIKUNJA_MAPPING,
         lastSyncAt: BASE_TS + 7_200_000,
       },
     },

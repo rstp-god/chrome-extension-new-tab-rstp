@@ -126,6 +126,10 @@ export function labelIdOf(projectId: string | null): number | null {
 /**
  * The ref to store after a mutation.
  *
+ * `projectId` is the board the write happened on, passed in rather than read
+ * off the response: a task write answers with the task, and the board is
+ * something only the caller's scope (or the ref it already had) knows.
+ *
  * `bucketId` falls back to the previous one when the answer reports `0`: only
  * a view response fills a task's `bucket_id` (recon Q3), so an edit or a
  * create genuinely does not know where the task sits, and forgetting the last
@@ -133,10 +137,12 @@ export function labelIdOf(projectId: string | null): number | null {
  */
 export function refFromWrite(
   write: VikunjaTaskWrite,
+  projectId: number,
   previous: VikunjaRemoteRef | null = null,
 ): VikunjaRemoteRef {
   return {
     taskId: write.id,
+    projectId,
     identifier: write.identifier,
     bucketId: write.bucketId > 0 ? write.bucketId : (previous?.bucketId ?? null),
     updated: write.updated,
@@ -203,7 +209,7 @@ async function createTask(
     vikunjaTaskWriteSchema,
   )
   if (!created.ok) return created
-  const ref = refFromWrite(created.value)
+  const ref = refFromWrite(created.value, scope.projectId)
 
   const labelId = labelIdOf(task.projectId)
   if (labelId !== null) {
@@ -322,7 +328,7 @@ async function editFields(
     vikunjaTaskWriteSchema,
   )
   if (!out.ok) return out
-  return { ok: true, value: refFromWrite(out.value, ref) }
+  return { ok: true, value: refFromWrite(out.value, ref.projectId, ref) }
 }
 
 /**
@@ -411,7 +417,7 @@ async function move(
     vikunjaTaskWriteSchema,
   )
   if (!out.ok) return out
-  return { ok: true, value: refFromWrite(out.value, previous) }
+  return { ok: true, value: refFromWrite(out.value, scope.projectId, previous) }
 }
 
 async function setDone(
@@ -426,5 +432,5 @@ async function setDone(
     vikunjaTaskWriteSchema,
   )
   if (!out.ok) return out
-  return { ok: true, value: refFromWrite(out.value, previous) }
+  return { ok: true, value: refFromWrite(out.value, previous.projectId, previous) }
 }

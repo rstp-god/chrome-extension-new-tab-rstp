@@ -2,6 +2,7 @@ import { VIKUNJA_PULL_PERIOD_MIN } from '@/background/vikunja/messages.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import { useTranslation } from 'react-i18next'
 
+import { defaultBoard } from './boards.ts'
 import { VIKUNJA_LOCAL_ONLY_STATUSES } from './constants.ts'
 import { VikunjaPullPeriodSelect } from './VikunjaPullPeriodSelect.tsx'
 
@@ -27,7 +28,8 @@ export function VikunjaSummaryExtras({ integration, actions }: SummaryExtrasProp
   // would mean a Vikunja descriptor resolved for another integration's slice.
   if (integration.name !== 'vikunja') return null
 
-  const flatMode = !integration.config.kanbanMapping
+  const board = defaultBoard(integration.config)
+  const flatMode = board !== null && !board.kanbanMapping
 
   return (
     <>

@@ -56,14 +56,21 @@ export interface VikunjaSchedule {
 }
 
 /**
- * The worker's minimal view of the Todo envelope: the active integration's
- * credentials, the scope, and whether the user finished the mapping wizard.
+ * The worker's minimal view of the Todo envelope: the credentials, the board
+ * to pull, and whether the user finished the mapping wizard for it.
  *
  * Deliberately not the widget's `todoEnvelopeSchema` — the worker must not
  * import widget code — and deliberately *narrower* than it: this schema is
  * not a data-loss contract, it is a question ("is there a Vikunja view to
- * pull, and how often"). So it reads the five fields that answer it and
- * ignores the tasks, the cached buckets and everything else the widget keeps.
+ * pull, and how often"). So it reads the fields that answer it and ignores
+ * the tasks, the cached buckets and everything else the widget keeps.
+ *
+ * **Both persisted shapes are accepted**, and they have to be. The widget
+ * upgrades the single-board config to `boards[]` when it *parses* the
+ * envelope, which does not touch the bytes until the page writes them back;
+ * a worker that understood only the new shape would stop pulling for every
+ * existing user in the meantime. The legacy branch can go once a release has
+ * passed and the write-back has run everywhere.
  *
  * `baseUrl` is only length-bounded here: the real check (https, literal host)
  * belongs to `vikunjaWireSchema` inside the gate, and duplicating it would be
@@ -74,24 +81,71 @@ export interface VikunjaSchedule {
  * failing the whole parse and silently stopping the background pull. The
  * narrowing to the allowlist happens below.
  */
-const scheduleEnvelopeSchema = z.object({
+const credentialsSchema = z.object({
+  baseUrl: z.string().max(2048),
+  token: z.string().min(1).max(4096),
+  pullPeriodMin: z.number().optional(),
+})
+
+/**
+ * One board, with only its presence checked for the mapping: a board whose
+ * buckets are not mapped has nowhere to put a pulled task, so pulling for it
+ * would be work nobody can use. `null` until the wizard is done.
+ */
+const boardSchema = z.object({
+  projectId: z.number().int().positive(),
+  viewId: z.number().int().positive(),
+  mapping: z.record(z.string(), z.unknown()).nullable(),
+})
+
+/** The current shape: every board in the config, each with its own mapping. */
+const boardsEnvelopeSchema = z.object({
   state: z.object({
     integration: z.object({
       name: z.literal('vikunja'),
-      config: z.object({
-        baseUrl: z.string().max(2048),
-        token: z.string().min(1).max(4096),
+      config: credentialsSchema.extend({
+        boards: z.array(boardSchema),
+        defaultProjectId: z.number().int().positive().nullable(),
+      }),
+    }),
+  }),
+})
+
+/** The single-board shape: the scope in the config, the mapping on the slice. */
+const legacyEnvelopeSchema = z.object({
+  state: z.object({
+    integration: z.object({
+      name: z.literal('vikunja'),
+      config: credentialsSchema.extend({
         projectId: z.number().int().positive(),
         viewId: z.number().int().positive(),
-        pullPeriodMin: z.number().optional(),
       }),
-      // Only its presence matters: a widget that has not mapped its buckets
-      // has nowhere to put a pulled task, so pulling for it would be work
-      // nobody can use. `null` until the wizard is done.
       mapping: z.record(z.string(), z.unknown()).nullable(),
     }),
   }),
 })
+
+type ScheduleBoard = z.infer<typeof boardSchema>
+
+/**
+ * The board this alarm pulls: the one `defaultProjectId` names, the first one
+ * when it names nothing.
+ *
+ * **Only the default board, for now.** One alarm cannot say which board woke
+ * it, so pulling all of them needs a key per board (and a period that is not
+ * multiplied by the number of boards) — that is task 3. Until then a second
+ * board is synced when the widget itself asks.
+ */
+function defaultScheduleBoard(config: {
+  boards: ScheduleBoard[]
+  defaultProjectId: number | null
+}): ScheduleBoard | null {
+  const [first] = config.boards
+  if (first === undefined) return null
+  if (config.defaultProjectId === null) return first
+
+  return config.boards.find((board) => board.projectId === config.defaultProjectId) ?? first
+}
 
 function chromeObject(): typeof chrome | null {
   return (globalThis as { chrome?: typeof chrome }).chrome ?? null
@@ -119,10 +173,26 @@ function resolvePeriod(raw: number | undefined): VikunjaPullPeriod {
 export function readVikunjaScheduleFrom(raw: unknown): VikunjaSchedule | null {
   if (raw === undefined || raw === null) return null
 
-  const parsed = scheduleEnvelopeSchema.safeParse(raw)
-  if (!parsed.success) return null
+  const current = boardsEnvelopeSchema.safeParse(raw)
+  if (current.success) {
+    const { config } = current.data.state.integration
+    const board = defaultScheduleBoard(config)
+    if (!board || board.mapping === null) return null
 
-  const { config, mapping } = parsed.data.state.integration
+    return {
+      cfg: { baseUrl: config.baseUrl, token: config.token },
+      projectId: board.projectId,
+      viewId: board.viewId,
+      periodMin: resolvePeriod(config.pullPeriodMin),
+    }
+  }
+
+  // Bytes written by the single-board build, still on disk until the page
+  // that upgraded them writes them back — see the schema comment above.
+  const legacy = legacyEnvelopeSchema.safeParse(raw)
+  if (!legacy.success) return null
+
+  const { config, mapping } = legacy.data.state.integration
   if (mapping === null) return null
 
   return {

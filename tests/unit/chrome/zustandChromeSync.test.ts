@@ -202,4 +202,110 @@ describe('withChromeSync', () => {
       expect(setAreaMock).toHaveBeenLastCalledWith('local', 'k', expect.anything())
     })
   })
+  /**
+   * A schema may *change* what it parses — upgrade an older persisted shape,
+   * fill in a default, drop a field it no longer declares. Whatever it
+   * produces then lives in the store and not in storage, where the service
+   * worker (and the next context to load) reads it, so the store persists it
+   * once on load. It must not write when nothing was transformed: that would
+   * be a pointless write per page load, on a `sync` area with a write quota.
+   */
+  describe('a schema that transforms the stored record', () => {
+    /** Reads `legacy: true` and answers with the upgraded shape. */
+    const upgradingSchema = z.object({
+      meta: z.object({ originId: z.string(), rev: z.number(), ts: z.number() }),
+      state: z.preprocess(
+        (raw) =>
+          raw !== null && typeof raw === 'object' && 'legacy' in raw
+            ? { count: (raw as { legacy: number }).legacy }
+            : raw,
+        z.object({ count: z.number() }),
+      ),
+    })
+
+    const makeStore = () =>
+      createStore(
+        withChromeSync({
+          key: 'k',
+          schema: upgradingSchema,
+          partialize: (s: { count: number }) => ({ count: s.count }),
+          merge: (_c, p) => p,
+          autoPersist: false,
+        })(() => ({ count: 0 })),
+      )
+
+    it('persists the transformed state once', async () => {
+      getAreaMock.mockResolvedValue({
+        meta: { originId: 'remote', rev: 3, ts: 10 },
+        state: { legacy: 7 },
+      })
+
+      const store = makeStore()
+      await flush()
+
+      expect(store.getState().count).toBe(7)
+      expect(setAreaMock).toHaveBeenCalledOnce()
+      expect(setAreaMock).toHaveBeenCalledWith('local', 'k', {
+        meta: expect.anything(),
+        state: { count: 7 },
+      })
+    })
+
+    it('writes nothing when the record was already in the current shape', async () => {
+      getAreaMock.mockResolvedValue({
+        meta: { originId: 'remote', rev: 3, ts: 10 },
+        state: { count: 7 },
+      })
+
+      makeStore()
+      await flush()
+
+      expect(setAreaMock).not.toHaveBeenCalled()
+    })
+
+    it('writes nothing for a record whose keys are merely in another order', async () => {
+      const schemaWithTwoKeys = z.object({
+        meta: z.object({ originId: z.string(), rev: z.number(), ts: z.number() }),
+        // `z.object` rebuilds its output in schema order, so a stored record
+        // listing `flag` first parses into `{ count, flag }`.
+        state: z.object({ count: z.number(), flag: z.boolean() }),
+      })
+      getAreaMock.mockResolvedValue({
+        meta: { originId: 'remote', rev: 3, ts: 10 },
+        state: { flag: true, count: 7 },
+      })
+
+      createStore(
+        withChromeSync({
+          key: 'k',
+          schema: schemaWithTwoKeys,
+          partialize: (s: { count: number; flag: boolean }) => ({ count: s.count, flag: s.flag }),
+          merge: (_c, p) => p,
+          autoPersist: false,
+        })(() => ({ count: 0, flag: false })),
+      )
+      await flush()
+
+      expect(setAreaMock).not.toHaveBeenCalled()
+    })
+
+    it('keeps persisting later changes after the write-back', async () => {
+      getAreaMock.mockResolvedValue({
+        meta: { originId: 'remote', rev: 3, ts: 10 },
+        state: { legacy: 7 },
+      })
+
+      const store = makeStore()
+      await flush()
+      setAreaMock.mockClear()
+
+      store.setState({ count: 8 })
+      await store.getState().commit()
+
+      expect(setAreaMock).toHaveBeenCalledWith('local', 'k', {
+        meta: expect.anything(),
+        state: { count: 8 },
+      })
+    })
+  })
 })

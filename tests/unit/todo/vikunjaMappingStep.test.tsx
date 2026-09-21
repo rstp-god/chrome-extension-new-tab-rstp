@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { withDefaultBoardPatch } from '@/widgets/Todo/integrations/vikunja/boards.ts'
 import { VikunjaMappingStep } from '@/widgets/Todo/integrations/vikunja/VikunjaMappingStep.tsx'
 
 import type {
@@ -55,9 +56,17 @@ function integrationState(overrides: Partial<VikunjaSlice> = {}): VikunjaSlice {
     config: {
       baseUrl: 'https://vikunja.example',
       token: 'tk_super-secret-value',
-      projectId: 1,
-      viewId: 4,
-      kanbanMapping: true,
+      boards: [
+        {
+          projectId: 1,
+          viewId: 4,
+          name: 'Inbox',
+          containers: THREE_COLUMNS,
+          mapping: null,
+          kanbanMapping: true,
+        },
+      ],
+      defaultProjectId: 1,
     },
     boardName: 'Inbox',
     lists: THREE_COLUMNS,
@@ -197,8 +206,11 @@ describe('VikunjaMappingStep — a three-column board', () => {
     await userEvent.click(skipButton())
 
     await waitFor(() => expect(setMapping).toHaveBeenCalledTimes(1))
+    // The mode belongs to the board, not to the connection.
     expect(updateIntegrationConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ kanbanMapping: false }),
+      expect.objectContaining({
+        boards: [expect.objectContaining({ projectId: 1, kanbanMapping: false })],
+      }),
     )
     // Everything but `completed` goes to the view's default bucket.
     expect(setMapping).toHaveBeenCalledWith({
@@ -308,7 +320,7 @@ describe('VikunjaMappingStep — coming back from flat mode', () => {
   function flatSlice(overrides: Partial<VikunjaSlice> = {}) {
     return {
       mapping: flat,
-      config: { ...integrationState().config, kanbanMapping: false },
+      config: withDefaultBoardPatch(integrationState().config, { kanbanMapping: false }),
       ...overrides,
     }
   }
@@ -331,7 +343,9 @@ describe('VikunjaMappingStep — coming back from flat mode', () => {
     await userEvent.click(saveButton())
 
     expect(updateIntegrationConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ kanbanMapping: true }),
+      expect.objectContaining({
+        boards: [expect.objectContaining({ projectId: 1, kanbanMapping: true })],
+      }),
     )
     expect(setMapping).toHaveBeenCalledWith(
       expect.objectContaining({ struggle: ['4'], deleted: ['5'] }),

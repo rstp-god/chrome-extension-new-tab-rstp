@@ -108,9 +108,15 @@ test('the bridge answers a ping that cold-starts the service worker', async () =
 })
 
 /**
- * The Todo envelope as `withChromeSync` writes it, with a Vikunja
+ * The Todo envelope as the **single-board** build wrote it, with a Vikunja
  * integration the background pull can actually schedule: a scope, a full
  * mapping, and a non-default period so the assertion cannot pass by accident.
+ *
+ * Deliberately left in the old shape. It is what is on a real user's disk
+ * after the multi-board update, so it checks two things at once: that the
+ * worker still reads it (its schedule schema accepts both shapes), and that
+ * the page upgrades it to `boards[]` and writes the upgrade back — which is
+ * asserted at the end of the test.
  *
  * Written from the page rather than through the UI on purpose — this test is
  * about the worker reacting to `chrome.storage.onChanged`, not about the
@@ -149,6 +155,17 @@ const VIKUNJA_ENVELOPE = {
   },
 }
 
+/** The boards the stored envelope carries, if any — the upgrade's own output. */
+async function storedBoards(page: Page): Promise<unknown> {
+  return page.evaluate(async () => {
+    const items = await chrome.storage.local.get('todo-widget:v1')
+    const envelope = items['todo-widget:v1'] as
+      | { state?: { integration?: { config?: { boards?: unknown } } } }
+      | undefined
+    return envelope?.state?.integration?.config?.boards ?? null
+  })
+}
+
 /** `chrome.alarms.get` from the page, polled until it settles either way. */
 async function pullAlarmPeriod(page: Page): Promise<number | null> {
   return page.evaluate(async () => {
@@ -181,6 +198,16 @@ test('the worker schedules and clears the background pull from stored config', a
     await expect
       .poll(() => pullAlarmPeriod(page), { timeout: 10_000 })
       .toBe(VIKUNJA_ENVELOPE.state.integration.config.pullPeriodMin)
+
+    // A page that *loads* the single-board envelope upgrades it and persists
+    // the upgrade, so the bytes on disk end up in the current shape — the
+    // real path after an extension update. The reload is what makes this the
+    // load path: the write above reached the open page as a
+    // `storage.onChanged` event, which only updates the store in memory.
+    await page.reload({ waitUntil: 'domcontentloaded' })
+    await expect
+      .poll(() => storedBoards(page), { timeout: 10_000 })
+      .toMatchObject([{ projectId: 1, viewId: 4 }])
 
     // Disconnecting wipes the local envelope; the worker must clean up after
     // itself rather than keep pulling a project nobody is linked to.

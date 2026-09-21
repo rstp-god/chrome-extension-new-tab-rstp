@@ -126,9 +126,17 @@ function makeVikunjaIntegrationState(): Extract<IntegrationState, { name: 'vikun
     config: {
       baseUrl: 'https://vikunja.example',
       token: 'tk',
-      projectId: 1,
-      viewId: 4,
-      kanbanMapping: true,
+      boards: [
+        {
+          projectId: 1,
+          viewId: 4,
+          name: 'Inbox',
+          containers: [{ id: '1', name: 'To-Do' }],
+          mapping: mappingFixture,
+          kanbanMapping: true,
+        },
+      ],
+      defaultProjectId: 1,
     },
     boardName: 'Inbox',
     lists: [{ id: '1', name: 'To-Do' }],
@@ -161,6 +169,7 @@ function ok<T>(value: T): IntegrationOutcome<T> {
 function makeForeignRef(overrides: Partial<VikunjaRemoteRef> = {}): VikunjaRemoteRef {
   return {
     taskId: 42,
+    projectId: 1,
     identifier: '#42',
     bucketId: null,
     updated: '2024-01-01T00:00:00.000Z',

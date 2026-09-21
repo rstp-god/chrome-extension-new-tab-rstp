@@ -70,9 +70,20 @@ const VIKUNJA: IntegrationState = {
   config: {
     baseUrl: 'https://vikunja.example',
     token: 'tk_super-secret-value',
-    projectId: 1,
-    viewId: 4,
-    kanbanMapping: true,
+    boards: [
+      {
+        projectId: 1,
+        viewId: 4,
+        name: 'Probe',
+        containers: [
+          { id: '1', name: 'To-Do', isDefault: true },
+          { id: '3', name: 'Done', isTerminal: true },
+        ],
+        mapping: null,
+        kanbanMapping: true,
+      },
+    ],
+    defaultProjectId: 1,
   },
   boardName: 'Probe',
   lists: [
@@ -213,7 +224,24 @@ describe('TodoWidget — remote change subscription', () => {
 
     await act(async () => {
       useTodoStore.setState({
-        integration: { ...VIKUNJA, config: { ...VIKUNJA.config, projectId: 7, viewId: 9 } },
+        integration: {
+          ...VIKUNJA,
+          // Re-picking a project makes another board the default one.
+          config: {
+            ...VIKUNJA.config,
+            boards: [
+              {
+                projectId: 7,
+                viewId: 9,
+                name: '',
+                containers: [],
+                mapping: null,
+                kanbanMapping: true,
+              },
+            ],
+            defaultProjectId: 7,
+          },
+        },
       })
     })
 

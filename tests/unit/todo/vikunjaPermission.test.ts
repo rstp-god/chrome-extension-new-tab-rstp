@@ -13,9 +13,8 @@ function config(overrides: Partial<VikunjaConfig> = {}): VikunjaConfig {
   return {
     baseUrl: 'https://tasks.example.com',
     token: 'tk',
-    projectId: 1,
-    viewId: 4,
-    kanbanMapping: true,
+    boards: [],
+    defaultProjectId: null,
     ...overrides,
   }
 }

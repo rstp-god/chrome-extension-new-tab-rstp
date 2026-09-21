@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { TestId } from '@tests/constants/testIds.ts'
 
 import { flatModeMapping, suggestMapping, validateMapping } from './autoMapping.ts'
+import { defaultBoard, withDefaultBoardPatch } from './boards.ts'
 import { VIKUNJA_MISSING_COLUMN_TITLES } from './constants.ts'
 import { VikunjaFlatModeSection } from './VikunjaFlatModeSection.tsx'
 import { VikunjaMappingProblems } from './VikunjaMappingProblems.tsx'
@@ -43,7 +44,8 @@ export function VikunjaMappingStep({
 
   const lists = integration.lists
 
-  const wasFlat = integration.name === 'vikunja' && !integration.config.kanbanMapping
+  const board = integration.name === 'vikunja' ? defaultBoard(integration.config) : null
+  const wasFlat = board !== null && !board.kanbanMapping
 
   /**
    * The persisted mapping, unless the config is flat: a flat mapping points
@@ -167,7 +169,12 @@ export function VikunjaMappingStep({
       // Bail before the mapping if the config write was refused: a flat
       // mapping under a kanban config would sync four statuses into one
       // bucket.
-      if (!actions.updateIntegrationConfig({ ...integration.config, kanbanMapping: false })) return
+      //
+      // The mode belongs to the board, not to the connection; the mapping it
+      // goes with is still written to the slice mirror by `setMapping` below
+      // (task 2 moves that onto the board too).
+      const next = withDefaultBoardPatch(integration.config, { kanbanMapping: false })
+      if (!actions.updateIntegrationConfig(next)) return
       setCreatedNote(false)
       await actions.setMapping(flat)
     } finally {
@@ -183,7 +190,8 @@ export function VikunjaMappingStep({
       // Saving a real bucket mapping leaves flat mode behind — and if that
       // write is refused, the mapping must not be saved either.
       if (wasFlat && integration.name === 'vikunja') {
-        if (!actions.updateIntegrationConfig({ ...integration.config, kanbanMapping: true })) return
+        const next = withDefaultBoardPatch(integration.config, { kanbanMapping: true })
+        if (!actions.updateIntegrationConfig(next)) return
       }
       await actions.setMapping(draft)
     } finally {

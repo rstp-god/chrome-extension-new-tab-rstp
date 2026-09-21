@@ -37,9 +37,20 @@ const VIKUNJA: IntegrationState = {
   config: {
     baseUrl: 'https://vikunja.example',
     token: 'tk_super-secret-value',
-    projectId: 1,
-    viewId: 4,
-    kanbanMapping: true,
+    boards: [
+      {
+        projectId: 1,
+        viewId: 4,
+        name: 'Inbox',
+        containers: [
+          { id: '1', name: 'To-Do', isDefault: true },
+          { id: '3', name: 'Done', isTerminal: true },
+        ],
+        mapping: null,
+        kanbanMapping: true,
+      },
+    ],
+    defaultProjectId: 1,
   },
   boardName: 'Inbox',
   lists: [

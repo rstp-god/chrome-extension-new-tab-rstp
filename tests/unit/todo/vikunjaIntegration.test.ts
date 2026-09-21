@@ -5,7 +5,7 @@ import { descriptor, VikunjaIntegration } from '@/widgets/Todo/integrations/viku
 
 import type { VikunjaProjectSummary, VikunjaPulledTask } from '@/background/vikunja/messages.ts'
 import type { StatusListMapping, TodoIntegration } from '@/widgets/Todo/integrations/types.ts'
-import type { VikunjaConfig } from '@/widgets/Todo/store/store.ts'
+import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 
 vi.mock('@/widgets/Todo/integrations/vikunja/bridge.ts', () => ({
   sendVikunjaMessage: vi.fn(),
@@ -13,13 +13,25 @@ vi.mock('@/widgets/Todo/integrations/vikunja/bridge.ts', () => ({
 
 const bridge = vi.mocked(sendVikunjaMessage)
 
+/** The one board these tests sync; `SCOPE` below is its pair. */
+const BOARD: VikunjaBoard = {
+  projectId: 1,
+  viewId: 4,
+  name: 'Probe',
+  containers: [],
+  mapping: null,
+  kanbanMapping: true,
+}
+
 const CONFIG: VikunjaConfig = {
   baseUrl: 'https://vikunja.example',
   token: 'tk_super-secret-value',
-  projectId: null,
-  viewId: null,
-  kanbanMapping: true,
+  boards: [BOARD],
+  defaultProjectId: 1,
 }
+
+/** The same connection before the picker added a board. */
+const NO_BOARD: VikunjaConfig = { ...CONFIG, boards: [], defaultProjectId: null }
 
 const SCOPE = { projectId: 1, viewId: 4 }
 
@@ -354,7 +366,8 @@ describe('VikunjaIntegration.pullTasks', () => {
   it('keeps a locally-known intermediate status in flat mode', async () => {
     stubPull([pulledTask({ bucketId: 1 })])
 
-    const out = await new VikunjaIntegration({ ...CONFIG, kanbanMapping: false }).pullTasks({
+    const flatConfig = { ...CONFIG, boards: [{ ...BOARD, kanbanMapping: false }] }
+    const out = await new VikunjaIntegration(flatConfig).pullTasks({
       ...ctx,
       knownStatuses: { 'vikunja:4': 'struggle' },
     })
@@ -442,35 +455,56 @@ describe('vikunja descriptor', () => {
   })
 
   describe('getScope', () => {
-    it('returns the project/view pair once both are set', () => {
-      expect(descriptor.getScope({ ...CONFIG, projectId: 1, viewId: 4 })).toEqual({
+    it('returns the pair of the default board', () => {
+      expect(descriptor.getScope(CONFIG)).toEqual({ projectId: 1, viewId: 4 })
+    })
+
+    it('follows defaultProjectId rather than the order of the list', () => {
+      const second: VikunjaBoard = { ...BOARD, projectId: 8, viewId: 21 }
+
+      expect(
+        descriptor.getScope({ ...CONFIG, boards: [BOARD, second], defaultProjectId: 8 }),
+      ).toEqual({ projectId: 8, viewId: 21 })
+    })
+
+    it('falls back to the first board when no default is named', () => {
+      expect(descriptor.getScope({ ...CONFIG, defaultProjectId: null })).toEqual({
         projectId: 1,
         viewId: 4,
       })
     })
 
-    it.each([
-      ['no view', { projectId: 1, viewId: null }],
-      ['no project', { projectId: null, viewId: 4 }],
-      ['neither', { projectId: null, viewId: null }],
-    ])('returns null with %s — half a scope addresses nothing', (_label, patch) => {
-      expect(descriptor.getScope({ ...CONFIG, ...patch })).toBeNull()
+    it('returns null with no board — the user stays on the picker', () => {
+      expect(descriptor.getScope(NO_BOARD)).toBeNull()
     })
   })
 
   describe('withScope', () => {
-    it('writes the pair in and keeps the rest of the config', () => {
-      expect(descriptor.withScope(CONFIG, { projectId: 1, viewId: 4 })).toEqual({
-        ...CONFIG,
-        projectId: 1,
-        viewId: 4,
+    it('adds the picked board and makes it the default one', () => {
+      expect(descriptor.withScope(NO_BOARD, { projectId: 1, viewId: 4 })).toEqual({
+        ...NO_BOARD,
+        boards: [{ ...BOARD, name: '' }],
+        defaultProjectId: 1,
       })
     })
 
     it('coerces the numeric strings a picker may hand over', () => {
-      expect(descriptor.withScope(CONFIG, { projectId: '7', viewId: '9' })).toMatchObject({
-        projectId: 7,
-        viewId: 9,
+      expect(descriptor.withScope(NO_BOARD, { projectId: '7', viewId: '9' })).toMatchObject({
+        boards: [expect.objectContaining({ projectId: 7, viewId: 9 })],
+        defaultProjectId: 7,
+      })
+    })
+
+    it('appends a second board and leaves the default one alone', () => {
+      expect(descriptor.withScope(CONFIG, { projectId: 8, viewId: 21 })).toMatchObject({
+        boards: [BOARD, expect.objectContaining({ projectId: 8, viewId: 21 })],
+        defaultProjectId: 1,
+      })
+    })
+
+    it('replaces the view of a board that is already there', () => {
+      expect(descriptor.withScope(CONFIG, { projectId: 1, viewId: 9 })).toMatchObject({
+        boards: [{ ...BOARD, viewId: 9 }],
       })
     })
 
@@ -478,19 +512,22 @@ describe('vikunja descriptor', () => {
       ['a missing half', { projectId: 1 }],
       ['an unparseable half', { projectId: 1, viewId: 'kanban' }],
       ['an empty half', { projectId: '', viewId: 4 }],
-    ])('writes null for both halves given %s', (_label, scope) => {
-      expect(descriptor.withScope(CONFIG, scope)).toMatchObject({
-        projectId: null,
-        viewId: null,
-      })
+    ])('adds no board given %s — half a scope is not a board', (_label, scope) => {
+      expect(descriptor.withScope(NO_BOARD, scope)).toEqual(NO_BOARD)
     })
   })
 
   describe('ownsRef', () => {
     it('claims a Vikunja ref', () => {
-      expect(descriptor.ownsRef({ taskId: 4, identifier: '#3', bucketId: 1, updated: 'now' })).toBe(
-        true,
-      )
+      expect(
+        descriptor.ownsRef({
+          taskId: 4,
+          projectId: 1,
+          identifier: '#3',
+          bucketId: 1,
+          updated: 'now',
+        }),
+      ).toBe(true)
     })
 
     it('leaves a Trello ref alone', () => {

@@ -233,6 +233,16 @@ export interface VikunjaTaskContext {
   flat: boolean
   /** Label ids (as strings) that may act as a project. */
   projectIds: Set<string>
+  /**
+   * The board being pulled, as its Vikunja project id. It is what every ref
+   * built here records: a task that does not say which board it lives on
+   * cannot be found again once more than one is connected.
+   *
+   * Deliberately not called `projectId` — in this file that word is already
+   * the widget's own notion of a project (a Vikunja *label*), and the two
+   * mean different things on the same task.
+   */
+  boardProjectId: number
 }
 
 /** `Date.parse` that cannot produce NaN — the persisted schema rejects one. */
@@ -286,6 +296,7 @@ export function vikunjaTaskToTodo(task: VikunjaPulledTask, ctx: VikunjaTaskConte
     linkedTab: null,
     remoteRef: {
       taskId: task.id,
+      projectId: ctx.boardProjectId,
       identifier: task.identifier,
       // `0` is Vikunja's "no bucket" sentinel, which flat mode leaves behind.
       bucketId: task.bucketId || null,

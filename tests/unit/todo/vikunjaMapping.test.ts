@@ -52,6 +52,7 @@ function context(overrides: Partial<VikunjaTaskContext> = {}): VikunjaTaskContex
     knownStatuses: {},
     flat: false,
     projectIds: new Set<string>(),
+    boardProjectId: 1,
     ...overrides,
   }
 }
@@ -218,6 +219,9 @@ describe('vikunjaTaskToTodo — identity', () => {
 
     expect(task.remoteRef).toEqual({
       taskId: 4,
+      // The board the pull was for, so the task can be found again once
+      // there is more than one.
+      projectId: 1,
       identifier: '#3',
       bucketId: 1,
       updated: '2026-09-20T14:57:12.000Z',

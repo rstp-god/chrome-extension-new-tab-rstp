@@ -2,6 +2,7 @@ import { VIKUNJA_MUTATION_CONCURRENCY } from '@/background/vikunja/messages.ts'
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 import { urlHost } from '@/widgets/Todo/utils/url.ts'
 
+import { boardForProject, defaultBoard } from './boards.ts'
 import { sendVikunjaMessage } from './bridge.ts'
 import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
 import { recoverVikunjaPermission } from './permission.ts'
@@ -39,7 +40,7 @@ import type {
   RemoteTaskRef,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/types.ts'
-import type { TodoTask, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
+import type { TodoTask, VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 import type { z } from 'zod'
 
 /** A scope that does not address a project *and* a view addresses nothing. */
@@ -167,10 +168,12 @@ export class VikunjaIntegration implements TodoIntegration {
       mapping: ctx.mapping,
       localIdByTaskId,
       knownStatuses: ctx.knownStatuses,
-      // `kanbanMapping: false` means the user skipped the bucket wizard and
-      // only `completed` round-trips.
-      flat: !this.config.kanbanMapping,
+      // `kanbanMapping: false` means the user skipped the bucket wizard for
+      // this board and only `completed` round-trips.
+      flat: !this.board(pair.projectId)?.kanbanMapping,
       projectIds,
+      // Every ref built below says which board its task lives on.
+      boardProjectId: pair.projectId,
     }
 
     const tasks: TodoTask[] = []
@@ -219,9 +222,9 @@ export class VikunjaIntegration implements TodoIntegration {
     return pushVikunjaTask(
       {
         cfg: this.wire(),
-        // `kanbanMapping: false` means the user skipped the bucket wizard and
-        // only `completed` round-trips.
-        flat: !this.config.kanbanMapping,
+        // `kanbanMapping: false` means the user skipped the bucket wizard for
+        // this board and only `completed` round-trips.
+        flat: !this.board(scope.projectId)?.kanbanMapping,
         send: (request, schema) => this.send(request, schema),
       },
       { task, op, ctx, scope },
@@ -229,6 +232,15 @@ export class VikunjaIntegration implements TodoIntegration {
   }
 
   // ---------- internals ----------
+
+  /**
+   * The board an op is about — the one the scope addresses, falling back to
+   * the default one (see `boardForProject`). It carries the mode and the
+   * cached columns; the credentials are per connection and come from `wire`.
+   */
+  private board(projectId: number): VikunjaBoard | null {
+    return boardForProject(this.config, projectId)
+  }
 
   /** Credentials as the bridge wants them — never the whole config. */
   private wire(): VikunjaWire {
@@ -303,7 +315,7 @@ export const descriptor: IntegrationDescriptor = {
    * Flat mode's mapping is a placeholder pointing four statuses at the
    * default bucket; see `showsStatusMapping`.
    */
-  showsStatusMapping: (config) => (config as VikunjaConfig).kanbanMapping === true,
+  showsStatusMapping: (config) => defaultBoard(config as VikunjaConfig)?.kanbanMapping === true,
   create: (config) => new VikunjaIntegration(config as VikunjaConfig),
   /**
    * Four tasks at a time during a sync.
@@ -337,24 +349,52 @@ export const descriptor: IntegrationDescriptor = {
    */
   autoImportLocalTasks: false,
   /**
-   * The scope is the pair, not either half: a project without a view cannot
-   * address a task list, so a half-filled config keeps the user on the
-   * picker step instead of producing a scope nothing can resolve.
+   * The scope of the default board, or `null` while no board is picked — in
+   * which case the user stays on the picker step, exactly as a half-filled
+   * single-board config used to keep them there.
+   *
+   * The pair still comes from one board and never from two halves: a board
+   * cannot exist without both its project and its kanban view (see
+   * `vikunjaBoardSchema`), so a scope that resolves nothing is no longer
+   * representable.
    */
   getScope: (config) => {
-    const { projectId, viewId } = config as VikunjaConfig
-    if (projectId === null || viewId === null) return null
-    return { projectId, viewId }
+    const board = defaultBoard(config as VikunjaConfig)
+    if (!board) return null
+    return { projectId: board.projectId, viewId: board.viewId }
   },
   withScope: (config, scope) => {
+    const current = config as VikunjaConfig
     const pair = scopePair(scope)
-    // Atomic for the same reason: half a scope is worse than none, because
-    // `getScope` would keep rejecting it without ever saying why.
-    return {
-      ...(config as VikunjaConfig),
-      projectId: pair?.projectId ?? null,
-      viewId: pair?.viewId ?? null,
-    }
+    // Half a scope is not a board. Nothing is written for one — the config
+    // comes back as it was, so a config with no board keeps the user on the
+    // picker instead of gaining a board that addresses nothing.
+    if (!pair) return current
+
+    const known = current.boards.some((board) => board.projectId === pair.projectId)
+    const boards: VikunjaBoard[] = known
+      ? current.boards.map((board) =>
+          board.projectId === pair.projectId ? { ...board, viewId: pair.viewId } : board,
+        )
+      : [
+          ...current.boards,
+          {
+            projectId: pair.projectId,
+            viewId: pair.viewId,
+            // Everything else about the board is what the picker's caller
+            // writes next (`pickScope` → the slice mirror) or what the
+            // wizard produces; a fresh board starts kanban, like the first
+            // one always did.
+            name: '',
+            containers: [],
+            mapping: null,
+            kanbanMapping: true,
+          },
+        ]
+
+    // The first board picked becomes the default one; a later pick does not
+    // move new tasks off the board the user chose for them.
+    return { ...current, boards, defaultProjectId: current.defaultProjectId ?? pair.projectId }
   },
   ownsRef: isVikunjaRef,
 }

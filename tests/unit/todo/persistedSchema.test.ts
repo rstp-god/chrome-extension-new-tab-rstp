@@ -120,7 +120,8 @@ describe('todo persisted envelope — Vikunja records', () => {
     if (integration?.name !== 'vikunja') throw new Error('expected the vikunja branch')
 
     expect(integration).toStrictEqual(raw.state.integration)
-    expect(integration.config.kanbanMapping).toBe(true)
+    expect(integration.config.boards).toHaveLength(1)
+    expect(integration.config.defaultProjectId).toBe(integration.config.boards[0].projectId)
   })
 
   it('rejects the envelope when baseUrl is not a URL', () => {
@@ -128,9 +129,8 @@ describe('todo persisted envelope — Vikunja records', () => {
     ;(raw.state.integration as Record<string, unknown>).config = {
       baseUrl: 'not-a-url',
       token: 'tk',
-      projectId: null,
-      viewId: null,
-      kanbanMapping: false,
+      boards: [],
+      defaultProjectId: null,
     }
 
     expect(todoEnvelopeSchema.safeParse(raw).success).toBe(false)

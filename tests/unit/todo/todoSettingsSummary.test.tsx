@@ -59,6 +59,7 @@ vi.mock('@/widgets/Todo/integrations/index.ts', async (importOriginal) => {
 })
 
 import { TodoSettingsSummary } from '@/widgets/Todo/components/settings/TodoSettingsSummary.tsx'
+import { withDefaultBoardPatch } from '@/widgets/Todo/integrations/vikunja/boards.ts'
 import { TODO_HANDOVER_KEY, useTodoStore } from '@/widgets/Todo/store/store.ts'
 
 const MAPPING = {
@@ -69,14 +70,22 @@ const MAPPING = {
   deleted: ['2'],
 }
 
-const VIKUNJA: IntegrationState = {
+const VIKUNJA: Extract<IntegrationState, { name: 'vikunja' }> = {
   name: 'vikunja',
   config: {
     baseUrl: 'https://vikunja.example',
     token: 'tk_super-secret-value',
-    projectId: 1,
-    viewId: 4,
-    kanbanMapping: true,
+    boards: [
+      {
+        projectId: 1,
+        viewId: 4,
+        name: 'Probe',
+        containers: [],
+        mapping: MAPPING,
+        kanbanMapping: true,
+      },
+    ],
+    defaultProjectId: 1,
   },
   boardName: 'Probe',
   lists: [
@@ -249,7 +258,13 @@ describe('TodoSettingsSummary — importing local tasks', () => {
   it('does not offer it when every task is already linked', () => {
     mount(VIKUNJA, [
       makeTask({
-        remoteRef: { taskId: 3, identifier: '#3', bucketId: 1, updated: '2024-01-01T00:00:00Z' },
+        remoteRef: {
+          taskId: 3,
+          projectId: 1,
+          identifier: '#3',
+          bucketId: 1,
+          updated: '2024-01-01T00:00:00Z',
+        },
       }),
     ])
 
@@ -305,7 +320,7 @@ describe('TodoSettingsSummary — the error line', () => {
 
 describe('TodoSettingsSummary — flat mode', () => {
   it('names the statuses that never leave the extension', () => {
-    mount({ ...VIKUNJA, config: { ...VIKUNJA.config, kanbanMapping: false } })
+    mount({ ...VIKUNJA, config: withDefaultBoardPatch(VIKUNJA.config, { kanbanMapping: false }) })
 
     expect(screen.getByTestId('todo-summary-flat-mode')).toBeTruthy()
     expect(screen.getByText('integrations.vikunja.mapping.flatNotice')).toBeTruthy()

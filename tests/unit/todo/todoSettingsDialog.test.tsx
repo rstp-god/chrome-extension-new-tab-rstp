@@ -69,9 +69,20 @@ function vikunja(overrides: Partial<Extract<IntegrationState, { name: 'vikunja' 
     config: {
       baseUrl: 'https://vikunja.example',
       token: 'tk',
-      projectId: 1,
-      viewId: 4,
-      kanbanMapping: true,
+      boards: [
+        {
+          projectId: 1,
+          viewId: 4,
+          name: 'Probe',
+          containers: [
+            { id: '1', name: 'To-Do', isDefault: true },
+            { id: '3', name: 'Done', isTerminal: true },
+          ],
+          mapping: MAPPING,
+          kanbanMapping: true,
+        },
+      ],
+      defaultProjectId: 1,
     },
     boardName: 'Probe',
     lists: [
@@ -147,7 +158,7 @@ describe('TodoSettingsDialog — leaving the scope picker', () => {
 
   it('disconnects when the picker is the freshly connected integration’s first step', async () => {
     // No scope yet — the state right after the connect form.
-    await open(vikunja({ config: { ...vikunja().config, projectId: null, viewId: null } }))
+    await open(vikunja({ config: { ...vikunja().config, boards: [], defaultProjectId: null } }))
     expect(onScopePicker()).toBe(true)
 
     await click(back())

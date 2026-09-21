@@ -72,6 +72,16 @@ export interface TrelloRemoteRef {
 /** Pointer to the remote Vikunja task for a local task. */
 export interface VikunjaRemoteRef {
   taskId: number
+  /**
+   * The board (Vikunja project) the task lives on.
+   *
+   * Required rather than optional: with several boards connected, a ref that
+   * does not name one addresses nothing — neither a pull nor a push could
+   * tell which project to look in. The view is deliberately *not* here; it is
+   * looked up on the board (`config.boards`), which is the one place it can
+   * change without every ref having to be rewritten.
+   */
+  projectId: number
   /** Human-facing id (`#42`, `PROJ-42`) — cheap to show, cheap to search. */
   identifier: string
   /** Last observed bucket (kanban column); `null` in flat mode. */

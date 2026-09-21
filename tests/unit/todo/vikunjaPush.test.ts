@@ -20,7 +20,7 @@ import type {
   StatusListMapping,
   VikunjaRemoteRef,
 } from '@/widgets/Todo/integrations/types.ts'
-import type { TodoTask, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
+import type { TodoTask, VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 
 vi.mock('@/widgets/Todo/integrations/vikunja/bridge.ts', () => ({
   sendVikunjaMessage: vi.fn(),
@@ -28,12 +28,21 @@ vi.mock('@/widgets/Todo/integrations/vikunja/bridge.ts', () => ({
 
 const bridge = vi.mocked(sendVikunjaMessage)
 
+/** The board every push here happens on; `SCOPE` below is its pair. */
+const BOARD: VikunjaBoard = {
+  projectId: 1,
+  viewId: 4,
+  name: 'Probe',
+  containers: [],
+  mapping: null,
+  kanbanMapping: true,
+}
+
 const CONFIG: VikunjaConfig = {
   baseUrl: 'https://vikunja.example',
   token: 'tk_super-secret-value',
-  projectId: 1,
-  viewId: 4,
-  kanbanMapping: true,
+  boards: [BOARD],
+  defaultProjectId: 1,
 }
 
 const CFG = { baseUrl: CONFIG.baseUrl, token: CONFIG.token }
@@ -83,7 +92,7 @@ function task(overrides: Partial<TodoTask> = {}): TodoTask {
 }
 
 function ref(overrides: Partial<VikunjaRemoteRef> = {}): VikunjaRemoteRef {
-  return { taskId: 4, identifier: '#3', bucketId: 1, updated: ETAG, ...overrides }
+  return { taskId: 4, projectId: 1, identifier: '#3', bucketId: 1, updated: ETAG, ...overrides }
 }
 
 function write(overrides: Partial<VikunjaTaskWrite> = {}): VikunjaTaskWrite {
@@ -135,7 +144,10 @@ function push(
   local: TodoTask,
   { flat = false, mapping, scope = SCOPE }: PushOptions = {},
 ): Promise<IntegrationOutcome<RemoteTaskRef>> {
-  const adapter = new VikunjaIntegration({ ...CONFIG, kanbanMapping: !flat })
+  const adapter = new VikunjaIntegration({
+    ...CONFIG,
+    boards: [{ ...BOARD, kanbanMapping: !flat }],
+  })
   return adapter.pushTask(local, op, {
     scope,
     mapping: mapping ?? (flat ? FLAT_MAPPING : MAPPING),
@@ -157,7 +169,7 @@ describe('pushTask: create', () => {
       ok: true,
       // The ref comes from the *last* response — the move, which is the only
       // answer that knows the bucket.
-      value: { taskId: 4, identifier: '#3', bucketId: 3, updated: NEXT_ETAG },
+      value: { taskId: 4, projectId: 1, identifier: '#3', bucketId: 3, updated: NEXT_ETAG },
     })
     expect(sent()[0]).toEqual({
       type: 'vikunja',
@@ -234,7 +246,7 @@ describe('pushTask: create', () => {
       expect(out).toEqual({
         ok: true,
         // Flat mode never learns a bucket, and does not pretend to.
-        value: { taskId: 7, identifier: '#3', bucketId: null, updated: NEXT_ETAG },
+        value: { taskId: 7, projectId: 1, identifier: '#3', bucketId: null, updated: NEXT_ETAG },
       })
     })
 
@@ -289,7 +301,7 @@ describe('pushTask: create', () => {
         errorKey: 'rateLimited',
         // The task exists; the store has to remember that much even though
         // the push as a whole did not succeed.
-        ref: { taskId: 7, identifier: '#3', bucketId: null, updated: NEXT_ETAG },
+        ref: { taskId: 7, projectId: 1, identifier: '#3', bucketId: null, updated: NEXT_ETAG },
       })
       expect(ops()).toEqual(expectedOps)
     },
@@ -330,7 +342,7 @@ describe('pushTask: update', () => {
       ok: true,
       // `bucketId: 0` in the answer keeps the last known bucket instead of
       // forgetting it.
-      value: { taskId: 4, identifier: '#3', bucketId: 1, updated: NEXT_ETAG },
+      value: { taskId: 4, projectId: 1, identifier: '#3', bucketId: 1, updated: NEXT_ETAG },
     })
     expect(sent()).toEqual([
       {
@@ -676,7 +688,7 @@ describe('pushTask: resync', () => {
     expect(out).toEqual({
       ok: false,
       errorKey: 'rateLimited',
-      ref: { taskId: 4, identifier: '#3', bucketId: 2, updated: NEXT_ETAG },
+      ref: { taskId: 4, projectId: 1, identifier: '#3', bucketId: 2, updated: NEXT_ETAG },
     })
   })
 
