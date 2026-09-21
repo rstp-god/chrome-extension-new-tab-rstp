@@ -16,6 +16,7 @@
 - [🧩 Архитектура](#-архитектура-для-стороннего-разработчика)
 - [🔄 Как работает синхронизация с Chrome](#-как-работает-синхронизация-с-chrome)
 - [🧪 Полный гайд: как сделать свой виджет](#-полный-гайд-как-сделать-свой-виджет)
+- [🔗 Vikunja: подключение и синхронизация](#-vikunja-подключение-и-синхронизация)
 - [🔌 Свой интегратор для Todo-виджета](#-свой-интегратор-для-todo-виджета)
 - [🔐 Разрешения Chrome](#-разрешения-chrome-что-обязательно-учитывать)
 - [💡 Практические рекомендации](#-практические-рекомендации-для-сторонних-разработчиков)
@@ -89,6 +90,11 @@ yarn preview:showcase
   - `chromium-ci` для Linux CI-прогона
 - Snapshot-пути формирует сам Playwright внутри папок с тестами, и эти PNG коммитятся в Git.
 - Спеки интерактивных сценариев виджетов лежат рядом с виджетами: `src/widgets/*/test/*.scenario.spec.ts`.
+- Playwright-спеки Todo-виджета и Vikunja:
+  - `src/widgets/Todo/test/TodoWidget.scenario.spec.ts` — базовые сценарии виджета;
+  - `src/widgets/Todo/test/TodoVikunja.scenario.spec.ts` — сценарии Vikunja: форма подключения и запрос разрешения, мастер маппинга, плоский режим, баннер отозванного разрешения, импорт локальных задач. Часть проверок — скриншотные, baseline лежат в `src/widgets/Todo/test/chromium-mac/TodoVikunja/`; **папки `chromium-ci` для них ещё нет** — снять её можно только workflow `Update Visual Snapshots` (или `yarn test:extension:update-snapshots:ci` на Linux), никогда не с macOS.
+  - `tests/extension/vikunjaBridge.spec.ts` — мост «страница ↔ service worker»: доставка сообщения, ping на холодном старте воркера, постановка и снятие alarm'а фонового пулла по сохранённому конфигу. Скриншотов нет, baseline не нужны.
+- Обе спеки попадают в `yarn test:extension:local` / `:ci` — они уже покрыты путями `tests/extension src/widgets` в скриптах.
 - Browser job в GitHub Actions публикует скачиваемые артефакты: `playwright-report/` и `test-results/`.
 - Для пересъёма Linux CI-baselines есть отдельный manual workflow: `Update Visual Snapshots`.
 - Артефакт `playwright-snapshots-ci` уже упакован с путями относительно корня репозитория, поэтому его можно просто распаковать поверх проекта и закоммитить обновлённые папки `chromium-ci`.
@@ -316,6 +322,66 @@ export const PreviewComponent = WeatherWidgetPreview
 
 Это даст восстановление данных после перезапуска браузера/расширения.
 
+## 🔗 Vikunja: подключение и синхронизация
+
+Todo-виджет умеет двусторонне синхронизироваться с [Vikunja](https://vikunja.io/) на вашем сервере. Проверено на Vikunja 2.6; на других версиях поведение может отличаться.
+
+### Подключение
+
+1. Настройки Todo-виджета → **Vikunja**.
+2. **Адрес инстанса** — только `https` и только литеральный хост (например `https://tasks.example.com`; sub-path вида `https://host/vikunja` тоже подойдёт). `http`, wildcard-хосты и IPv6-литералы форма отклоняет.
+3. **API-токен** — в Vikunja: «Настройки» → «API-токены». Токену нужны скоупы `tasks`, `tasks_labels`, `projects.read_all`; чтобы мастер маппинга мог достроить колонки — ещё `projects.views_buckets_put` и `views_buckets_delete` (без них шаг «создать недостающие колонки» ответит 403).
+4. По кнопке «Подключить» **Chrome спросит разрешение на этот хост**. Если отказать — ничего не сохранится: нажмите «Подключить» ещё раз и примите запрос.
+
+### Проект и вью
+
+Дальше выбирается проект — виджет синхронизируется с его **канбан-вью**. Проекты без канбан-вью в списке не показываются. Сменить проект можно позже в сводке настроек («Сменить проект»).
+
+### Мастер маппинга
+
+Бакеты канбан-вью сопоставляются пяти статусам виджета (`Входящее`, `В работе`, `Затыки`, `Готово`, `Удалено`):
+
+- бакеты **предварительно сопоставляются по названиям** — строки остаётся проверить и поправить;
+- один статус может собирать задачи из нескольких бакетов; первый в строке — тот, куда уходят новые задачи;
+- чего в проекте нет, мастер предлагает **создать** — «Затык» и «Корзина»;
+- done-бакет Vikunja может означать только «Готово»: задача, попавшая туда, закрывается на сервере, поэтому назначить его другому статусу нельзя.
+
+### Плоский режим
+
+Если маппинг пропустить («Пропустить — плоский режим»), в Vikunja уходит только «Готово», а «В работе» / «Затыки» / «Удалено» остаются видны **только внутри расширения** и живут в локальном сторе виджета. В сводке настроек такой проект помечен «Только внутри расширения», а таблица маппинга не показывается — в плоском режиме она описывала бы то, чего не происходит. Сохранить строки маппинга поверх плоского режима можно в любой момент — проект перейдёт на полную синхронизацию по бакетам.
+
+### Фоновая синхронизация
+
+Service worker пуллит вью по `chrome.alarms` с периодом **1, 5 или 15 минут** (по умолчанию 5; переключается в сводке настроек, пункт «Фоновая синхронизация»). Изменения, сделанные в Vikunja, попадают в открытую вкладку в пределах этого интервала. Кнопка «Sync now» в футере виджета читает инстанс немедленно.
+
+### Конфликты
+
+Если задачу изменили в Vikunja, пока её правили локально, **побеждает версия с сервера**, а на карточке появляется бейдж «Изменено в Vikunja — ваша правка откачена». Конфликт всегда про одну задачу: остальные в этой синхронизации проходят нормально.
+
+### Импорт локальных задач
+
+Задачи, созданные **до** подключения интеграции, сами в Vikunja не уезжают: автоматическая миграция в чужой трекер необратима, а подключение своего трекера — это просьба видеть _его_ задачи в виджете, а не наоборот. Такие задачи остаются локальными и несвязанными, пока в сводке настроек не нажать «Импортировать N задач в &lt;проект&gt;» — только после этого они будут созданы на следующей синхронизации.
+
+### Что где хранится
+
+| Что                                                   | Где                                                                                                                                                                                                                                                                          |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Адрес инстанса и API-токен                            | `chrome.storage.local` **на этом устройстве**, внутри envelope `todo-widget:v1`. Никогда не в `chrome.storage.sync`: подключённый Todo-стор целиком переезжает на `local` (`area: (s) => (s.integration ? 'local' : 'sync')`), поэтому на другие ваши Chrome токен не уедет. |
+| Задачи виджета                                        | тот же envelope `todo-widget:v1`.                                                                                                                                                                                                                                            |
+| Снапшот вью для фонового пулла                        | `chrome.storage.local`, ключ `vikunja:snapshot:<projectId>:<viewId>` (обрезается по числу задач и байтовому бюджету).                                                                                                                                                        |
+| Копия списка перед «Отключить» / «Сменить интеграцию» | `chrome.storage.local`, ключ `todo-widget:handover:v1` — задачи плюс имена интеграции и проекта, **без конфига и токена**; удаляется при первой загрузке стора спустя 30 дней.                                                                                               |
+
+Токен уходит **только** на тот инстанс, адрес которого вы ввели, и только в заголовке `Authorization`. Расширение не отправляет ваши данные никуда больше — см. [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md).
+
+### Оговорка про описания задач
+
+Виджет хранит описание задачи как **plain text**: HTML из Vikunja разворачивается в текст при пулле. Обратное преобразование — простые абзацы `<p>` с `<br>` вместо одиночных переводов строки. Отсюда два следствия:
+
+- описание **существующей** задачи Vikunja виджет не перезаписывает — повторная синхронизация (`resync`) шлёт только статус и проект, поэтому форматирование, набранное в веб-редакторе, остаётся на месте;
+- а вот всё, что виджет **сам отправляет** в описание (задача, созданная из виджета, и будущий UI правки заголовка/описания), уезжает простыми абзацами — богатое форматирование так не сохранить.
+
+По той же причине у Vikunja-интеграции **нет скрытых метаданных**: веб-редактор Vikunja (TipTap) выбрасывает HTML-комментарии при сохранении описания (`docs/vikunja-recon.md`, вопрос 20), поэтому локальный id выводится детерминированно из `vikunja:<task.id>`, а не прячется в тексте задачи.
+
 ## 🔌 Свой интегратор для Todo-виджета
 
 Todo-виджет умеет синхронизироваться с внешними сервисами через модульную систему интеграций. В коробке поставляется один интегратор — Trello (`src/widgets/Todo/integrations/trello/`), а добавление нового сводится к написанию одной папки.
@@ -324,9 +390,37 @@ Todo-виджет умеет синхронизироваться с внешн�
 
 - Каждая интеграция живёт в `src/widgets/Todo/integrations/<name>/` и **знает про сущности Todo** (`TodoTask`, `TodoStatus`, `Project`). Это не generic-абстракция — вы пишете адаптер именно под Todo-виджет.
 - Реестр строится автоматически через `import.meta.glob('./*/index.ts', { eager: true })` в `src/widgets/Todo/integrations/index.ts`. Достаточно положить новую папку и экспортнуть `descriptor` — она появится в picker'е настроек.
-- Активная интеграция в каждый момент времени **одна**. Конфиг хранится в Zustand-сторе под ключом `todo-widget:v1` через тот же `withChromeSync` envelope, что и сами тудушки.
+- Активная интеграция в каждый момент времени **одна**. Конфиг хранится в Zustand-сторе под ключом `todo-widget:v1` через тот же `withChromeSync` envelope, что и сами тудушки. Область хранения у Todo-стора динамическая — `area: (s) => (s.integration ? 'local' : 'sync')`: пока интеграции нет, список задач ездит через `chrome.storage.sync`, а подключение переводит весь envelope в `chrome.storage.local`, чтобы адрес инстанса и токен не уезжали на другие устройства.
 - Рядом лежит **handover-снапшот** — ключ `todo-widget:handover:v1` в `chrome.storage.local`. Виджет пишет его перед «Отключить» и «Сменить интеграцию»: только задачи плюс имя интеграции и доски/проекта, **никогда конфиг и токен** (zod-схема `todoHandoverSnapshot` не описывает эти поля, а `z.object` отбрасывает всё лишнее). Снапшот перезаписывается при каждом отключении, обрезается по хвосту до 1,5 МБ (тогда в нём стоит `truncated: true`) и удаляется при первой загрузке store'а спустя 30 дней. Достать его вручную можно из DevTools страницы расширения: `await chrome.storage.local.get('todo-widget:handover:v1')`.
-- Вызовы к бэкенду делаются **только** при монтировании виджета и при действиях пользователя — никаких background/alarms. Кнопка «Sync now» есть в футере виджета.
+- Кнопка «Sync now» есть в футере виджета; кроме неё пулл происходит при монтировании виджета, при действиях пользователя и — у бэкендов с фоновым каналом — по `chrome.alarms` из service worker'а (см. «Транспорты» ниже).
+
+### Транспорты: прямой `fetch` или мост через service worker
+
+Первое решение новой интеграции — не архитектурное, а фактическое. Вопрос один: **отвечает ли API на preflight с `Origin: chrome-extension://…` заголовком `Access-Control-Allow-Origin`?**
+
+- **Да → прямой `fetch` со страницы новой вкладки.** Так работает Trello: его API отдаёт CORS-заголовки для extension-origin. Адаптер — обычный HTTP-клиент в `integrations/<name>/client.ts`, кода в воркере не нужно вообще, хост объявлен в `host_permissions` манифеста. Это самый простой путь, выбирайте его, если можете.
+- **Нет → мост через service worker, и хост придётся запрашивать в рантайме.** Так работает Vikunja: на `OPTIONS` с extension-origin инстанс отвечает `204` вообще без единого `Access-Control-*` (`docs/vikunja-recon.md`, вопрос 17), поэтому со страницы к нему не постучаться. Фоновые запросы из воркера под host-permission под CORS не попадают — отсюда лишний хоп через сообщения.
+
+Проверить можно одной командой: `curl -i -X OPTIONS -H 'Origin: chrome-extension://aaaa' https://<host>/api/v1/info`.
+
+Как устроен мост Vikunja — что где лежит:
+
+| Модуль                                               | Роль                                                                                                                                                                                                                            |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `integrations/vikunja/bridge.ts`                     | Адаптер не делает `fetch`: отправляет `chrome.runtime.sendMessage({ type: 'vikunja', op, cfg, … })` и валидирует ответ через Zod.                                                                                               |
+| `background/vikunja/messages.ts`                     | Общий словарь моста: имена операций, wire-типы, ключи ошибок, `normalizeVikunjaBaseUrl` / `vikunjaHostPattern`, формы броадкастов, набор периодов пулла.                                                                        |
+| `background/vikunja/gate.ts`                         | `withVikunjaClient`: повторно валидирует конфиг, выводит match pattern хоста, проверяет грант через `chrome.permissions.contains` и только тогда отдаёт готовый клиент.                                                         |
+| `background/vikunja/handlers.ts`                     | Разбор операции и диспетчеризация.                                                                                                                                                                                              |
+| `background/vikunja/client.ts`                       | **Единственный `fetch` к Vikunja во всём проекте.** Токен уходит только в заголовке `Authorization`, плюс `redirect: 'error'` (редирект унёс бы токен на неодобренный хост), `credentials: 'omit'`, `cache: 'no-store'`.        |
+| `background/vikunja/alarm.ts`, `pull.ts`, `cache.ts` | Фоновый пулл по `chrome.alarms` (`vikunja-pull`, период 1 / 5 / 15 мин, по умолчанию 5), снапшот вью в `chrome.storage.local` под `vikunja:snapshot:<projectId>:<viewId>`, броадкасты `vikunja/pulled` и `vikunja/pull-failed`. |
+| `integrations/vikunja/subscribe.ts`                  | `descriptor.subscribeRemoteChanges`: виджет слушает броадкаст и отвечает тихой синхронизацией. `PullContext.force` отличает пулл, который надо сделать по-настоящему, от того, который можно ответить из снапшота.              |
+
+Ещё два правила, которые легко нарушить:
+
+- **Слушатели воркера (`chrome.runtime.onMessage`, `chrome.alarms.onAlarm`) регистрируются синхронно на верхнем уровне модуля** (`setupVikunjaBridge` / `setupVikunjaPull` в `src/background/index.ts`). MV3 доставляет событие, разбудившее воркер, сразу после вычисления скрипта — слушатель, привешенный за `await`, пропустит именно тот alarm, который его и запустил.
+- **Правило границы:** `src/background/<name>/messages.ts` — единственный модуль, которому разрешено пересекать границу «воркер ↔ виджет». Ничто из `src/background/vikunja/**` не импортирует `src/widgets/**`, а интеграция импортирует из `src/background/` только этот файл. Проверяется контракт-тестом `tests/contracts/vikunjaBoundary.test.ts`.
+
+Конфиг при этом валидируется дважды: на странице — ради UX, в воркере — потому что страница для воркера недоверенная сторона. Все проверенные факты об API Vikunja (формы ответов, ловушки, результат CORS-пробы, поведение веб-редактора) лежат в **`docs/vikunja-recon.md`** — сверяйтесь с ним, а не с догадками.
 
 ### Шаг 1. Создайте папку
 
@@ -380,6 +474,8 @@ export interface PullContext {
   knownRefs: Record<string, RemoteTaskRef>
   /** Текущий локальный статус каждой задачи, ключ — локальный id. */
   knownStatuses: Record<string, TodoStatus>
+  /** Читать бэкенд по-настоящему, а не отвечать из кеша адаптера/воркера. */
+  force?: boolean
 }
 ```
 
@@ -501,6 +597,13 @@ export const descriptor: IntegrationDescriptor = {
   // умолчанию да; Vikunja отвечает false в плоском режиме, где маппинг —
   // заглушка на дефолтный бакет.
   // showsStatusMapping: (config) => (config as MyServiceConfig).kanban === true,
+  // Необязательный: сколько push'ей одной синхронизации стор держит в
+  // полёте одновременно. Отсутствие или 1 — привычная последовательная
+  // фаза push'а. Поднимать можно только если бэкенд (или транспорт
+  // адаптера) гарантирует, что два push'а не переплетутся в одну запись:
+  // Vikunja поднимает, потому что воркер сериализует по task id, Trello
+  // оставляет по умолчанию. Первый упавший push всё равно завершает фазу.
+  // pushConcurrency: 4,
 }
 ```
 
@@ -561,7 +664,9 @@ export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormP
 - `host_permissions: https://api.trello.com/*` — выдаётся при установке; интеграция Todo с Trello ходит на фиксированный адрес API, известный на этапе сборки.
 - `optional_host_permissions: https://*/*` — **при установке не запрашивается ничего**. Vikunja разворачивается на своём сервере, его адрес на этапе сборки неизвестен, поэтому широкий паттерн объявлен как опциональный. Конкретный origin запрашивается в рантайме через `chrome.permissions.request` — только в момент, когда пользователь нажимает «Подключить» в форме Vikunja, и только для того хоста, который он сам ввёл. Wildcard-хосты (`https://*`, `https://%2A`, `https://*.example.com`) и IPv6-литералы отклоняются до запроса: иначе один такой адрес превратил бы запрос в доступ ко всем сайтам.
 
-  Грант проверяется **на каждой операции**, а не один раз при подключении: `withVikunjaClient` в воркере вызывает `chrome.permissions.contains` перед любым сетевым вызовом, поэтому отзыв доступа в `chrome://settings` мгновенно останавливает синхронизацию. Match pattern в Chrome не может содержать порт, поэтому грант выдаётся **на хост целиком** и покрывает все его порты.
+  Грант проверяется **на каждой операции**, а не один раз при подключении: `withVikunjaClient` в воркере вызывает `chrome.permissions.contains` перед любым сетевым вызовом. Match pattern в Chrome не может содержать порт, поэтому грант выдаётся **на хост целиком** и покрывает все его порты.
+
+  Если отозвать доступ в `chrome://extensions` → «Подробнее» → «Доступ к сайтам», синхронизация останавливается немедленно (все операции возвращают `permissionMissing`), а виджет показывает баннер «У расширения отозвано разрешение на `<хост>`» с кнопкой **«Выдать снова»** — она вызывает `descriptor.recoverPermission`, то есть тот же `chrome.permissions.request` внутри вашего клика. Ничего в фоне переспросить нельзя: Chrome выдаёт optional-origin только внутри жеста пользователя, поэтому воркер умеет проверять грант, но не просить его.
 
 ### Правила для разработки новых виджетов
 
@@ -617,6 +722,7 @@ This extension replaces Chrome's default new tab with a customizable page that s
 - [🧩 Architecture](#-architecture-for-third-party-developers)
 - [🔄 Chrome sync model](#-chrome-sync-model)
 - [🧪 Full guide: create your own widget](#-full-guide-create-your-own-widget)
+- [🔗 Vikunja](#-vikunja-connecting-and-syncing)
 - [🔌 Writing your own Todo integration](#-writing-your-own-todo-integration)
 - [🔐 Chrome permissions](#-chrome-permissions-must-consider)
 - [💡 Practical recommendations](#-practical-recommendations)
@@ -689,6 +795,11 @@ Showcase runs with `VITE_RUNTIME_MODE=showcase` and uses demo data instead of li
   - `chromium-ci` for Linux CI runs
 - Playwright generates snapshot paths inside the test folders, and those PNG files are committed to Git.
 - Widget interaction scenario specs live next to widgets under `src/widgets/*/test/*.scenario.spec.ts`.
+- Todo widget and Vikunja Playwright specs:
+  - `src/widgets/Todo/test/TodoWidget.scenario.spec.ts` — the widget's base scenarios;
+  - `src/widgets/Todo/test/TodoVikunja.scenario.spec.ts` — Vikunja scenarios: the connect form and its permission request, the mapping wizard, flat mode, the revoked-permission banner, importing local tasks. Some assertions are screenshots; their baselines live in `src/widgets/Todo/test/chromium-mac/TodoVikunja/`, and **there is no `chromium-ci` folder for them yet** — it can only be produced by the `Update Visual Snapshots` workflow (or `yarn test:extension:update-snapshots:ci` on Linux), never from a Mac.
+  - `tests/extension/vikunjaBridge.spec.ts` — the page ↔ service worker bridge: message delivery, a ping that cold-starts the worker, and scheduling/clearing the background-pull alarm from the stored config. No screenshots, so no baselines.
+- Both specs are already covered by `yarn test:extension:local` / `:ci` — the scripts point Playwright at `tests/extension src/widgets`.
 - GitHub Actions browser job uploads downloadable artifacts: `playwright-report/` and `test-results/`.
 - There is also a dedicated manual workflow for regenerating Linux CI baselines: `Update Visual Snapshots`.
 - The `playwright-snapshots-ci` artifact is packaged with repository-relative paths, so you can unpack it over the repo and commit the updated `chromium-ci` folders directly.
@@ -909,6 +1020,66 @@ Preferred placement for that store is inside the widget folder itself, for examp
 
 This ensures restore after browser/extension reload.
 
+## 🔗 Vikunja: connecting and syncing
+
+The Todo widget can sync two-way with a self-hosted [Vikunja](https://vikunja.io/). Tested against Vikunja 2.6; other versions may behave differently.
+
+### Connecting
+
+1. Todo widget settings → **Vikunja**.
+2. **Instance URL** — `https` only, and a literal host only (e.g. `https://tasks.example.com`; a sub-path install such as `https://host/vikunja` is fine too). `http`, wildcard hosts and IPv6 literals are rejected by the form.
+3. **API token** — in Vikunja: Settings → API tokens. The token needs the `tasks`, `tasks_labels` and `projects.read_all` scopes; for the mapping wizard to build missing columns it also needs `projects.views_buckets_put` and `views_buckets_delete` (without them the "create missing columns" step answers 403).
+4. Pressing "Connect" makes **Chrome ask for permission for that host**. Decline and nothing is saved: press Connect again and accept the prompt.
+
+### Project and view
+
+Next you pick a project — the widget syncs with its **kanban view**. Projects without a kanban view are not listed. You can change it later from the settings summary ("Change project").
+
+### The mapping wizard
+
+The kanban view's buckets are mapped onto the widget's five statuses (`Input`, `In progress`, `Struggle`, `Completed`, `Deleted`):
+
+- buckets are **pre-matched by name** — check the rows and fix anything that looks off;
+- one status can pull from several buckets; the first one in a row is where new tasks land;
+- whatever the project lacks, the wizard offers to **create** — `Struggle` and `Trash`;
+- Vikunja's done bucket can only mean `Completed`: a task moved there is marked done server-side, so it cannot be assigned to another status.
+
+### Flat mode
+
+Skip the mapping ("Skip — flat mode") and only `Completed` syncs to Vikunja, while `In progress` / `Struggle` / `Deleted` remain visible **inside the extension only**, living in the widget's local store. The settings summary marks such a project "Only inside the extension" and hides the mapping table — in flat mode it would describe something that does not happen. Saving mapping rows over flat mode switches the project to full bucket sync at any time.
+
+### Background sync
+
+The service worker pulls the view on a `chrome.alarms` schedule every **1, 5 or 15 minutes** (default 5; switch it in the settings summary under "Background sync"). Changes made in Vikunja reach an open tab within that interval. The widget footer's "Sync now" reads the instance immediately.
+
+### Conflicts
+
+If a task changed in Vikunja while it was being edited locally, **the remote version wins** and the card gets a badge: "Changed in Vikunja — your edit was rolled back". A conflict is always about one task; the rest of that sync goes through normally.
+
+### Importing local tasks
+
+Tasks created **before** the integration was connected are not pushed on their own: an automatic migration into someone's own tracker cannot be taken back, and connecting your tracker is a request to see _its_ tasks in the widget, not the other way round. Such tasks stay local and unlinked until you press "Import N local tasks into &lt;project&gt;" in the settings summary — only then are they created on the next sync.
+
+### What is stored where
+
+| What                            | Where                                                                                                                                                                                                                                                                             |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Instance URL and API token      | `chrome.storage.local`, **on this device**, inside the `todo-widget:v1` envelope. Never `chrome.storage.sync`: a connected Todo store moves wholesale to `local` (`area: (s) => (s.integration ? 'local' : 'sync')`), so the token does not travel to your other Chrome profiles. |
+| The widget's tasks              | the same `todo-widget:v1` envelope.                                                                                                                                                                                                                                               |
+| Background-pull view snapshot   | `chrome.storage.local`, key `vikunja:snapshot:<projectId>:<viewId>` (capped by task count and by a byte budget).                                                                                                                                                                  |
+| Pre-disconnect copy of the list | `chrome.storage.local`, key `todo-widget:handover:v1` — the tasks plus the integration and project names, **never the config or the token**; removed on the first store init after 30 days.                                                                                       |
+
+The token is sent **only** to the instance whose address you typed, and only in the `Authorization` header. The extension sends your data nowhere else — see [`PRIVACY_POLICY.md`](PRIVACY_POLICY.md).
+
+### Caveat: task descriptions
+
+The widget stores a description as **plain text**: Vikunja's HTML is flattened to text on pull. The inverse is plain `<p>` paragraphs, with `<br>` for single newlines. Two consequences:
+
+- the widget never rewrites the description of an **existing** Vikunja task — a retry (`resync`) sends only status and project, so formatting typed in the web editor stays where it is;
+- but whatever the widget **does send** as a description (a task created from the widget, and the future title/description editing UI) goes out as plain paragraphs — rich formatting cannot survive that round trip.
+
+For the same reason the Vikunja integration keeps **no hidden metadata**: Vikunja's web editor (TipTap) strips HTML comments when a description is saved (`docs/vikunja-recon.md`, Q20), so the local id is derived deterministically from `vikunja:<task.id>` rather than hidden in the task's text.
+
 ## 🔌 Writing your own Todo integration
 
 The Todo widget can sync with external services through a modular integration system. Trello (`src/widgets/Todo/integrations/trello/`) ships in the box; adding a new backend is a one-folder drop-in.
@@ -917,9 +1088,37 @@ The Todo widget can sync with external services through a modular integration sy
 
 - Each integration lives under `src/widgets/Todo/integrations/<name>/` and **knows about Todo entities** (`TodoTask`, `TodoStatus`, `Project`). It is not a generic abstraction — you write an adapter specifically for the Todo widget.
 - The registry is built automatically via `import.meta.glob('./*/index.ts', { eager: true })` in `src/widgets/Todo/integrations/index.ts`. Drop a folder, export `descriptor`, and it appears in the settings picker.
-- At any moment **one** integration is active. Its config is persisted in the Zustand store under `todo-widget:v1` using the same `withChromeSync` envelope as the todos themselves.
+- At any moment **one** integration is active. Its config is persisted in the Zustand store under `todo-widget:v1` using the same `withChromeSync` envelope as the todos themselves. The Todo store's storage area is dynamic — `area: (s) => (s.integration ? 'local' : 'sync')`: with no integration the task list roams through `chrome.storage.sync`, and connecting one moves the whole envelope to `chrome.storage.local` so an instance URL and a token never leave the device.
 - Next to it lives a **handover snapshot** under `todo-widget:handover:v1` in `chrome.storage.local`. The widget writes it right before "Disconnect" and "Switch integration": the tasks plus the integration and board/project names, and **never the config or the token** (the `todoHandoverSnapshot` zod schema does not declare those fields, and `z.object` strips whatever it does not declare). It is overwritten on every disconnect, trimmed from the tail to 1.5 MB (then it carries `truncated: true`), and removed on the first store init after 30 days. To recover it by hand, open DevTools on an extension page: `await chrome.storage.local.get('todo-widget:handover:v1')`.
-- Backend calls happen **only** on widget mount and on user actions — there is no background or alarms loop. A "Sync now" button lives in the widget footer.
+- A "Sync now" button lives in the widget footer; beyond it a pull happens on widget mount, on user actions, and — for backends with a background channel — on a `chrome.alarms` schedule inside the service worker (see "Transports" below).
+
+### Transports: direct `fetch` or the service worker bridge
+
+A new integration's first decision is not architectural, it is factual. One question: **does the API answer a preflight from `Origin: chrome-extension://…` with `Access-Control-Allow-Origin`?**
+
+- **Yes → direct `fetch` from the New Tab page.** That is Trello: its API sends CORS headers for extension origins. The adapter is an ordinary HTTP client in `integrations/<name>/client.ts`, no worker code is involved at all, and the host is declared in the manifest's `host_permissions`. This is the simplest path — take it when you can.
+- **No → the service worker bridge, and the host has to be granted at runtime.** That is Vikunja: an `OPTIONS` from an extension origin comes back `204` with not a single `Access-Control-*` header (`docs/vikunja-recon.md`, Q17), so the page cannot reach it. Background fetches made from the worker under a host permission are not subject to CORS — hence the extra message hop.
+
+One command settles it: `curl -i -X OPTIONS -H 'Origin: chrome-extension://aaaa' https://<host>/api/v1/info`.
+
+How the Vikunja bridge is laid out:
+
+| Module                                               | Role                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `integrations/vikunja/bridge.ts`                     | The adapter never calls `fetch`: it sends `chrome.runtime.sendMessage({ type: 'vikunja', op, cfg, … })` and validates the reply with Zod.                                                                                                                         |
+| `background/vikunja/messages.ts`                     | The bridge's shared vocabulary: op names, wire types, error keys, `normalizeVikunjaBaseUrl` / `vikunjaHostPattern`, broadcast shapes, the set of pull periods.                                                                                                    |
+| `background/vikunja/gate.ts`                         | `withVikunjaClient`: re-validates the config, derives the host match pattern, confirms the grant with `chrome.permissions.contains`, and only then hands over a ready client.                                                                                     |
+| `background/vikunja/handlers.ts`                     | Payload validation and op dispatch.                                                                                                                                                                                                                               |
+| `background/vikunja/client.ts`                       | **The only `fetch` to a Vikunja instance in the whole project.** The token travels in the `Authorization` header only, plus `redirect: 'error'` (a redirect would carry the token to a host the user never approved), `credentials: 'omit'`, `cache: 'no-store'`. |
+| `background/vikunja/alarm.ts`, `pull.ts`, `cache.ts` | Background pull on `chrome.alarms` (`vikunja-pull`, period 1 / 5 / 15 min, default 5), the view snapshot in `chrome.storage.local` under `vikunja:snapshot:<projectId>:<viewId>`, and the `vikunja/pulled` / `vikunja/pull-failed` broadcasts.                    |
+| `integrations/vikunja/subscribe.ts`                  | `descriptor.subscribeRemoteChanges`: the widget listens for the broadcast and answers with a silent sync. `PullContext.force` separates a pull that must really hit the backend from one that may be answered out of the snapshot.                                |
+
+Two more rules that are easy to break:
+
+- **The worker's listeners (`chrome.runtime.onMessage`, `chrome.alarms.onAlarm`) are registered synchronously at module top level** (`setupVikunjaBridge` / `setupVikunjaPull` in `src/background/index.ts`). MV3 dispatches the event that woke a cold worker as soon as the script finishes evaluating, so a listener attached behind an `await` misses the very alarm that started it.
+- **Boundary rule:** `src/background/<name>/messages.ts` is the only module allowed to cross the worker ↔ widget boundary. Nothing under `src/background/vikunja/**` imports `src/widgets/**`, and the integration imports from `src/background/` through that file alone. `tests/contracts/vikunjaBoundary.test.ts` enforces it.
+
+The config is therefore validated twice: on the page for the sake of UX, in the worker because the page is the untrusted side of the bridge. Every verified fact about Vikunja's API — response shapes, the traps, the CORS probe, the web editor's behaviour — is written down in **`docs/vikunja-recon.md`**; check it instead of guessing.
 
 ### Step 1. Create the folder
 
@@ -973,6 +1172,8 @@ export interface PullContext {
   knownRefs: Record<string, RemoteTaskRef>
   /** Current local status of each task, keyed by local task id. */
   knownStatuses: Record<string, TodoStatus>
+  /** Read the backend for real instead of answering from an adapter/worker cache. */
+  force?: boolean
 }
 ```
 
@@ -1094,6 +1295,14 @@ export const descriptor: IntegrationDescriptor = {
   // default; Vikunja answers false in flat mode, where the mapping is a
   // placeholder pointing at the default bucket.
   // showsStatusMapping: (config) => (config as MyServiceConfig).kanban === true,
+  // Optional: how many of a sync's pushes the store may have in flight at
+  // once. Absent or 1 is the sequential push phase every backend gets by
+  // default. Raise it only when the backend (or your transport) guarantees
+  // two pushes cannot interleave into the same record: Vikunja raises it
+  // because the worker's mutation queue serialises per task id (and per
+  // project for creates), Trello leaves it unset. Either way, the first
+  // failing push still ends the phase.
+  // pushConcurrency: 4,
 }
 ```
 
@@ -1154,7 +1363,9 @@ Hosts:
 - `host_permissions: https://api.trello.com/*` — granted at install time; the Trello Todo integration talks to one fixed API address that is known at build time.
 - `optional_host_permissions: https://*/*` — **nothing is requested at install**. Vikunja is self-hosted and its address is unknown at build time, so the broad pattern is declared as optional only. The concrete origin is requested at runtime via `chrome.permissions.request`, exclusively when the user submits the Vikunja connect form, and exclusively for the host they typed. Wildcard hosts (`https://*`, `https://%2A`, `https://*.example.com`) and IPv6 literals are rejected before the request — one of those would otherwise turn it into access to every site.
 
-  The grant is re-checked **on every operation**, not once at connect time: `withVikunjaClient` in the service worker calls `chrome.permissions.contains` before any network call, so revoking the host in `chrome://settings` stops syncing immediately. A Chrome match pattern cannot carry a port, so the grant is **per host** and covers all of its ports.
+  The grant is re-checked **on every operation**, not once at connect time: `withVikunjaClient` in the service worker calls `chrome.permissions.contains` before any network call. A Chrome match pattern cannot carry a port, so the grant is **per host** and covers all of its ports.
+
+  Revoke it in `chrome://extensions` → Details → Site access and syncing stops immediately (every operation answers `permissionMissing`), while the widget shows a banner — "The extension lost permission for `<host>`" — with a **"Grant again"** button that calls `descriptor.recoverPermission`, i.e. the same `chrome.permissions.request` from inside your click. Nothing can re-ask in the background: Chrome grants an optional origin only from inside a user gesture, so the worker may check a grant but never request one.
 
 ### Permission rules for new widgets
 
