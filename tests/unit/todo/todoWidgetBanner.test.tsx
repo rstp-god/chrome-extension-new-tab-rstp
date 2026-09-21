@@ -217,6 +217,51 @@ describe('TodoWidget — state banners', () => {
   })
 })
 
+describe('TodoWidget — a terminal error and a single-flight sync', () => {
+  it('creates an imported task exactly once, however many callers ask', async () => {
+    // The mount is blocked by the banner's error, so the widget has made no
+    // sync of its own — and the import plus a manual sync must not each push
+    // the same unlinked task, which would create it twice in the backend.
+    await mount({
+      integration: VIKUNJA,
+      errorKey: 'authInvalid',
+      tasks: [
+        {
+          id: 'a',
+          title: 'Never pushed',
+          description: null,
+          status: 'input',
+          projectId: null,
+          createdAt: 1,
+          statusChangedAt: 1,
+          completedAt: null,
+          deletedAt: null,
+          linkedTab: null,
+          remoteRef: null,
+          syncState: 'dirty',
+        },
+      ],
+    })
+    expect(fakePullTasks).not.toHaveBeenCalled()
+
+    fakePushTask.mockResolvedValue({
+      ok: true,
+      value: { taskId: 7, identifier: '#7', bucketId: 1, updated: '2024-01-01T00:00:00.000Z' },
+    })
+
+    await act(async () => {
+      await Promise.all([
+        useTodoStore.getState().importLocalTasks(['a']),
+        useTodoStore.getState().syncNow(),
+      ])
+    })
+
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+    expect(fakePushTask.mock.calls[0][1]).toEqual({ kind: 'create' })
+    expect(fakePullTasks).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('TodoWidget — offline flush', () => {
   it('syncs silently when the connection comes back', async () => {
     await mount({ integration: VIKUNJA, errorKey: 'network' })

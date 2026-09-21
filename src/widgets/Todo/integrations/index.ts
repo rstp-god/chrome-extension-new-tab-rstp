@@ -38,6 +38,8 @@ export type {
   RemoteScopeOption,
   RemoteTaskRef,
   StatusListMapping,
+  SummaryExtrasActions,
+  SummaryExtrasProps,
   TodoIntegration,
   TodoStatus,
   TrelloRemoteRef,

@@ -166,6 +166,25 @@ describe('TodoWidget — remote change subscription', () => {
     expect(useTodoStore.getState().errorKey).toBeNull()
   })
 
+  it('ignores a `changed` event while a terminal failure stands', async () => {
+    useTodoStore.setState({ integration: VIKUNJA, errorKey: 'permissionMissing' })
+    await act(async () => {
+      render(<TodoWidget />)
+    })
+    // The mount sync is blocked too, so nothing has read the backend.
+    expect(fakePullTasks).not.toHaveBeenCalled()
+
+    const onEvent = emitter()
+    await act(async () => {
+      onEvent({ kind: 'changed' })
+    })
+
+    // A sync would fail the same way and re-raise the same error; the banner
+    // is waiting for the user, not for another attempt.
+    expect(fakePullTasks).not.toHaveBeenCalled()
+    expect(useTodoStore.getState().errorKey).toBe('permissionMissing')
+  })
+
   it('answers a `failed` event with an error key and no sync', async () => {
     useTodoStore.setState({ integration: VIKUNJA })
     await act(async () => {

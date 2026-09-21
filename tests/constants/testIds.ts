@@ -29,6 +29,7 @@ export enum TestId {
   TodoMappingStep = 'todo-mapping-step',
   TodoMissingColumnsPanel = 'todo-missing-columns-panel',
   TodoFlatModeSection = 'todo-flat-mode-section',
+  TodoSummaryFlatMode = 'todo-summary-flat-mode',
   TodoSummarySwitch = 'todo-summary-switch',
   TodoSummaryDisconnect = 'todo-summary-disconnect',
   TodoConfirmDialog = 'todo-confirm-dialog',

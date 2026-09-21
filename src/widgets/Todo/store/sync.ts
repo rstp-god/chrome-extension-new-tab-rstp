@@ -67,11 +67,21 @@ export function selectPendingTasks(
  * Tasks that predate the integration: never pushed, and not waiting to be.
  *
  * The other half of the rule above — what the settings summary offers to
- * import, and counts. A `dirty` unlinked task is deliberately not here: it
- * was created while the integration was active, so it is already on its way.
+ * import, and counts.
+ *
+ * Two exclusions, both about not surprising the user with what an import
+ * creates. A `dirty` unlinked task was created while the integration was
+ * active, so it is already on its way. A `deleted` one is in the widget's own
+ * trash: "import my local tasks" cannot sensibly mean "re-create the things I
+ * threw away in someone's tracker", and the count in the button has to match
+ * what the preview lists. `importLocalTasks` stays permissive on purpose —
+ * ids come from that preview, and the store does not second-guess an explicit
+ * list.
  */
 export function unlinkedLocalTasks(tasks: readonly TodoTask[]): TodoTask[] {
-  return tasks.filter((task) => task.remoteRef === null && task.syncState === 'clean')
+  return tasks.filter(
+    (task) => task.remoteRef === null && task.syncState === 'clean' && task.status !== 'deleted',
+  )
 }
 
 export interface PushPhaseDeps {

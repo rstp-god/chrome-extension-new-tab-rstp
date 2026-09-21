@@ -28,14 +28,18 @@ export function TodoSyncBadge() {
    * Collapse the three orthogonal flags into a single discriminant so the
    * render path is a flat switch instead of a chain of `if`s.
    *
-   * A terminal failure is checked *before* `loading`: the widget stops
-   * syncing by itself while one is set (see `useOnlineFlush` and the mount
-   * guard), and a spinner in that state would promise a sync that is not
-   * coming. `network` is demoted to `quiet` — there is a banner for what the
-   * user must fix, and being briefly offline is not it.
+   * A terminal failure is checked *before* `loading` and reads as `idle`:
+   * the widget's banner is already showing that sentence, with the action
+   * that ends it, right above this footer — saying it twice makes one
+   * problem look like two. And a spinner would be worse than a repetition,
+   * because the widget deliberately stops syncing in that state (see
+   * `useOnlineFlush` and the mount guard), so nothing is coming.
+   *
+   * `network` / `rateLimited` are demoted to `quiet`: they pass on their own
+   * and there is nothing for the user to do about either.
    */
   const view: SyncBadgeView = isTerminalError(errorKey)
-    ? 'error'
+    ? 'idle'
     : loading
       ? 'syncing'
       : errorKey

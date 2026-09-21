@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { TODO_STORAGE_KEY } from '@/widgets/Todo/store/keys.ts'
 import { TestId, testIds } from '@tests/constants/testIds.ts'
 import {
   addWidget,
@@ -28,8 +29,6 @@ import {
  * backend answering — a `vikunja/pull-failed` broadcast cannot stand in for
  * it. It stays a unit-level case (`tests/stores/todo.store.test.ts`).
  */
-
-const TODO_STORAGE_KEY = 'todo-widget:v1'
 
 interface RawEnvelope {
   meta: { originId: string; rev: number; ts: number }
@@ -226,6 +225,9 @@ async function captureVikunjaScenarios(page: Page, suffix: '' | '-dark') {
     )
     await waitForPermissionBanner(page)
     await openSettings(page)
+    // The block the flat mode is *about*: the notice plus the statuses that
+    // never leave the extension.
+    await expect(page.getByTestId(TestId.TodoSummaryFlatMode)).toBeVisible()
     await snapshot(settingsDialog(page), `vikunja-flat-mode${suffix}.png`)
     await closeDialog(page, settingsDialog(page))
   })
@@ -282,6 +284,10 @@ test('vikunja settings and error screens match snapshots', async () => {
     await prepareExtensionPage(page)
     await setExtensionTheme(page, 'light')
     await captureVikunjaScenarios(page, '')
+    // Closed before the dark run: two open New Tab pages share the same
+    // storage, and the one left behind would answer the next run's
+    // `storage.onChanged` with a sync of its own.
+    await page.close()
 
     const darkPage = await context.newPage()
     opened = darkPage

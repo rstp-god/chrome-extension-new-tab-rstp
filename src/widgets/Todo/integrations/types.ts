@@ -304,6 +304,24 @@ export interface MappingStepProps {
   actions: MappingStepActions
 }
 
+/** The store actions a summary extra may call — the same rule as `MappingStepActions`. */
+export interface SummaryExtrasActions {
+  /** Replaces the integration's config; `false` when it did not validate. */
+  updateIntegrationConfig: (config: unknown) => boolean
+}
+
+/**
+ * Props of a backend's own section of the settings summary.
+ *
+ * Prop-driven for the same reason as `MappingStepProps`: a component reached
+ * through a descriptor must not import the store, or the import graph closes
+ * the loop `store → registry → descriptor → component → store`.
+ */
+export interface SummaryExtrasProps {
+  integration: IntegrationState
+  actions: SummaryExtrasActions
+}
+
 export interface IntegrationDescriptor {
   /** Stable machine name; the discriminator in persisted state. */
   name: string
@@ -324,6 +342,37 @@ export interface IntegrationDescriptor {
    * Like `ConnectForm`, it is prop-driven (see `MappingStepProps`).
    */
   MappingStep?: ComponentType<MappingStepProps>
+  /**
+   * The backend's own part of the settings summary — whatever the shared
+   * summary cannot know about. Vikunja puts its background-pull period and
+   * its flat-mode caveat here; a backend with nothing to add omits it and the
+   * summary is just the board/last-sync/mapping block.
+   *
+   * It exists so the shared summary contains no `integration.name === '…'`
+   * branch: one such branch is a comment, three are a second registry.
+   */
+  SummaryExtras?: ComponentType<SummaryExtrasProps>
+  /**
+   * The instance this config points at, in a form a sentence can name (a
+   * host), or `null` when there is nothing useful to say.
+   *
+   * The permission banner asks for it: "the extension lost permission for
+   * tasks.example.com" is actionable and "…for the integration's host" is
+   * not, and only the descriptor knows whether its config holds an address at
+   * all. Trello's is fixed in the manifest and names nothing the user chose,
+   * so it omits this.
+   */
+  describeHost?(config: unknown): string | null
+  /**
+   * Is the per-status container mapping worth showing for this config?
+   *
+   * Absent means yes, which is every backend whose mapping is what the user
+   * built in the wizard. Vikunja answers `false` in flat mode: the mapping
+   * then points four statuses at the same default bucket — a placeholder the
+   * sync never writes to — and a table repeating it four times would describe
+   * something that does not happen. Its `SummaryExtras` says what does.
+   */
+  showsStatusMapping?(config: unknown): boolean
   /** Pure factory: takes persisted config, returns a ready adapter. */
   create: (config: unknown) => TodoIntegration
   /**

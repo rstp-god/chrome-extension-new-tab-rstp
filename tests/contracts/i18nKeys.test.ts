@@ -1,3 +1,4 @@
+import { todoIntegrationRegistry } from '@/widgets/Todo/integrations/index.ts'
 import { describe, expect, it } from 'vitest'
 import enSearch from '@/i18n/resources/en/widgets/searchWidget.json'
 import ruSearch from '@/i18n/resources/ru/widgets/searchWidget.json'
@@ -8,15 +9,64 @@ import ruChromeLibrary from '@/i18n/resources/ru/widgets/chromeLibraryWidget.jso
 import enProductivity from '@/i18n/resources/en/widgets/productivityWidget.json'
 import ruProductivity from '@/i18n/resources/ru/widgets/productivityWidget.json'
 
+/**
+ * i18next's plural suffixes. A pluralised string is one key with as many
+ * forms as the language has categories — English needs two, Russian three —
+ * so comparing the raw leaves would report every plural as a divergence.
+ * They collapse to the family name instead, which is what the call site
+ * actually asks for.
+ */
+const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/
+
 function keyset(value: Record<string, unknown>, prefix = ''): string[] {
-  return Object.entries(value).flatMap(([key, nested]) => {
+  const keys = Object.entries(value).flatMap(([key, nested]) => {
     const full = prefix ? `${prefix}.${key}` : key
     if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
       return keyset(nested as Record<string, unknown>, full)
     }
-    return [full]
+    return [full.replace(PLURAL_SUFFIX, '')]
   })
+  // The families are adjacent in the file, so a pass that drops a repeat of
+  // the previous key keeps the order the comparison relies on.
+  return keys.filter((key, index) => key !== keys[index - 1])
 }
+
+/** Reads a dotted path, or `undefined` when any step is missing. */
+function leaf(value: Record<string, unknown>, path: string): unknown {
+  return path
+    .split('.')
+    .reduce<unknown>(
+      (node, step) =>
+        node && typeof node === 'object' ? (node as Record<string, unknown>)[step] : undefined,
+      value,
+    )
+}
+
+/**
+ * Leaves the shared UI reads through a key it builds from the integration's
+ * name (`integrations.${name}.summary.boardLabel`, …). A missing one is
+ * invisible to the parity test above — both locales are equally silent about
+ * a namespace nobody wrote — and shows up in the UI as the raw key.
+ */
+const TEMPLATED_LEAVES = [
+  'connect.title',
+  'connect.description',
+  'board.title',
+  'board.description',
+  'board.pickLabel',
+  'board.empty',
+  'mapping.title',
+  'summary.title',
+  'summary.boardLabel',
+  'summary.mappingLabel',
+  'summary.lastSync',
+  'summary.neverSynced',
+  'summary.disconnect',
+  'summary.disconnectConfirm',
+  'summary.rePickBoard',
+  'summary.switch',
+  'summary.switchConfirm',
+]
 
 describe('i18n contract', () => {
   it('keeps en and ru search widget keys in sync', () => {
@@ -38,4 +88,15 @@ describe('i18n contract', () => {
   it('keeps en and ru productivity widget keys in sync', () => {
     expect(keyset(ruProductivity)).toEqual(keyset(enProductivity))
   })
+
+  describe.each(Object.keys(todoIntegrationRegistry))(
+    'todo integration "%s"',
+    (integrationName) => {
+      it.each(TEMPLATED_LEAVES)('has integrations.<name>.%s in both locales', (path) => {
+        const full = `integrations.${integrationName}.${path}`
+        expect(leaf(enTodo, full), `missing in en: ${full}`).toEqual(expect.any(String))
+        expect(leaf(ruTodo, full), `missing in ru: ${full}`).toEqual(expect.any(String))
+      })
+    },
+  )
 })

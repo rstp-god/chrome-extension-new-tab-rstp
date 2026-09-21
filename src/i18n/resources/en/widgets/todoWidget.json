@@ -127,7 +127,8 @@
       "disabled": "Integrations are disabled in showcase mode."
     },
     "import": {
-      "action": "Import {{n}} local tasks into {{scope}}",
+      "action_one": "Import {{count}} local task into {{scope}}",
+      "action_other": "Import {{count}} local tasks into {{scope}}",
       "title": "Import local tasks",
       "description": "These tasks were created before the integration and have never been sent to {{scope}}. Importing creates them there on the next sync.",
       "confirm": "Import",

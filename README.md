@@ -325,6 +325,7 @@ Todo-виджет умеет синхронизироваться с внешн�
 - Каждая интеграция живёт в `src/widgets/Todo/integrations/<name>/` и **знает про сущности Todo** (`TodoTask`, `TodoStatus`, `Project`). Это не generic-абстракция — вы пишете адаптер именно под Todo-виджет.
 - Реестр строится автоматически через `import.meta.glob('./*/index.ts', { eager: true })` в `src/widgets/Todo/integrations/index.ts`. Достаточно положить новую папку и экспортнуть `descriptor` — она появится в picker'е настроек.
 - Активная интеграция в каждый момент времени **одна**. Конфиг хранится в Zustand-сторе под ключом `todo-widget:v1` через тот же `withChromeSync` envelope, что и сами тудушки.
+- Рядом лежит **handover-снапшот** — ключ `todo-widget:handover:v1` в `chrome.storage.local`. Виджет пишет его перед «Отключить» и «Сменить интеграцию»: только задачи плюс имя интеграции и доски/проекта, **никогда конфиг и токен** (zod-схема `todoHandoverSnapshot` не описывает эти поля, а `z.object` отбрасывает всё лишнее). Снапшот перезаписывается при каждом отключении, обрезается по хвосту до 1,5 МБ (тогда в нём стоит `truncated: true`) и удаляется при первой загрузке store'а спустя 30 дней. Достать его вручную можно из DevTools страницы расширения: `await chrome.storage.local.get('todo-widget:handover:v1')`.
 - Вызовы к бэкенду делаются **только** при монтировании виджета и при действиях пользователя — никаких background/alarms. Кнопка «Sync now» есть в футере виджета.
 
 ### Шаг 1. Создайте папку
@@ -487,6 +488,19 @@ export const descriptor: IntegrationDescriptor = {
   // Такие задачи остаются локальными, пока пользователь сам не нажмёт
   // «Импортировать» в summary.
   // autoImportLocalTasks: false,
+  // Необязательный: свой блок в сводке настроек — то, чего общая сводка про
+  // ваш бэкенд знать не может (у Vikunja это период фонового пулла и
+  // предупреждение про плоский режим). Как и MappingStep, получает всё
+  // пропсами (`SummaryExtrasProps`) и не импортирует стор.
+  // SummaryExtras: MyServiceSummaryExtras,
+  // Необязательный: хост инстанса из конфига — его называет баннер «Выдать
+  // снова». Нужен тем, чей адрес вводит пользователь; у Trello адрес
+  // зафиксирован в манифесте, поэтому хука нет.
+  // describeHost: (config) => urlHost((config as MyServiceConfig).baseUrl, null),
+  // Необязательный: стоит ли показывать таблицу «статус → колонка». По
+  // умолчанию да; Vikunja отвечает false в плоском режиме, где маппинг —
+  // заглушка на дефолтный бакет.
+  // showsStatusMapping: (config) => (config as MyServiceConfig).kanban === true,
 }
 ```
 
@@ -904,6 +918,7 @@ The Todo widget can sync with external services through a modular integration sy
 - Each integration lives under `src/widgets/Todo/integrations/<name>/` and **knows about Todo entities** (`TodoTask`, `TodoStatus`, `Project`). It is not a generic abstraction — you write an adapter specifically for the Todo widget.
 - The registry is built automatically via `import.meta.glob('./*/index.ts', { eager: true })` in `src/widgets/Todo/integrations/index.ts`. Drop a folder, export `descriptor`, and it appears in the settings picker.
 - At any moment **one** integration is active. Its config is persisted in the Zustand store under `todo-widget:v1` using the same `withChromeSync` envelope as the todos themselves.
+- Next to it lives a **handover snapshot** under `todo-widget:handover:v1` in `chrome.storage.local`. The widget writes it right before "Disconnect" and "Switch integration": the tasks plus the integration and board/project names, and **never the config or the token** (the `todoHandoverSnapshot` zod schema does not declare those fields, and `z.object` strips whatever it does not declare). It is overwritten on every disconnect, trimmed from the tail to 1.5 MB (then it carries `truncated: true`), and removed on the first store init after 30 days. To recover it by hand, open DevTools on an extension page: `await chrome.storage.local.get('todo-widget:handover:v1')`.
 - Backend calls happen **only** on widget mount and on user actions — there is no background or alarms loop. A "Sync now" button lives in the widget footer.
 
 ### Step 1. Create the folder
@@ -1066,6 +1081,19 @@ export const descriptor: IntegrationDescriptor = {
   // back (ADR §Р10). Such tasks stay local until the user presses Import in
   // the settings summary.
   // autoImportLocalTasks: false,
+  // Optional: your own block in the settings summary — whatever the shared
+  // summary cannot know about your backend (Vikunja puts its background-pull
+  // period and its flat-mode caveat there). Prop-driven like MappingStep
+  // (`SummaryExtrasProps`); it never imports the store.
+  // SummaryExtras: MyServiceSummaryExtras,
+  // Optional: the instance host from the config — what the "Grant again"
+  // banner names. For backends addressed by an address the user typed;
+  // Trello's is fixed in the manifest, so it has no hook.
+  // describeHost: (config) => urlHost((config as MyServiceConfig).baseUrl, null),
+  // Optional: is the "status → container" table worth showing? Yes by
+  // default; Vikunja answers false in flat mode, where the mapping is a
+  // placeholder pointing at the default bucket.
+  // showsStatusMapping: (config) => (config as MyServiceConfig).kanban === true,
 }
 ```
 

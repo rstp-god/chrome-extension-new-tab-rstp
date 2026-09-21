@@ -15,9 +15,9 @@ import type { IntegrationErrorKey } from '@/widgets/Todo/integrations/types.ts'
  * widget stops syncing by itself and shows a banner with the one action that
  * helps.
  *
- * Everything else stays as it was: `network` / `rateLimited` pass on their
- * own, `mappingIncomplete` is already visible in the settings, and `conflict`
- * is about one task rather than the widget.
+ * Everything else stays as it was: the quiet two below pass on their own,
+ * `mappingIncomplete` is already visible in the settings, and `conflict` is
+ * about one task rather than the widget.
  */
 export const TERMINAL_ERROR_KEYS = ['authInvalid', 'permissionMissing'] as const
 
@@ -30,13 +30,17 @@ export function isTerminalError(
 }
 
 /**
- * A failure the badge states quietly instead of in red.
+ * Failures the badge states quietly instead of in red.
  *
- * Only `network`: a laptop that closed its lid on a train is not a
- * misconfiguration, the mutations are all still queued, and the widget
- * flushes them the moment the connection is back. Painting that destructive
- * would train the user to ignore the colour that means something.
+ * `network`: a laptop that closed its lid on a train is not a
+ * misconfiguration — the mutations are all still queued and the widget
+ * flushes them the moment the connection is back. `rateLimited`: the
+ * instance asked us to wait, which the next sync does. Painting either of
+ * them destructive would train the user to ignore the colour that means
+ * something.
  */
+export const QUIET_ERROR_KEYS = ['network', 'rateLimited'] as const
+
 export function isQuietError(errorKey: IntegrationErrorKey | null): boolean {
-  return errorKey === 'network'
+  return errorKey !== null && (QUIET_ERROR_KEYS as readonly string[]).includes(errorKey)
 }

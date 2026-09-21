@@ -4,7 +4,7 @@ import type { Project, TodoStatus } from '@/widgets/Todo/integrations/index.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 import { STATUS_BORDER_CLASS } from '@/widgets/Todo/statusStyles.ts'
 import { getNextStatus, getPrevStatus, isFlowStatus } from '@/widgets/Todo/utils/statusFlow.ts'
-import { getHostname } from '@/widgets/Todo/utils/url.ts'
+import { urlHost } from '@/widgets/Todo/utils/url.ts'
 import { testIds } from '@tests/constants/testIds.ts'
 import clsx from 'clsx'
 import {
@@ -147,7 +147,7 @@ export function TodoTaskCard({
             >
               <ExternalLinkIcon className="size-3.5 shrink-0" />
               <span className="min-w-0 flex-1 truncate">
-                {task.linkedTab.title ?? getHostname(task.linkedTab.url)}
+                {task.linkedTab.title ?? urlHost(task.linkedTab.url, task.linkedTab.url)}
               </span>
             </button>
           )}

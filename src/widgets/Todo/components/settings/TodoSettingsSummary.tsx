@@ -1,12 +1,10 @@
-import { VIKUNJA_PULL_PERIOD_MIN } from '@/background/vikunja/messages.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { TodoConfirmDialog } from '@/widgets/Todo/components/settings/TodoConfirmDialog.tsx'
 import { TodoImportDialog } from '@/widgets/Todo/components/settings/TodoImportDialog.tsx'
 import { getIntegrationDescriptor, TODO_STATUSES } from '@/widgets/Todo/integrations/index.ts'
-import { VIKUNJA_LOCAL_ONLY_STATUSES } from '@/widgets/Todo/integrations/vikunja/constants.ts'
-import { VikunjaPullPeriodSelect } from '@/widgets/Todo/integrations/vikunja/VikunjaPullPeriodSelect.tsx'
 import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { unlinkedLocalTasks } from '@/widgets/Todo/store/sync.ts'
+import { isTerminalError } from '@/widgets/Todo/utils/errorState.ts'
 import { formatRelative } from '@/widgets/Todo/utils/formatRelative.ts'
 import { TestId } from '@tests/constants/testIds.ts'
 import { DownloadIcon, RefreshCwIcon } from 'lucide-react'
@@ -64,6 +62,8 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
 
   if (!integration) return null
 
+  const descriptor = getIntegrationDescriptor(integration.name)
+
   /**
    * Every label here is the backend's own word for the thing: Trello has a
    * board, Vikunja has a project, and a summary that said "Board" over a
@@ -71,16 +71,13 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
    */
   const summaryKey = (leaf: string) => `integrations.${integration.name}.summary.${leaf}`
 
-  // Vikunja-specific because the condition is: the user declined the bucket
-  // mapping, so four of the five statuses never leave the extension. A
-  // generic `descriptor.SummaryNotice` component would be a bigger change
-  // for one line of copy — branch here instead, and promote it if a second
-  // backend ever grows a caveat.
-  //
-  // The per-status table is hidden in that mode rather than shown: it would
-  // list the same default bucket four times, which describes a placeholder
-  // the sync deliberately never writes to.
-  const flatMode = integration.name === 'vikunja' && !integration.config.kanbanMapping
+  /**
+   * Whether the per-status table describes anything. A backend may say no
+   * (Vikunja in flat mode, where the mapping is a placeholder) and then its
+   * `SummaryExtras` explains what happens instead.
+   */
+  const showsMapping = descriptor?.showsStatusMapping?.(integration.config) ?? true
+  const SummaryExtras = descriptor?.SummaryExtras
 
   /**
    * Offered only by a backend that does not sweep local tasks along on its
@@ -88,9 +85,14 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
    * the same default `selectPendingTasks` applies — so the action appears
    * rather than the tasks silently going nowhere.
    */
-  const canImport =
-    getIntegrationDescriptor(integration.name)?.autoImportLocalTasks !== true &&
-    importable.length > 0
+  const canImport = descriptor?.autoImportLocalTasks !== true && importable.length > 0
+
+  /**
+   * A terminal failure is already stated — once — by the widget's banner,
+   * which also carries the action that ends it. Repeating the same sentence
+   * here would make one problem look like two.
+   */
+  const showsError = errorKey !== null && !isTerminalError(errorKey)
 
   const scopeName = integration.boardName ?? '—'
 
@@ -131,37 +133,11 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
         </div>
       </div>
 
-      {integration.name === 'vikunja' && (
-        <VikunjaPullPeriodSelect
-          value={integration.config.pullPeriodMin ?? VIKUNJA_PULL_PERIOD_MIN}
-          disabled={busy || loading}
-          onChange={(pullPeriodMin) => {
-            // The worker keeps no state: it picks the new period up from
-            // `chrome.storage.onChanged` on this very write.
-            updateIntegrationConfig({ ...integration.config, pullPeriodMin })
-          }}
-        />
+      {SummaryExtras && (
+        <SummaryExtras integration={integration} actions={{ updateIntegrationConfig }} />
       )}
 
-      {flatMode && (
-        <div className="grid gap-1.5 rounded-2xl border border-border bg-muted/20 px-3 py-2 text-sm">
-          <p role="alert" className="text-muted-foreground">
-            {t('integrations.vikunja.mapping.flatNotice')}
-          </p>
-          {/* Named rather than implied: "only Completed syncs" leaves the user
-              to work out which statuses that leaves behind. */}
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {t('integrations.vikunja.summary.localOnlyLabel')}
-          </div>
-          <ul className="flex flex-wrap gap-x-3 gap-y-1">
-            {VIKUNJA_LOCAL_ONLY_STATUSES.map((status) => (
-              <li key={status}>{t(`integrations.mapping.row.${status}`)}</li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {integration.mapping && !flatMode && (
+      {integration.mapping && showsMapping && (
         <div className="grid gap-1.5 rounded-2xl border border-border bg-muted/20 p-3 text-sm">
           <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t(summaryKey('mappingLabel'))}
@@ -179,7 +155,7 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
         </div>
       )}
 
-      {errorKey && (
+      {showsError && (
         <p className="text-sm text-destructive">{t(`integrations.errors.${errorKey}`)}</p>
       )}
 
@@ -193,7 +169,9 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
             onClick={() => setImportOpen(true)}
           >
             <DownloadIcon />
-            {t('integrations.import.action', { n: importable.length, scope: scopeName })}
+            {/* `count` rather than a plain number: "1 task" and "2 tasks"
+                decline differently, and in Russian so do 2 and 5. */}
+            {t('integrations.import.action', { count: importable.length, scope: scopeName })}
           </Button>
         </div>
       )}

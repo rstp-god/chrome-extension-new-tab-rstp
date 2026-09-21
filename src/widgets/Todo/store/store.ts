@@ -1,4 +1,4 @@
-import { removeArea, setArea } from '@/services/chrome/storage.ts'
+import { removeArea } from '@/services/chrome/storage.ts'
 import { focusOrOpenTab, LinkableTab } from '@/services/chrome/tabs.ts'
 import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
 import {
@@ -18,19 +18,14 @@ import {
 } from '@/widgets/Todo/integrations/index.ts'
 import { create } from 'zustand/react'
 
+import { expireHandoverSnapshot, saveHandoverSnapshot } from './handover.ts'
+import { TODO_HANDOVER_KEY, TODO_STORAGE_KEY } from './keys.ts'
 import { integrationSchema, todoEnvelopeSchema, todoHandoverSchema } from './schema.ts'
 import { pushPhase, reconcile, selectPendingTasks } from './sync.ts'
 
 import type { IntegrationState, TodoPersistedState, TodoTask } from './schema.ts'
 
-export const TODO_STORAGE_KEY = 'todo-widget:v1'
-
-/**
- * Where the pre-disconnect copy of the task list lands (see
- * `todoHandoverSchema`). A key of its own, not a field of the widget's
- * envelope: it is written once, by hand, and read by nobody at runtime.
- */
-export const TODO_HANDOVER_KEY = 'todo-widget:handover:v1'
+export { TODO_HANDOVER_KEY, TODO_STORAGE_KEY }
 
 export type {
   TodoStatus,
@@ -213,39 +208,6 @@ function getActive(state: TodoWidgetState): ActiveIntegration | null {
   return { integration, descriptor, adapter: descriptor.create(integration.config) }
 }
 
-/**
- * Writes the pre-disconnect copy of the task list (see `todoHandoverSchema`).
- *
- * Deliberately tolerant: a snapshot is a courtesy, and neither a candidate
- * the schema refuses nor a storage write that fails may stop the disconnect
- * the user asked for — being unable to save a backup is not a reason to
- * refuse to let go of the integration.
- *
- * The value written is the schema's output, never the input: `z.object`
- * strips what it does not declare, so the config (and the token in it) cannot
- * travel with the copy.
- */
-async function saveHandoverSnapshot(state: TodoWidgetState): Promise<void> {
-  const integration = state.integration
-  if (!integration) return
-
-  const parsed = todoHandoverSchema.safeParse({
-    version: 1,
-    savedAt: Date.now(),
-    integrationName: integration.name,
-    boardName: integration.boardName,
-    tasks: state.tasks,
-  })
-  if (!parsed.success) return
-
-  try {
-    await setArea('local', TODO_HANDOVER_KEY, parsed.data)
-  } catch (err) {
-    // Never the value, only the failure: the snapshot is task text.
-    console.warn('[todo] handover snapshot write failed:', err)
-  }
-}
-
 function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): TodoTask[] {
   return tasks.map((t) => (t.id === id ? { ...t, ...patch } : t))
 }
@@ -284,6 +246,25 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       integration: incoming.integration,
     }),
   })((set, get) => {
+    /**
+     * The sync that is currently running, if any — the store's single-flight
+     * slot.
+     *
+     * Every entry point can overlap with another: the widget's mount effect,
+     * the worker's broadcast, `setMapping`, `importLocalTasks`, the footer's
+     * button and the back-online flush. Two overlapping runs would both read
+     * the same pending list in phase 1 and push every task in it twice —
+     * which, for a task with no ref yet, means the backend gets two records
+     * and the widget keeps a ref to one of them. So an overlapping caller
+     * joins the run already in progress instead of starting a second one.
+     *
+     * The joined caller's `options` are the running sync's, not its own: a
+     * silent refresh that arrives during a manual sync cannot un-spin a
+     * spinner the user asked for, and a manual one that joins a silent run
+     * would rather have fresh data than its own flags.
+     */
+    let inFlightSync: Promise<void> | null = null
+
     /**
      * Writes one settled push into the store.
      *
@@ -357,6 +338,89 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       // One deliberate action of the user's failed; unlike a conflict, that is
       // worth a banner.
       if (!out.ok && out.errorKey !== 'conflict') set({ errorKey: out.errorKey })
+    }
+
+    /**
+     * One sync, start to finish. Reachable only through `syncNow`, which is
+     * what guarantees there is at most one of these running.
+     */
+    const runSync = async (options?: SyncNowOptions): Promise<void> => {
+      const silent = options?.silent === true
+      const force = options?.force ?? !silent
+
+      // Phase 1 deliberately iterates this snapshot, not `get()`: tasks
+      // added while the sync is in flight belong to the next run.
+      const state = get()
+      const active = getActive(state)
+      if (!active) return
+      const { adapter, descriptor, integration } = active
+
+      const scope = descriptor.getScope(integration.config)
+      const mapping = integration.mapping
+      if (!scope || !mapping) {
+        set({ errorKey: 'mappingIncomplete' })
+        return
+      }
+
+      // A silent run clears the previous error but never touches `loading`:
+      // the spinner belongs to whoever started a sync on purpose.
+      if (silent) set({ errorKey: null })
+      else set({ loading: true, errorKey: null })
+
+      // `finally`, not a `set` per exit: the body has half a dozen early
+      // returns and an adapter that may throw despite the contract, and a
+      // `loading` left `true` freezes the widget's spinner until the next
+      // sync — with no way for the user to start one.
+      try {
+        // Push everything that hasn't reached the remote yet — the rule
+        // (including whether tasks predating the integration are swept
+        // along) lives in `selectPendingTasks`.
+        const pending = selectPendingTasks(state.tasks, descriptor)
+
+        const failure = await pushPhase(pending, {
+          adapter,
+          descriptor,
+          scope,
+          mapping,
+          onOutcome: applyPushOutcome,
+        })
+        if (failure !== null) {
+          set({ errorKey: failure })
+          return
+        }
+
+        // Phase 2: pull authoritative state and reconcile.
+        const knownRefs: Record<string, RemoteTaskRef> = {}
+        // Statuses go along for backends that cannot store every status
+        // remotely (Vikunja in flat mode) — see `PullContext.knownStatuses`.
+        const knownStatuses: Record<string, TodoStatus> = {}
+        for (const task of get().tasks) {
+          if (task.remoteRef) knownRefs[task.id] = task.remoteRef
+          knownStatuses[task.id] = task.status
+        }
+
+        const pull = await adapter.pullTasks({ scope, mapping, knownRefs, knownStatuses, force })
+        if (!pull.ok) {
+          set({ errorKey: pull.errorKey })
+          return
+        }
+
+        const merged = reconcile(pull.value.tasks, get().tasks, get().conflictTaskIds, descriptor)
+
+        // Functional update over the *current* slice, not over the snapshot
+        // this run started from: `refreshContainers` (the mapping wizard
+        // creating columns) can land while the pull is in flight, and
+        // spreading the stale `integration` would silently revert its
+        // freshly-read containers.
+        const lastSyncAt = Date.now()
+        set((current) => ({
+          tasks: merged.tasks,
+          integration: current.integration ? { ...current.integration, lastSyncAt } : null,
+          conflictTaskIds: merged.conflictTaskIds,
+        }))
+      } finally {
+        if (!silent) set({ loading: false })
+      }
     }
 
     return {
@@ -686,7 +750,8 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         // The copy goes out *before* the state it describes is unlinked: a
         // snapshot taken after `clearIntegration` would record a list with
         // every `remoteRef` already stripped.
-        await saveHandoverSnapshot(get())
+        const { integration, tasks } = get()
+        await saveHandoverSnapshot(integration, tasks)
         get().clearIntegration()
       },
 
@@ -726,84 +791,26 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         set({ errorKey })
       },
 
-      syncNow: async (options) => {
-        const silent = options?.silent === true
-        const force = options?.force ?? !silent
-
-        // Phase 1 deliberately iterates this snapshot, not `get()`: tasks
-        // added while the sync is in flight belong to the next run.
-        const state = get()
-        const active = getActive(state)
-        if (!active) return
-        const { adapter, descriptor, integration } = active
-
-        const scope = descriptor.getScope(integration.config)
-        const mapping = integration.mapping
-        if (!scope || !mapping) {
-          set({ errorKey: 'mappingIncomplete' })
-          return
-        }
-
-        // A silent run clears the previous error but never touches `loading`:
-        // the spinner belongs to whoever started a sync on purpose.
-        if (silent) set({ errorKey: null })
-        else set({ loading: true, errorKey: null })
-
-        // `finally`, not a `set` per exit: the body has half a dozen early
-        // returns and an adapter that may throw despite the contract, and a
-        // `loading` left `true` freezes the widget's spinner until the next
-        // sync — with no way for the user to start one.
-        try {
-          // Push everything that hasn't reached the remote yet — the rule
-          // (including whether tasks predating the integration are swept
-          // along) lives in `selectPendingTasks`.
-          const pending = selectPendingTasks(state.tasks, descriptor)
-
-          const failure = await pushPhase(pending, {
-            adapter,
-            descriptor,
-            scope,
-            mapping,
-            onOutcome: applyPushOutcome,
-          })
-          if (failure !== null) {
-            set({ errorKey: failure })
-            return
-          }
-
-          // Phase 2: pull authoritative state and reconcile.
-          const knownRefs: Record<string, RemoteTaskRef> = {}
-          // Statuses go along for backends that cannot store every status
-          // remotely (Vikunja in flat mode) — see `PullContext.knownStatuses`.
-          const knownStatuses: Record<string, TodoStatus> = {}
-          for (const task of get().tasks) {
-            if (task.remoteRef) knownRefs[task.id] = task.remoteRef
-            knownStatuses[task.id] = task.status
-          }
-
-          const pull = await adapter.pullTasks({ scope, mapping, knownRefs, knownStatuses, force })
-          if (!pull.ok) {
-            set({ errorKey: pull.errorKey })
-            return
-          }
-
-          const merged = reconcile(pull.value.tasks, get().tasks, get().conflictTaskIds, descriptor)
-
-          // Functional update over the *current* slice, not over the snapshot
-          // this run started from: `refreshContainers` (the mapping wizard
-          // creating columns) can land while the pull is in flight, and
-          // spreading the stale `integration` would silently revert its
-          // freshly-read containers.
-          const lastSyncAt = Date.now()
-          set((current) => ({
-            tasks: merged.tasks,
-            integration: current.integration ? { ...current.integration, lastSyncAt } : null,
-            conflictTaskIds: merged.conflictTaskIds,
-          }))
-        } finally {
-          if (!silent) set({ loading: false })
-        }
+      syncNow: (options) => {
+        // Join, don't start: see `inFlightSync`.
+        if (inFlightSync) return inFlightSync
+        inFlightSync = runSync(options).finally(() => {
+          inFlightSync = null
+        })
+        return inFlightSync
       },
     }
   }),
 )
+
+/**
+ * The one moment anything looks at the handover snapshot: the store's own
+ * init, once per context.
+ *
+ * Fire-and-forget on purpose — nothing in the widget waits for it, and the
+ * cleanup swallows its own failures. It lives next to the store rather than
+ * in an effect because it is about storage the store owns, not about a
+ * rendered widget: a New Tab page that never mounts the Todo widget should
+ * still stop carrying last month's copy around.
+ */
+void expireHandoverSnapshot()

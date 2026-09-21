@@ -213,8 +213,9 @@ describe('TodoSettingsSummary — importing local tasks', () => {
   it('offers the import with a count and a destination', async () => {
     mount(VIKUNJA, locals)
 
+    // `count`, so i18next can pick the plural form the language needs.
     expect(screen.getByTestId('todo-import-action').textContent).toContain(
-      'integrations.import.action {"n":2,"scope":"Probe"}',
+      'integrations.import.action {"count":2,"scope":"Probe"}',
     )
   })
 
@@ -222,6 +223,27 @@ describe('TodoSettingsSummary — importing local tasks', () => {
     mount(TRELLO, locals)
 
     expect(screen.queryByTestId('todo-import-action')).toBeNull()
+  })
+
+  it('does not count the widget\u2019s own trash', () => {
+    mount(VIKUNJA, [
+      makeTask({ id: 'a', title: 'Older todo' }),
+      makeTask({ id: 'b', title: 'Thrown away', status: 'deleted' }),
+    ])
+
+    expect(screen.getByTestId('todo-import-action').textContent).toContain('"count":1')
+  })
+
+  it('previews only what it counted', async () => {
+    mount(VIKUNJA, [
+      makeTask({ id: 'a', title: 'Older todo' }),
+      makeTask({ id: 'b', title: 'Thrown away', status: 'deleted' }),
+    ])
+
+    await click(screen.getByTestId('todo-import-action'))
+
+    expect(screen.getByText('Older todo')).toBeTruthy()
+    expect(screen.queryByText('Thrown away')).toBeNull()
   })
 
   it('does not offer it when every task is already linked', () => {
@@ -259,10 +281,33 @@ describe('TodoSettingsSummary — importing local tasks', () => {
   })
 })
 
+describe('TodoSettingsSummary — the error line', () => {
+  it('states a failure the banner does not', () => {
+    mount(VIKUNJA)
+    act(() => {
+      useTodoStore.setState({ errorKey: 'pullFailed' })
+    })
+
+    expect(screen.getByText('integrations.errors.pullFailed')).toBeTruthy()
+  })
+
+  it('stays quiet about one the banner already explains', () => {
+    mount(VIKUNJA)
+    act(() => {
+      useTodoStore.setState({ errorKey: 'permissionMissing' })
+    })
+
+    // The widget's banner shows this sentence with the action that ends it;
+    // repeating it here would make one problem look like two.
+    expect(screen.queryByText('integrations.errors.permissionMissing')).toBeNull()
+  })
+})
+
 describe('TodoSettingsSummary — flat mode', () => {
   it('names the statuses that never leave the extension', () => {
     mount({ ...VIKUNJA, config: { ...VIKUNJA.config, kanbanMapping: false } })
 
+    expect(screen.getByTestId('todo-summary-flat-mode')).toBeTruthy()
     expect(screen.getByText('integrations.vikunja.mapping.flatNotice')).toBeTruthy()
     expect(screen.getByText('integrations.vikunja.summary.localOnlyLabel')).toBeTruthy()
     expect(screen.getByText('integrations.mapping.row.inprogress')).toBeTruthy()

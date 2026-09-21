@@ -1,5 +1,6 @@
 import { VIKUNJA_MUTATION_CONCURRENCY } from '@/background/vikunja/messages.ts'
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
+import { urlHost } from '@/widgets/Todo/utils/url.ts'
 
 import { sendVikunjaMessage } from './bridge.ts'
 import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
@@ -17,6 +18,7 @@ import {
 import { subscribeVikunjaRemoteChanges } from './subscribe.ts'
 import { VikunjaConnectForm } from './VikunjaConnectForm.tsx'
 import { VikunjaMappingStep } from './VikunjaMappingStep.tsx'
+import { VikunjaSummaryExtras } from './VikunjaSummaryExtras.tsx'
 
 import type {
   VikunjaBucketSummary,
@@ -273,6 +275,19 @@ export const descriptor: IntegrationDescriptor = {
    * needs either new columns or flat mode.
    */
   MappingStep: VikunjaMappingStep,
+  /** The background-pull period, and the flat-mode caveat. */
+  SummaryExtras: VikunjaSummaryExtras,
+  /**
+   * The instance is the one thing about this backend the user typed, so the
+   * permission banner can name it. `host` rather than the whole base URL: a
+   * match pattern is per host, which is exactly what was withdrawn.
+   */
+  describeHost: (config) => urlHost((config as VikunjaConfig)?.baseUrl ?? '', null),
+  /**
+   * Flat mode's mapping is a placeholder pointing four statuses at the
+   * default bucket; see `showsStatusMapping`.
+   */
+  showsStatusMapping: (config) => (config as VikunjaConfig).kanbanMapping === true,
   create: (config) => new VikunjaIntegration(config as VikunjaConfig),
   /**
    * Four tasks at a time during a sync.

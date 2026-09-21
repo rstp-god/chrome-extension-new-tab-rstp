@@ -291,4 +291,15 @@ describe('unlinkedLocalTasks', () => {
 
     expect(found.map((t) => t.id)).toEqual(['a'])
   })
+
+  it('leaves the widget\u2019s own trash out of the offer', () => {
+    // "Import my local tasks" cannot mean "re-create what I threw away in
+    // someone else's tracker".
+    const found = unlinkedLocalTasks([
+      task({ id: 'kept', syncState: 'clean', remoteRef: null }),
+      task({ id: 'trashed', syncState: 'clean', remoteRef: null, status: 'deleted' }),
+    ])
+
+    expect(found.map((t) => t.id)).toEqual(['kept'])
+  })
 })

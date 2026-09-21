@@ -107,8 +107,18 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
             onPickIntegration={setPickedIntegrationName}
             onCancelConnect={() => setPickedIntegrationName(null)}
             onLeaveScopePicker={() => {
-              // From the board picker, "back" disconnects the integration
-              // entirely and lands the user on the picker step.
+              // "Back" means "undo the step I took to get here", and there are
+              // two ways in. From the summary's "Change board / project" the
+              // integration already has a scope and a settled state to return
+              // to, so back is cancel — dropping the whole connection there
+              // would be a destructive answer to a button labelled "Back".
+              if (stepOverride === 'board' && resolveScope(integration)) {
+                setStepOverride(null)
+                return
+              }
+              // Reached by connecting: there is no earlier step inside this
+              // integration, and an integration without a scope syncs nothing,
+              // so back is out — disconnect and land on the picker.
               useTodoStore.getState().clearIntegration()
             }}
             onLeaveMapping={() => setStepOverride('board')}

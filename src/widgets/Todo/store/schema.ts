@@ -206,7 +206,36 @@ export const todoHandoverSchema = z.object({
   integrationName: z.string(),
   boardName: z.string().nullable(),
   tasks: z.array(todoTaskSchema),
+  /**
+   * Set only when tasks were dropped from the tail to fit the byte budget, so
+   * anyone reading the snapshot back knows it is not the whole list. Absent
+   * means complete — the same "flags are written only when true" rule the
+   * container schema above follows.
+   */
+  truncated: z.boolean().optional(),
 })
+
+/**
+ * Ceiling on the snapshot, in bytes of its JSON.
+ *
+ * `chrome.storage.local` has a quota the whole extension shares, and this
+ * record is dead weight the moment it is written — nothing reads it at
+ * runtime. A user with thousands of tasks (or a few pathological ones) must
+ * not lose a slice of their quota to a courtesy copy, so the tail is dropped
+ * and `truncated` says so. 1.5 MB is generous for text: a typical task is a
+ * few hundred bytes.
+ */
+export const TODO_HANDOVER_MAX_BYTES = 1_500_000
+
+/**
+ * How long the copy is worth keeping.
+ *
+ * It exists for the minutes or days between "I disconnected something" and "I
+ * wish I hadn't". A month later it is a stale list of someone's tasks sitting
+ * in storage for no reason, so the store drops it on the first load after it
+ * expires.
+ */
+export const TODO_HANDOVER_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 export type LinkedTab = z.infer<typeof linkedTabSchema>
 export type TodoTask = z.infer<typeof todoTaskSchema>

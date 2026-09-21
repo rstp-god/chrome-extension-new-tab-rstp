@@ -1616,3 +1616,73 @@ describe('todo store — clearError', () => {
     expect(seen).not.toHaveBeenCalled()
   })
 })
+
+describe('todo store — syncNow is single-flight', () => {
+  it('joins a run already in progress instead of pushing everything twice', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'a', syncState: 'dirty', remoteRef: null })],
+    })
+    // A holder rather than a plain `let`: the assignment happens inside the
+    // mock's callback, which TypeScript's flow analysis cannot see.
+    const push: { release: (() => void) | null } = { release: null }
+    fakePushTask.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          push.release = () => resolve(ok(makeRemoteRef()))
+        }),
+    )
+    fakePullTasks.mockResolvedValue(ok({ tasks: [], refs: {} }))
+
+    const first = useTodoStore.getState().syncNow()
+    const second = useTodoStore.getState().syncNow({ silent: true })
+
+    // The same promise: the second caller joined the first run. Two runs
+    // would each see the task as pending and create it remotely twice.
+    expect(second).toBe(first)
+    push.release?.()
+    await Promise.all([first, second])
+
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+    expect(fakePullTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases the slot, so a later sync really runs', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), tasks: [] })
+    fakePullTasks.mockResolvedValue(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+    await useTodoStore.getState().syncNow()
+
+    expect(fakePullTasks).toHaveBeenCalledTimes(2)
+  })
+
+  it('has importLocalTasks join a sync that is already running', async () => {
+    useTodoStore.setState({
+      integration: makeVikunjaIntegrationState(),
+      tasks: [makeTask({ id: 'a', syncState: 'clean', remoteRef: null })],
+    })
+    const pull: { release: (() => void) | null } = { release: null }
+    fakePullTasks.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pull.release = () => resolve(ok({ tasks: [], refs: {} }))
+        }),
+    )
+    fakePushTask.mockResolvedValue(ok(makeForeignRef({ taskId: 5 })))
+
+    // A sync is in flight (its push phase pushed nothing: the task is a
+    // clean local one Vikunja does not import by itself).
+    const running = useTodoStore.getState().syncNow()
+    await vi.waitFor(() => expect(fakePullTasks).toHaveBeenCalled())
+    const importing = useTodoStore.getState().importLocalTasks(['a'])
+
+    pull.release?.()
+    await Promise.all([running, importing])
+
+    // The import marked the task dirty and joined the running sync rather
+    // than starting a second push of the same task.
+    expect(fakePushTask).toHaveBeenCalledTimes(0)
+    expect(useTodoStore.getState().tasks[0].syncState).toBe('dirty')
+  })
+})

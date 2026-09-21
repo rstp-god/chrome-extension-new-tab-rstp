@@ -1,26 +1,21 @@
 /**
- * Extracts the hostname from a URL string with a graceful fallback to the
- * raw input — used by linked-tab badges where we'd rather show a slightly
- * weird value than crash on a malformed URL.
+ * Host of a URL string, with the caller's own answer for "that is not a URL".
+ *
+ * One function rather than two: the widget needs the host in two places with
+ * the same parsing and different failure modes — a linked-tab badge would
+ * rather show a slightly weird string than nothing, while a sentence naming
+ * the instance whose permission was withdrawn has to fall back to different
+ * wording instead of to a fragment of a broken URL. So the fallback is an
+ * argument, spelled out at every call site.
+ *
+ * `host`, not `hostname`: a self-hosted instance on a non-default port is a
+ * different thing from the same host on 443, and the port is exactly what
+ * tells them apart.
  */
-export function getHostname(url: string): string {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return url
-  }
-}
-
-/**
- * Host (with the port, unlike `hostname`) of a URL string, or `null` when it
- * does not parse — used where the value is shown as an identity rather than
- * as decoration, so a malformed URL has to read as "unknown" instead of as
- * itself.
- */
-export function getHost(url: string): string | null {
+export function urlHost<T extends string | null>(url: string, fallback: T): string | T {
   try {
     return new URL(url).host
   } catch {
-    return null
+    return fallback
   }
 }
