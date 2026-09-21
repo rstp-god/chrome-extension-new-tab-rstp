@@ -35,6 +35,7 @@ export function TodoWidget() {
 
   const tasks = useTodoStore((state) => state.tasks)
   const integration = useTodoStore((state) => state.integration)
+  const conflictTaskIds = useTodoStore((state) => state.conflictTaskIds)
   // Only the presence matters here, and a boolean keeps the mount-sync
   // effect's dependency stable (a scope object is rebuilt on every render).
   const hasScope = resolveScope(integration) !== null
@@ -47,6 +48,11 @@ export function TodoWidget() {
 
   const timeoutRefs = useRef<Record<string, number>>({})
   const didMountSync = useRef(false)
+
+  // Same reason as `projectById`: a Set built once per change beats an
+  // `includes` per card, and the store hands out a stable array until a
+  // conflict actually appears or clears.
+  const conflictIds = useMemo(() => new Set(conflictTaskIds), [conflictTaskIds])
 
   // Project lookup for fast pill rendering inside cards.
   const projectById = useMemo(() => {
@@ -139,6 +145,7 @@ export function TodoWidget() {
                       key={task.id}
                       task={task}
                       project={task.projectId ? (projectById.get(task.projectId) ?? null) : null}
+                      hasConflict={conflictIds.has(task.id)}
                       pendingAction={pendingActions[task.id]}
                       onToggleTask={toggleTask}
                       onStartTaskExit={startTaskExit}

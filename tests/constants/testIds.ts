@@ -65,6 +65,7 @@ export enum TestIdPrefix {
   TodoOpenLinkedTab = 'todo-open-linked-tab',
   TodoNextStatus = 'todo-next-status',
   TodoPrevStatus = 'todo-prev-status',
+  TodoConflict = 'todo-conflict',
 }
 
 function prefixed(prefix: TestIdPrefix, value: string) {
@@ -84,4 +85,5 @@ export const testIds = {
   todoOpenLinkedTab: (taskId: string) => prefixed(TestIdPrefix.TodoOpenLinkedTab, taskId),
   todoNextStatus: (taskId: string) => prefixed(TestIdPrefix.TodoNextStatus, taskId),
   todoPrevStatus: (taskId: string) => prefixed(TestIdPrefix.TodoPrevStatus, taskId),
+  todoConflict: (taskId: string) => prefixed(TestIdPrefix.TodoConflict, taskId),
 }

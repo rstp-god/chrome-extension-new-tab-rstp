@@ -7,13 +7,18 @@ vi.mock('@/services/chrome/tabs.ts', () => ({
 }))
 
 const removeAreaMock = vi.hoisted(() => vi.fn(async () => {}))
+const setAreaMock = vi.hoisted(() =>
+  // Typed rather than parameterised: the assertions read `mock.calls`, and the
+  // implementation has no use for the arguments.
+  vi.fn<(area: string, key: string, value: unknown) => Promise<boolean>>(async () => true),
+)
 
 // Stub the storage layer so we can assert the area-cleanup calls that keep
 // Trello secrets out of storage.sync. getArea/setArea are used by the sync
 // engine on import — keep them inert.
 vi.mock('@/services/chrome/storage.ts', () => ({
   getArea: vi.fn(async () => null),
-  setArea: vi.fn(async () => true),
+  setArea: setAreaMock,
   removeArea: removeAreaMock,
   getLocal: vi.fn(async () => null),
   setLocal: vi.fn(async () => true),
@@ -157,7 +162,14 @@ beforeEach(() => {
   fakePullTasks.mockReset()
   fakePushTask.mockReset()
   removeAreaMock.mockClear()
-  useTodoStore.setState({ tasks: [], integration: null, loading: false, errorKey: null })
+  setAreaMock.mockClear()
+  useTodoStore.setState({
+    tasks: [],
+    integration: null,
+    loading: false,
+    errorKey: null,
+    conflictTaskIds: [],
+  })
 })
 
 describe('todo store — basic CRUD', () => {
@@ -589,6 +601,7 @@ describe('todo store — integration: clearIntegration', () => {
   it('wipes the device-local secret copy so the integration cannot resurrect on reload', () => {
     useTodoStore.setState({ integration: makeIntegrationState(), tasks: [] })
     removeAreaMock.mockClear()
+    setAreaMock.mockClear()
 
     useTodoStore.getState().clearIntegration()
 
@@ -979,5 +992,211 @@ describe('todo store — integration: push-on-mutation', () => {
     useTodoStore.getState().setStatus('1', 'inprogress')
     expect(useTodoStore.getState().tasks[0].syncState).toBe('clean')
     expect(fakePushTask).not.toHaveBeenCalled()
+  })
+})
+
+describe('todo store — conflict handling', () => {
+  it('flags the task and leaves the global error alone on a conflicting push', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', remoteRef: makeRemoteRef() })],
+    })
+    fakePushTask.mockResolvedValueOnce({ ok: false, errorKey: 'conflict' })
+
+    useTodoStore.getState().setStatus('x', 'inprogress')
+
+    await vi.waitFor(() => {
+      const state = useTodoStore.getState()
+      expect(state.conflictTaskIds).toEqual(['x'])
+      expect(state.tasks.find((t) => t.id === 'x')?.syncState).toBe('error')
+      // A conflict is one task's problem, not the widget's: the error banner
+      // would otherwise blame the whole integration for a lost race.
+      expect(state.errorKey).toBeNull()
+    })
+  })
+
+  it('never lists the same task twice', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', remoteRef: makeRemoteRef() })],
+    })
+    fakePushTask.mockResolvedValue({ ok: false, errorKey: 'conflict' })
+
+    useTodoStore.getState().setStatus('x', 'inprogress')
+    await vi.waitFor(() => expect(useTodoStore.getState().conflictTaskIds).toEqual(['x']))
+    useTodoStore.getState().setStatus('x', 'struggle')
+    await vi.waitFor(() => expect(fakePushTask).toHaveBeenCalledTimes(2))
+
+    expect(useTodoStore.getState().conflictTaskIds).toEqual(['x'])
+  })
+
+  it('clears the flag once a push finally lands', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', remoteRef: makeRemoteRef() })],
+      conflictTaskIds: ['x'],
+    })
+    fakePushTask.mockResolvedValueOnce(ok(makeRemoteRef({ cardId: 'fresh' })))
+
+    useTodoStore.getState().setStatus('x', 'inprogress')
+
+    await vi.waitFor(() => expect(useTodoStore.getState().conflictTaskIds).toEqual([]))
+  })
+
+  it('keeps syncing the other tasks when one push conflicts', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [
+        makeTask({ id: 'loser', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'c-l' }) }),
+        makeTask({ id: 'winner', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'c-w' }) }),
+      ],
+    })
+    fakePushTask.mockImplementation(async (task: TodoTask) =>
+      task.id === 'loser'
+        ? { ok: false, errorKey: 'conflict' }
+        : ok(makeRemoteRef({ cardId: 'c-w', etag: 'pushed' })),
+    )
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    // Both were attempted, the pull still ran, and no banner was raised.
+    expect(fakePushTask).toHaveBeenCalledTimes(2)
+    expect(fakePullTasks).toHaveBeenCalledTimes(1)
+    expect(useTodoStore.getState().errorKey).toBeNull()
+  })
+
+  it('lets the remote version win for a conflicted task the pull brings back', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [
+        makeTask({
+          id: 'loser',
+          title: 'my rolled-back edit',
+          syncState: 'dirty',
+          remoteRef: makeRemoteRef(),
+          linkedTab: { url: 'https://local-tab.example', title: 'Local' },
+        }),
+      ],
+    })
+    fakePushTask.mockResolvedValueOnce({ ok: false, errorKey: 'conflict' })
+    fakePullTasks.mockResolvedValueOnce(
+      ok({
+        tasks: [
+          makeTask({
+            id: 'loser',
+            title: 'what the remote says',
+            syncState: 'clean',
+            remoteRef: makeRemoteRef({ etag: 'remote-wins' }),
+          }),
+        ],
+        refs: {},
+      }),
+    )
+
+    await useTodoStore.getState().syncNow()
+
+    const state = useTodoStore.getState()
+    const task = state.tasks.find((t) => t.id === 'loser')!
+    expect(task.title).toBe('what the remote says')
+    // The refused push left 'error' behind; the winning pull clears it.
+    expect(task.syncState).toBe('clean')
+    expect(state.conflictTaskIds).toEqual([])
+    // Local-only fields still survive — the conflict was about remote data.
+    expect(task.linkedTab).toEqual({ url: 'https://local-tab.example', title: 'Local' })
+  })
+
+  it('keeps the flag when the pull has nothing to say about the task', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'loser', syncState: 'dirty', remoteRef: null })],
+      conflictTaskIds: ['absent'],
+    })
+    fakePushTask.mockResolvedValueOnce(ok(makeRemoteRef()))
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    expect(useTodoStore.getState().conflictTaskIds).toEqual(['absent'])
+  })
+
+  it('clearIntegration drops the whole list', () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x', remoteRef: makeRemoteRef() })],
+      conflictTaskIds: ['x'],
+    })
+
+    useTodoStore.getState().clearIntegration()
+
+    expect(useTodoStore.getState().conflictTaskIds).toEqual([])
+  })
+
+  it('never reaches storage', async () => {
+    // A badge surviving a browser restart would outlive the sync it describes,
+    // so the list is absent from `partialize` — this is what proves it.
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'x' })],
+      conflictTaskIds: ['x'],
+    })
+
+    await useTodoStore.getState().commit()
+
+    expect(setAreaMock).toHaveBeenCalled()
+    const written = setAreaMock.mock.calls.at(-1)?.[2] as
+      | { state: Record<string, unknown> }
+      | undefined
+    expect(Object.keys(written?.state ?? {}).sort()).toEqual(['integration', 'tasks'])
+  })
+})
+
+describe('todo store — push phase concurrency', () => {
+  it('pushes sequentially for a descriptor that does not opt in', async () => {
+    // Trello's descriptor leaves `pushConcurrency` unset, so phase 1 must
+    // behave exactly as it always has: one push in flight at a time.
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [
+        makeTask({ id: 'a', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'c-a' }) }),
+        makeTask({ id: 'b', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'c-b' }) }),
+        makeTask({ id: 'c', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'c-c' }) }),
+      ],
+    })
+
+    let live = 0
+    let peak = 0
+    fakePushTask.mockImplementation(async () => {
+      live += 1
+      peak = Math.max(peak, live)
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      live -= 1
+      return ok(makeRemoteRef())
+    })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    expect(peak).toBe(1)
+    expect(fakePushTask).toHaveBeenCalledTimes(3)
+  })
+
+  it('starts nothing new after the first hard failure, and skips the pull', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [
+        makeTask({ id: 'a', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'c-a' }) }),
+        makeTask({ id: 'b', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'c-b' }) }),
+        makeTask({ id: 'c', syncState: 'dirty', remoteRef: makeRemoteRef({ cardId: 'c-c' }) }),
+      ],
+    })
+    fakePushTask.mockResolvedValueOnce({ ok: false, errorKey: 'rateLimited' })
+
+    await useTodoStore.getState().syncNow()
+
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+    expect(fakePullTasks).not.toHaveBeenCalled()
+    expect(useTodoStore.getState().errorKey).toBe('rateLimited')
+    expect(useTodoStore.getState().loading).toBe(false)
   })
 })

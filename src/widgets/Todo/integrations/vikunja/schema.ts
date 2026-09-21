@@ -20,6 +20,8 @@ import type {
   VikunjaProjectSummary,
   VikunjaPullResult,
   VikunjaPulledTask,
+  VikunjaSetLabelsResult,
+  VikunjaTaskWrite,
 } from '@/background/vikunja/messages.ts'
 
 /**
@@ -83,4 +85,24 @@ export const vikunjaPulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
 export const vikunjaPullResultSchema: z.ZodType<VikunjaPullResult> = z.object({
   tasks: z.array(vikunjaPulledTaskSchema),
   pulledAt: z.number(),
+})
+
+/**
+ * What every mutation answers with. Parsed even though the worker built it:
+ * the bridge types `value` as `unknown`, and a ref assembled from an
+ * unvalidated payload would be persisted — a `taskId` that is not a number
+ * addresses nothing and can never be repaired by a later sync.
+ */
+export const vikunjaTaskWriteSchema: z.ZodType<VikunjaTaskWrite> = z.object({
+  id: z.number(),
+  identifier: z.string(),
+  bucketId: z.number(),
+  done: z.boolean(),
+  doneAt: z.string().nullable(),
+  updated: z.string(),
+})
+
+export const vikunjaSetLabelsResultSchema: z.ZodType<VikunjaSetLabelsResult> = z.object({
+  added: z.array(z.number()),
+  removed: z.array(z.number()),
 })

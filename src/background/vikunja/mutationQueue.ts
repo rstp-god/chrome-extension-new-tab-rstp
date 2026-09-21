@@ -12,6 +12,12 @@
  * Per **task id**, not globally: a board-wide lock would turn a sync of fifty
  * dirty tasks into fifty round trips in a row, and two different tasks cannot
  * race each other — they are separate records.
+ *
+ * One rule for callers: a job must not `enqueue` the same task id again from
+ * inside itself. It would wait for a chain it is itself holding, which never
+ * drains. The client's composite operations therefore call the *unqueued*
+ * primitives internally (`updateTask` reads through `getTaskRaw`, not through
+ * another queued read).
  */
 
 /**

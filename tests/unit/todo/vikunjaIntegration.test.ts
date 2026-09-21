@@ -99,22 +99,51 @@ describe('VikunjaIntegration.connect', () => {
   })
 })
 
-describe('VikunjaIntegration.pushTask (task 6)', () => {
+describe('VikunjaIntegration.pushTask', () => {
   const integration: TodoIntegration = new VikunjaIntegration(CONFIG)
 
-  it('is still a stub and never reaches the bridge', async () => {
+  // The push rules themselves live in `vikunjaPush.test.ts`; this is the
+  // adapter's own share of the work — resolving the scope before delegating.
+  it('answers notFound for a scope that addresses nothing, without a request', async () => {
     await expect(
       integration.pushTask(
         {} as never,
         { kind: 'create' },
         {
-          scope: SCOPE,
+          scope: { projectId: 1 },
           mapping: MAPPING,
           knownRef: null,
         },
       ),
-    ).resolves.toEqual({ ok: false, errorKey: 'unknown' })
+    ).resolves.toEqual({ ok: false, errorKey: 'notFound' })
     expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('sends the credentials and the scope project id with the create', async () => {
+    bridge.mockResolvedValue({
+      ok: true,
+      value: { id: 7, identifier: '#7', bucketId: 1, done: false, doneAt: null, updated: 'now' },
+    })
+
+    await integration.pushTask(
+      {
+        title: 'Probe',
+        description: null,
+        status: 'input',
+        projectId: null,
+        remoteRef: null,
+      } as never,
+      { kind: 'create' },
+      { scope: SCOPE, mapping: MAPPING, knownRef: null },
+    )
+
+    expect(bridge).toHaveBeenCalledWith({
+      type: 'vikunja',
+      op: 'create',
+      cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
+      projectId: 1,
+      payload: { title: 'Probe', description: '' },
+    })
   })
 
   it('disconnects without touching the bridge', () => {

@@ -16,6 +16,7 @@ import {
   type TodoIntegration,
   type TodoStatus,
 } from '@/widgets/Todo/integrations/index.ts'
+import { mapWithConcurrency } from '@/widgets/Todo/utils/concurrency.ts'
 import { create } from 'zustand/react'
 
 import { integrationSchema, todoEnvelopeSchema } from './schema.ts'
@@ -65,6 +66,19 @@ interface TodoWidgetState {
   integration: IntegrationState | null
   loading: boolean
   errorKey: IntegrationErrorKey | null
+  /**
+   * Tasks whose last push lost a race: someone changed the remote record
+   * after the widget read it, so the local edit was rolled back and the
+   * remote version is the one that will survive the next pull.
+   *
+   * Transient and **not persisted** (absent from `partialize`): it describes
+   * the outcome of one sync, and a conflict badge surviving a browser restart
+   * — long after the pull that resolved it — would be a lie. A conflict is
+   * also not a global error: the other tasks of the same sync are fine, so
+   * this list exists instead of `errorKey`, which would blame the whole
+   * widget for one task.
+   */
+  conflictTaskIds: string[]
 
   addTask: (input: AddTaskInput) => void
   setStatus: (id: string, status: TodoStatus) => void
@@ -138,6 +152,19 @@ function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): Tod
   return tasks.map((t) => (t.id === id ? { ...t, ...patch } : t))
 }
 
+/**
+ * The two edits of `conflictTaskIds`, both returning the *same* array when
+ * nothing changes — subscribers of the list (the card badge) then re-render
+ * only when a conflict actually appears or clears.
+ */
+function withConflict(ids: string[], id: string): string[] {
+  return ids.includes(id) ? ids : [...ids, id]
+}
+
+function withoutConflict(ids: string[], id: string): string[] {
+  return ids.includes(id) ? ids.filter((known) => known !== id) : ids
+}
+
 export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
   withChromeSync<TodoWidgetState, TodoPersistedState>({
     key: TODO_STORAGE_KEY,
@@ -182,12 +209,23 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       })
 
       if (out.ok) {
-        set({
-          tasks: patchTask(get().tasks, taskId, {
+        set((current) => ({
+          tasks: patchTask(current.tasks, taskId, {
             remoteRef: out.value,
             syncState: 'clean',
           }),
-        })
+          // A push that landed settles whatever conflict the task was in.
+          conflictTaskIds: withoutConflict(current.conflictTaskIds, taskId),
+        }))
+      } else if (out.errorKey === 'conflict') {
+        // Not a global error: the push was refused because the remote moved
+        // on, the local edit is already rolled back on the remote's terms,
+        // and the next pull brings the winning version. The task is flagged
+        // so the user finds out *which* of their edits was dropped.
+        set((current) => ({
+          tasks: patchTask(current.tasks, taskId, { syncState: 'error' }),
+          conflictTaskIds: withConflict(current.conflictTaskIds, taskId),
+        }))
       } else {
         set((current) => ({
           tasks: patchTask(current.tasks, taskId, { syncState: 'error' }),
@@ -201,6 +239,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       integration: null,
       loading: false,
       errorKey: null,
+      conflictTaskIds: [],
 
       addTask: ({ title, description, linkedTab, projectId }) => {
         const normalizedTitle = normalizeTitle(title)
@@ -338,6 +377,10 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
         set({
           integration: parsed.data,
+          // The conflicts belonged to the previous connection; the tasks below
+          // are about to be re-linked, so a leftover badge would point at a
+          // race that no longer exists.
+          conflictTaskIds: [],
           // Refs the freshly connected backend doesn't own can never be
           // resolved against it — drop them so the first sync re-creates the
           // tasks remotely instead of leaving them permanently unpushable.
@@ -493,6 +536,8 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         set({
           integration: null,
           errorKey: null,
+          // Nothing left to be in conflict with.
+          conflictTaskIds: [],
           tasks: get().tasks.map((task) => ({
             ...task,
             remoteRef: null,
@@ -520,43 +565,66 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         const { adapter, descriptor, integration } = active
 
         const scope = descriptor.getScope(integration.config)
-        if (!scope || !integration.mapping) {
+        const mapping = integration.mapping
+        if (!scope || !mapping) {
           set({ errorKey: 'mappingIncomplete' })
           return
         }
 
         set({ loading: true, errorKey: null })
 
-        // Phase 1: push everything that hasn't reached Trello yet.
+        // Phase 1: push everything that hasn't reached the remote yet.
         // - `syncState !== 'clean'` covers normal dirty/error retries.
         // - `remoteRef === null` catches tasks that were created before the
         //   integration was set up (they were 'clean' because there was
         //   nowhere to sync them at the time). Without this we'd end up with
         //   local tasks coexisting with the pulled set forever and the user
         //   would see them as duplicates after the first sync.
-        for (const task of state.tasks.filter(
-          (t) => t.syncState !== 'clean' || t.remoteRef === null,
-        )) {
+        const pending = state.tasks.filter((t) => t.syncState !== 'clean' || t.remoteRef === null)
+
+        // The first hard failure ends the phase. With `pushConcurrency` at its
+        // default of 1 that is literally the sequential loop this used to be;
+        // with a pool it means "start nothing new", since the calls already in
+        // flight cannot be recalled.
+        let failure: IntegrationErrorKey | null = null
+
+        await mapWithConcurrency(pending, descriptor.pushConcurrency ?? 1, async (task) => {
+          if (failure !== null) return
+
           const out: IntegrationOutcome<RemoteTaskRef> = await adapter.pushTask(
             task,
             inferOpForTask(task),
-            {
-              scope,
-              mapping: integration.mapping,
-              knownRef: task.remoteRef,
-            },
+            { scope, mapping, knownRef: task.remoteRef },
           )
+
           if (out.ok) {
-            set({
-              tasks: patchTask(get().tasks, task.id, {
+            set((current) => ({
+              tasks: patchTask(current.tasks, task.id, {
                 remoteRef: out.value,
                 syncState: 'clean',
               }),
-            })
-          } else {
-            set({ loading: false, errorKey: out.errorKey })
+              conflictTaskIds: withoutConflict(current.conflictTaskIds, task.id),
+            }))
             return
           }
+
+          if (out.errorKey === 'conflict') {
+            // A conflict is this one task's business: the rest of the sync
+            // carries on, and phase 2 below settles it by letting the remote
+            // version win.
+            set((current) => ({
+              tasks: patchTask(current.tasks, task.id, { syncState: 'error' }),
+              conflictTaskIds: withConflict(current.conflictTaskIds, task.id),
+            }))
+            return
+          }
+
+          failure ??= out.errorKey
+        })
+
+        if (failure !== null) {
+          set({ loading: false, errorKey: failure })
+          return
         }
 
         // Phase 2: pull authoritative state and reconcile.
@@ -571,7 +639,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
         const pull = await adapter.pullTasks({
           scope,
-          mapping: integration.mapping,
+          mapping,
           knownRefs,
           knownStatuses,
         })
@@ -580,10 +648,22 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           return
         }
 
+        // Conflicts the pull can settle: the whole point of a conflict is that
+        // the remote version is the surviving one, so a conflicted task the
+        // pull mentions is replaced by it wholesale and stops being flagged.
+        // One it does *not* mention stays flagged — nothing has resolved it.
+        const unresolved = new Set(get().conflictTaskIds)
+
         const localById = new Map(get().tasks.map((t) => [t.id, t]))
         const reconciled: TodoTask[] = pull.value.tasks.map((remote) => {
           const local = localById.get(remote.id)
           if (!local) return remote
+          if (unresolved.has(remote.id)) {
+            unresolved.delete(remote.id)
+            // Remote wins: its `syncState` (clean, by construction) is kept
+            // rather than the local 'error' the refused push left behind.
+            return { ...remote, linkedTab: local.linkedTab }
+          }
           // Local-only fields win (linkedTab, syncState if dirty).
           return {
             ...remote,
@@ -615,6 +695,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           tasks: reconciled,
           integration: current.integration ? { ...current.integration, lastSyncAt } : null,
           loading: false,
+          conflictTaskIds: [...unresolved],
         }))
       },
     }

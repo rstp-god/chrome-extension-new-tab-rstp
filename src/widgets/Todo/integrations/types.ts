@@ -269,6 +269,19 @@ export interface IntegrationDescriptor {
   /** Pure factory: takes persisted config, returns a ready adapter. */
   create: (config: unknown) => TodoIntegration
   /**
+   * How many of a sync's pushes the store may have in flight at once.
+   *
+   * Absent or `1` means the sequential push phase the store has always had,
+   * which is what a backend gets by default: parallel writes are only safe
+   * when the backend (or the adapter's own transport) guarantees that two
+   * pushes cannot interleave into the same record. Vikunja raises it because
+   * its worker serialises per task id; Trello leaves it unset.
+   *
+   * Whatever the value, the first failing push still ends the phase — a pool
+   * changes how many requests are in the air, not what a failure means.
+   */
+  pushConcurrency?: number
+  /**
    * Reads the scope out of a persisted config, or `null` while the user
    * hasn't picked one. The scope is deliberately *not* a separate persisted
    * field: it lives inside the config the adapter already owns, and only the

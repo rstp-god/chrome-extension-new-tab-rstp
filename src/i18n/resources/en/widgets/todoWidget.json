@@ -34,6 +34,9 @@
     "neverSynced": "Not synced yet",
     "syncing": "Syncing…"
   },
+  "task": {
+    "conflictBadge": "Changed in Vikunja — your edit was rolled back"
+  },
   "settings": {
     "title": "Todo settings",
     "description": "Connect an integration or keep todos local."

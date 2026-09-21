@@ -2,6 +2,7 @@ import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 
 import { sendVikunjaMessage } from './bridge.ts'
 import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
+import { pushVikunjaTask } from './push.ts'
 import {
   vikunjaBucketSummaryListSchema,
   vikunjaBucketSummarySchema,
@@ -21,9 +22,11 @@ import type {
 import type {
   IntegrationDescriptor,
   IntegrationOutcome,
+  IntegrationPushOp,
   Project,
   PullContext,
   PullResult,
+  PushContext,
   RemoteContainer,
   RemoteScope,
   RemoteScopeOption,
@@ -32,9 +35,6 @@ import type {
 } from '@/widgets/Todo/integrations/types.ts'
 import type { TodoTask, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 import type { z } from 'zod'
-
-/** Task 6 still owes the write path. */
-const NOT_IMPLEMENTED: IntegrationOutcome<never> = { ok: false, errorKey: 'unknown' }
 
 /** A scope that does not address a project *and* a view addresses nothing. */
 const NO_SCOPE: IntegrationOutcome<never> = { ok: false, errorKey: 'notFound' }
@@ -200,9 +200,31 @@ export class VikunjaIntegration implements TodoIntegration {
     return { ok: true, value: toContainer(out.value) }
   }
 
-  // Task 6: read-modify-write plus the bucket move.
-  async pushTask(): Promise<IntegrationOutcome<RemoteTaskRef>> {
-    return NOT_IMPLEMENTED
+  /**
+   * One local mutation, as one to three bridge ops.
+   *
+   * The rules live in `push.ts`; all this does is resolve the scope and hand
+   * over the three things the push cannot work out for itself — the
+   * credentials, the mode, and a `send` that validates what comes back.
+   */
+  async pushTask(
+    task: TodoTask,
+    op: IntegrationPushOp,
+    ctx: PushContext,
+  ): Promise<IntegrationOutcome<RemoteTaskRef>> {
+    const scope = scopePair(ctx.scope)
+    if (!scope) return NO_SCOPE
+
+    return pushVikunjaTask(
+      {
+        cfg: this.wire(),
+        // `kanbanMapping: false` means the user skipped the bucket wizard and
+        // only `completed` round-trips.
+        flat: !this.config.kanbanMapping,
+        send: (request, schema) => this.send(request, schema),
+      },
+      { task, op, ctx, scope },
+    )
   }
 
   // ---------- internals ----------
@@ -269,6 +291,16 @@ export const descriptor: IntegrationDescriptor = {
    */
   MappingStep: VikunjaMappingStep,
   create: (config) => new VikunjaIntegration(config as VikunjaConfig),
+  /**
+   * Four tasks at a time during a sync.
+   *
+   * Safe because the worker serialises per task id (`mutationQueue`), so the
+   * pool can only ever overlap writes to *different* tasks — and worth it
+   * because a push is up to three round trips to a self-hosted instance, which
+   * makes a sequential phase 1 on a board with a dozen dirty tasks a visible
+   * wait. Deliberately small: this is someone's own server, not a CDN.
+   */
+  pushConcurrency: 4,
   /**
    * The scope is the pair, not either half: a project without a view cannot
    * address a task list, so a half-filled config keeps the user on the
