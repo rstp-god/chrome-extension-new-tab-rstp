@@ -1,81 +1,58 @@
-import { Button } from '@/components/ui/button.tsx'
-import { Label } from '@/components/ui/label.tsx'
-import { Switch } from '@/components/ui/switch.tsx'
-import { MappingStatusRow } from '@/widgets/Todo/components/settings/MappingStatusRow.tsx'
-import { getIntegrationDescriptor, TODO_STATUSES } from '@/widgets/Todo/integrations/index.ts'
-import { resolveScope, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useShallow } from 'zustand/react/shallow'
+
+import { Button } from '@/components/ui/button.tsx'
 
 import { flatModeMapping, suggestMapping, validateMapping } from './autoMapping.ts'
 import { VIKUNJA_MISSING_COLUMN_TITLES } from './constants.ts'
+import { VikunjaFlatModeSection } from './VikunjaFlatModeSection.tsx'
+import { VikunjaMappingProblems } from './VikunjaMappingProblems.tsx'
+import { VikunjaMappingRows } from './VikunjaMappingRows.tsx'
 import { VikunjaMissingColumnsPanel } from './VikunjaMissingColumnsPanel.tsx'
 
 import type {
   IntegrationErrorKey,
   MappingStepProps,
   StatusListMapping,
-  TodoIntegration,
   TodoStatus,
-} from '@/widgets/Todo/integrations/index.ts'
-import type { IntegrationState } from '@/widgets/Todo/store/store.ts'
+} from '@/widgets/Todo/integrations/types.ts'
 import type { MissingColumn } from './VikunjaMissingColumnsPanel.tsx'
-
-/**
- * A ready adapter for the active integration, or `null` when there is none.
- * Construction is a couple of strings, so it is rebuilt whenever the config
- * object is replaced — which is whenever anything in it changed.
- */
-function adapterOf(integration: IntegrationState | null): TodoIntegration | null {
-  if (!integration) return null
-  const descriptor = getIntegrationDescriptor(integration.name)
-  return descriptor?.create(integration.config) ?? null
-}
 
 /**
  * Vikunja's own mapping step.
  *
  * It differs from the generic table in three ways, all of them forced by the
- * backend: the done bucket is the only column that can carry `completed`
- * (moving a task there flips `done` server-side), a typical board is missing
- * the `struggle` and `deleted` columns entirely, and a user who does not want
- * those columns needs a way out — flat mode.
+ * backend: entering the view's done bucket sets `done` server-side (so that
+ * bucket can only mean `completed`), a typical board has no `struggle` or
+ * `deleted` column at all, and a user who does not want such columns in their
+ * tracker needs a way out — flat mode.
+ *
+ * Prop-driven, like every component a descriptor points at: it never imports
+ * the store (see `MappingStepProps`).
  */
-export function VikunjaMappingStep({ onBack }: MappingStepProps) {
+export function VikunjaMappingStep({
+  onBack,
+  integration,
+  adapter,
+  scope,
+  errorKey,
+  actions,
+}: MappingStepProps) {
   const { t } = useTranslation('todoWidget')
-  const { integration, setMapping, updateIntegrationConfig, refreshContainers, errorKey } =
-    useTodoStore(
-      useShallow((state) => ({
-        integration: state.integration,
-        setMapping: state.setMapping,
-        updateIntegrationConfig: state.updateIntegrationConfig,
-        refreshContainers: state.refreshContainers,
-        errorKey: state.errorKey,
-      })),
-    )
 
-  const lists = useMemo(() => integration?.lists ?? [], [integration?.lists])
-  const listNameById = useMemo(() => new Map(lists.map((list) => [list.id, list.name])), [lists])
+  const lists = integration.lists
 
-  const adapter = useMemo(
-    () => adapterOf(integration),
-    // The config object is replaced wholesale on every change, so its
-    // identity covers every field the adapter reads.
-    [integration?.name, integration?.config],
-  )
-  const scope = useMemo(() => resolveScope(integration), [integration])
-
-  const wasFlat = integration?.name === 'vikunja' && !integration.config.kanbanMapping
+  const wasFlat = integration.name === 'vikunja' && !integration.config.kanbanMapping
 
   /**
    * The persisted mapping, unless the config is flat: a flat mapping points
    * four statuses at the same bucket, which the table would (correctly) read
    * as a pile of conflicts. Someone re-opening this step from flat mode wants
-   * a fresh suggestion, not their placeholder back.
+   * a fresh suggestion, not their placeholder back — the section below says
+   * which mode is actually in effect.
    */
   const [draft, setDraft] = useState<StatusListMapping>(() =>
-    !wasFlat && integration?.mapping ? integration.mapping : suggestMapping(lists),
+    !wasFlat && integration.mapping ? integration.mapping : suggestMapping(lists),
   )
   const [confirmCompleted, setConfirmCompleted] = useState(false)
   const [createdNote, setCreatedNote] = useState(false)
@@ -89,41 +66,47 @@ export function VikunjaMappingStep({ onBack }: MappingStepProps) {
 
   const problems = useMemo(() => validateMapping(draft, lists), [draft, lists])
 
-  const ownerByListId = useMemo(
-    () =>
-      new Map<string, TodoStatus>(
-        TODO_STATUSES.flatMap((status) => draft[status].map((id) => [id, status] as const)),
-      ),
-    [draft],
-  )
-
   /** Only the two the wizard can actually build (see the constant). */
   const missingColumns: MissingColumn[] = problems.missing
     .filter((status): status is 'struggle' | 'deleted' => status in VIKUNJA_MISSING_COLUMN_TITLES)
     .map((status) => ({ status, title: t(VIKUNJA_MISSING_COLUMN_TITLES[status]) }))
 
-  const canCreate = missingColumns.length > 0 && Boolean(adapter?.createContainer)
+  const canCreate = missingColumns.length > 0 && Boolean(adapter.createContainer)
+
+  /**
+   * The flat fallback, or `null` on a view with no done bucket — where not
+   * even "done" could round-trip, so the option is not offered at all.
+   */
+  const flat = useMemo(() => flatModeMapping(lists), [lists])
 
   // A local failure wins: it is the most recent thing that happened.
   const shownErrorKey = createErrorKey ?? errorKey
 
   const blocked =
     problems.conflicts.length > 0 ||
-    problems.deletedOnTerminal ||
+    problems.terminalMisused.length > 0 ||
     problems.missing.length > 0 ||
     (problems.completedNotTerminal && !confirmCompleted)
 
-  const addListToStatus = (status: TodoStatus, listId: string) => {
-    setDraft((current) => ({
+  /** Any edit invalidates the "columns created" line, which described a past draft. */
+  const editDraft = (next: (current: StatusListMapping) => StatusListMapping) => {
+    setCreatedNote(false)
+    setDraft(next)
+  }
+
+  const addBucketToStatus = (status: TodoStatus, bucketId: string) => {
+    editDraft((current) => ({
       ...current,
-      [status]: current[status].includes(listId) ? current[status] : [...current[status], listId],
+      [status]: current[status].includes(bucketId)
+        ? current[status]
+        : [...current[status], bucketId],
     }))
   }
 
-  const removeListFromStatus = (status: TodoStatus, listId: string) => {
-    setDraft((current) => ({
+  const removeBucketFromStatus = (status: TodoStatus, bucketId: string) => {
+    editDraft((current) => ({
       ...current,
-      [status]: current[status].filter((id) => id !== listId),
+      [status]: current[status].filter((id) => id !== bucketId),
     }))
   }
 
@@ -132,63 +115,79 @@ export function VikunjaMappingStep({ onBack }: MappingStepProps) {
    * points the empty rows at the new ids. Sequential rather than parallel:
    * Vikunja assigns a position per creation, and two racing `PUT`s land in an
    * arbitrary board order.
+   *
+   * A failure half-way through still refreshes and still writes the ids that
+   * *were* created into the draft. Those buckets exist on the user's instance
+   * now; forgetting them would leave the widget unaware of columns it made,
+   * and the next attempt would create a second copy.
    */
   const handleCreateColumns = async () => {
-    if (!adapter?.createContainer || !scope) return
+    const createContainer = adapter.createContainer
+    if (!createContainer) return
 
     setBusy(true)
     setCreateErrorKey(null)
     const created: Partial<Record<TodoStatus, string>> = {}
-    for (const column of missingColumns) {
-      const out = await adapter.createContainer(scope, column.title)
-      if (!out.ok) {
-        setBusy(false)
-        setCreateErrorKey(out.errorKey)
-        return
+    let failure: IntegrationErrorKey | null = null
+
+    try {
+      for (const column of missingColumns) {
+        const out = await createContainer.call(adapter, scope, column.title)
+        if (!out.ok) {
+          failure = out.errorKey
+          break
+        }
+        created[column.status] = out.value.id
       }
-      created[column.status] = out.value.id
+
+      if (Object.keys(created).length > 0) {
+        await actions.refreshContainers()
+        setCreatedNote(failure === null)
+        setDraft((current) => {
+          const next = { ...current }
+          for (const [status, id] of Object.entries(created)) {
+            next[status as TodoStatus] = [id]
+          }
+          return next
+        })
+      }
+      setCreateErrorKey(failure)
+    } finally {
+      setBusy(false)
     }
-
-    // The store owns the bucket cache, so it re-reads it; the draft then
-    // points at ids the persisted `lists` really contains.
-    await refreshContainers()
-    setCreatedNote(true)
-    setDraft((current) => {
-      const next = { ...current }
-      for (const [status, id] of Object.entries(created)) {
-        next[status as TodoStatus] = [id]
-      }
-      return next
-    })
-    setBusy(false)
   }
-
-  /**
-   * The flat fallback, or `null` on a view with no done bucket — where not
-   * even "done" could round-trip, so the option is not offered at all.
-   */
-  const flat = useMemo(() => flatModeMapping(lists), [lists])
 
   /** Accepts flat mode: only "done" round-trips, the rest stays local. */
   const handleSkipToFlat = async () => {
-    if (!integration || integration.name !== 'vikunja' || !flat) return
+    if (integration.name !== 'vikunja' || !flat) return
 
     setBusy(true)
-    updateIntegrationConfig({ ...integration.config, kanbanMapping: false })
-    await setMapping(flat)
-    setBusy(false)
+    try {
+      // Bail before the mapping if the config write was refused: a flat
+      // mapping under a kanban config would sync four statuses into one
+      // bucket.
+      if (!actions.updateIntegrationConfig({ ...integration.config, kanbanMapping: false })) return
+      setCreatedNote(false)
+      await actions.setMapping(flat)
+    } finally {
+      setBusy(false)
+    }
   }
 
   const handleSave = async () => {
-    if (blocked || !integration) return
+    if (blocked) return
 
     setBusy(true)
-    // Saving a real bucket mapping leaves flat mode behind.
-    if (wasFlat && integration.name === 'vikunja') {
-      updateIntegrationConfig({ ...integration.config, kanbanMapping: true })
+    try {
+      // Saving a real bucket mapping leaves flat mode behind — and if that
+      // write is refused, the mapping must not be saved either.
+      if (wasFlat && integration.name === 'vikunja') {
+        if (!actions.updateIntegrationConfig({ ...integration.config, kanbanMapping: true })) return
+      }
+      await actions.setMapping(draft)
+    } finally {
+      setBusy(false)
     }
-    await setMapping(draft)
-    setBusy(false)
   }
 
   return (
@@ -197,80 +196,55 @@ export function VikunjaMappingStep({ onBack }: MappingStepProps) {
         {t('integrations.vikunja.mapping.suggestedHint')}
       </p>
 
-      {wasFlat && (
-        <p className="rounded-2xl border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
-          {t('integrations.vikunja.mapping.flatNotice')}
-        </p>
-      )}
-
       {shownErrorKey && (
-        <p className="rounded-2xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <p
+          role="alert"
+          className="rounded-2xl border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
           {t(`integrations.errors.${shownErrorKey}`)}
         </p>
       )}
 
-      <div className="grid gap-2">
-        {TODO_STATUSES.map((status) => (
-          <MappingStatusRow
-            key={status}
-            status={status}
-            statusLabel={t(`integrations.trello.mapping.row.${status}`)}
-            selectedListIds={draft[status]}
-            listNameById={listNameById}
-            availableLists={lists}
-            isSelectedInOther={(listId) => {
-              const owner = ownerByListId.get(listId)
-              return owner !== undefined && owner !== status
-            }}
-            onAdd={(listId) => addListToStatus(status, listId)}
-            onRemove={(listId) => removeListFromStatus(status, listId)}
-            primaryHint={t('integrations.trello.mapping.primaryHint')}
-            emptyHint={t('integrations.vikunja.mapping.emptyHint')}
-            addLabel={t('integrations.vikunja.mapping.addBucket')}
-          />
-        ))}
-      </div>
+      <VikunjaMappingRows
+        buckets={lists}
+        draft={draft}
+        onAdd={addBucketToStatus}
+        onRemove={removeBucketFromStatus}
+      />
 
-      {problems.conflicts.length > 0 && (
-        <p className="text-sm text-destructive">{t('integrations.vikunja.mapping.conflict')}</p>
-      )}
-
-      {problems.deletedOnTerminal && (
-        <p className="text-sm text-destructive">
-          {t('integrations.vikunja.mapping.deletedOnTerminal')}
-        </p>
-      )}
-
-      {problems.completedNotTerminal && (
-        <div className="grid gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-500">
-          <span>{t('integrations.vikunja.mapping.completedNotTerminal')}</span>
-          <Label className="gap-2">
-            <Switch checked={confirmCompleted} onCheckedChange={setConfirmCompleted} />
-            <span>{t('integrations.vikunja.mapping.confirmCompleted')}</span>
-          </Label>
-        </div>
-      )}
+      <VikunjaMappingProblems
+        problems={problems}
+        confirmCompleted={confirmCompleted}
+        onConfirmCompleted={setConfirmCompleted}
+      />
 
       {createdNote && (
-        <p className="text-sm text-emerald-500">{t('integrations.vikunja.mapping.created')}</p>
+        <p role="alert" className="text-sm text-emerald-500">
+          {t('integrations.vikunja.mapping.created')}
+        </p>
       )}
 
       {canCreate && (
         <VikunjaMissingColumnsPanel
           columns={missingColumns}
           busy={busy}
-          canSkip={flat !== null}
           onCreate={() => void handleCreateColumns()}
-          onSkip={() => void handleSkipToFlat()}
         />
       )}
 
+      <VikunjaFlatModeSection
+        active={wasFlat}
+        available={flat !== null}
+        busy={busy}
+        onSkip={() => void handleSkipToFlat()}
+      />
+
       <div className="flex items-center justify-between gap-2">
         <Button type="button" variant="outline" onClick={onBack} disabled={busy}>
-          {t('integrations.trello.board.back')}
+          {t('integrations.actions.back')}
         </Button>
         <Button type="button" onClick={() => void handleSave()} disabled={blocked || busy}>
-          {t('integrations.trello.mapping.save')}
+          {t('integrations.mapping.save')}
         </Button>
       </div>
     </div>

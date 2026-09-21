@@ -88,6 +88,26 @@
       "permissionMissing": "The extension lost permission for this host. Reconnect to grant it again.",
       "unknown": "Something went wrong. Try again."
     },
+    "mapping": {
+      "row": {
+        "input": "Input",
+        "inprogress": "In progress",
+        "struggle": "Struggle",
+        "completed": "Completed",
+        "deleted": "Deleted"
+      },
+      "primaryHint": "Primary",
+      "emptyHint": "Pick at least one list",
+      "usedByOther": "Used by {{status}}",
+      "rebindWarning": "Changing the mapping will move existing cards on the next sync.",
+      "loading": "Loading lists…",
+      "addList": "Add list",
+      "save": "Save & sync"
+    },
+    "actions": {
+      "back": "Back",
+      "continue": "Continue"
+    },
     "trello": {
       "title": "Trello",
       "description": "Two-way sync with a Trello board.",
@@ -106,28 +126,12 @@
         "title": "Pick a Trello board",
         "description": "Choose the board this Todo widget will sync with.",
         "pickLabel": "Board",
-        "continue": "Continue",
-        "back": "Back",
         "loading": "Loading boards…",
         "empty": "No boards found on this account."
       },
       "mapping": {
         "title": "Map Trello lists to statuses",
-        "description": "Each status can pull from multiple lists. The first list in each row is where new cards land.",
-        "save": "Save & sync",
-        "primaryHint": "Primary",
-        "emptyHint": "Pick at least one list",
-        "usedByOther": "Used by {{status}}",
-        "rebindWarning": "Changing the mapping will move existing cards on the next sync.",
-        "loading": "Loading lists…",
-        "addList": "Add list",
-        "row": {
-          "input": "Input",
-          "inprogress": "In progress",
-          "struggle": "Struggle",
-          "completed": "Completed",
-          "deleted": "Deleted"
-        }
+        "description": "Each status can pull from multiple lists. The first list in each row is where new cards land."
       },
       "summary": {
         "title": "Trello",
@@ -170,7 +174,7 @@
         "addBucket": "Add bucket",
         "emptyHint": "Pick at least one bucket",
         "conflict": "One bucket is mapped to two statuses. A task in it would have no single status — remove one of them.",
-        "deletedOnTerminal": "The done bucket cannot hold Deleted: Vikunja would mark everything you delete as done.",
+        "terminalMisused": "The done bucket can only mean Completed — moving a task there marks it done in Vikunja. Remove it from: {{statuses}}.",
         "completedNotTerminal": "Completed does not point at Vikunja's done bucket. Ticking a task off here won't mark it done there, and Vikunja will keep moving finished tasks out of your column.",
         "confirmCompleted": "I understand, sync may fight with Vikunja",
         "createMissingTitle": "Create the missing columns",
@@ -179,6 +183,7 @@
         "created": "Columns created.",
         "skipFlat": "Skip — flat mode",
         "flatNotice": "In flat mode In progress / Struggle / Deleted are visible only in the extension; only Completed syncs to Vikunja.",
+        "flatActive": "Flat mode is active. The rows above are a suggestion — saving them switches this project to full bucket sync.",
         "columnStruggle": "Struggle",
         "columnTrash": "Trash"
       },

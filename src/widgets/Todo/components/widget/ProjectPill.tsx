@@ -1,5 +1,5 @@
 import type { Project } from '@/widgets/Todo/integrations/index.ts'
-import { DEFAULT_PROJECT_PILL_CLASS } from '@/widgets/Todo/integrations/trello/projectStyles.ts'
+import { DEFAULT_PROJECT_PILL_CLASS } from '@/widgets/Todo/utils/projectPillPalette.ts'
 import clsx from 'clsx'
 
 interface Props {
@@ -13,10 +13,9 @@ interface Props {
  * (e.g. Trello label color → tailwind class), so this component stays
  * provider-agnostic.
  *
- * `DEFAULT_PROJECT_PILL_CLASS` is re-exported from the Trello adapter
- * because it currently happens to be the only project source we ship —
- * once a second integration shows up, this default can move to a shared
- * location.
+ * `DEFAULT_PROJECT_PILL_CLASS` is the shared fallback for a project whose
+ * integration could not place its colour, so an unstyled pill looks the same
+ * however it got that way.
  */
 export function ProjectPill({ project, className }: Props) {
   return (

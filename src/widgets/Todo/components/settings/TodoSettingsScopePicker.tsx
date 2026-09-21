@@ -117,10 +117,10 @@ export function TodoSettingsScopePicker({ adapter, onBack }: Props) {
 
       <div className="flex items-center justify-between gap-2">
         <Button type="button" variant="outline" onClick={onBack} disabled={busy}>
-          {t('integrations.trello.board.back')}
+          {t('integrations.actions.back')}
         </Button>
         <Button type="button" onClick={handleContinue} disabled={selectedKey === undefined || busy}>
-          {t('integrations.trello.board.continue')}
+          {t('integrations.actions.continue')}
         </Button>
       </div>
     </div>

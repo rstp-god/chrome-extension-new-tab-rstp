@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { MappingStatusRow } from '@/widgets/Todo/components/settings/MappingStatusRow.tsx'
 import {
   TODO_STATUSES,
+  type MappingStepProps,
   type StatusListMapping,
   type TodoStatus,
 } from '@/widgets/Todo/integrations/index.ts'
@@ -9,10 +10,6 @@ import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useShallow } from 'zustand/react/shallow'
-
-interface Props {
-  onBack: () => void
-}
 
 function makeEmptyMapping(): StatusListMapping {
   return {
@@ -24,7 +21,13 @@ function makeEmptyMapping(): StatusListMapping {
   }
 }
 
-export function TodoSettingsMapping({ onBack }: Props) {
+/**
+ * The generic mapping table, used by any backend whose containers are plain
+ * columns. It takes `MappingStepProps` like a descriptor's own step would,
+ * but — living in the settings layer rather than being reached through a
+ * descriptor — it may read the store directly and ignores most of them.
+ */
+export function TodoSettingsMapping({ onBack }: MappingStepProps) {
   const { t } = useTranslation('todoWidget')
   const { integration, setMapping, errorKey, hasExistingTasks } = useTodoStore(
     useShallow((state) => ({
@@ -100,7 +103,7 @@ export function TodoSettingsMapping({ onBack }: Props) {
     <div className="grid gap-4">
       {hasExistingTasks && hadMappingBefore && (
         <p className="rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-500">
-          {t('integrations.trello.mapping.rebindWarning')}
+          {t('integrations.mapping.rebindWarning')}
         </p>
       )}
 
@@ -115,7 +118,7 @@ export function TodoSettingsMapping({ onBack }: Props) {
           <MappingStatusRow
             key={status}
             status={status}
-            statusLabel={t(`integrations.trello.mapping.row.${status}`)}
+            statusLabel={t(`integrations.mapping.row.${status}`)}
             selectedListIds={draft[status]}
             listNameById={listNameById}
             availableLists={lists}
@@ -125,19 +128,19 @@ export function TodoSettingsMapping({ onBack }: Props) {
             }}
             onAdd={(listId) => addListToStatus(status, listId)}
             onRemove={(listId) => removeListFromStatus(status, listId)}
-            primaryHint={t('integrations.trello.mapping.primaryHint')}
-            emptyHint={t('integrations.trello.mapping.emptyHint')}
-            addLabel={t('integrations.trello.mapping.addList')}
+            primaryHint={t('integrations.mapping.primaryHint')}
+            emptyHint={t('integrations.mapping.emptyHint')}
+            addLabel={t('integrations.mapping.addList')}
           />
         ))}
       </div>
 
       <div className="flex items-center justify-between gap-2">
         <Button type="button" variant="outline" onClick={onBack} disabled={busy}>
-          {t('integrations.trello.board.back')}
+          {t('integrations.actions.back')}
         </Button>
         <Button type="button" onClick={handleSave} disabled={!isValid || busy}>
-          {t('integrations.trello.mapping.save')}
+          {t('integrations.mapping.save')}
         </Button>
       </div>
     </div>

@@ -140,30 +140,35 @@ export interface VikunjaConnectInfo {
  * hand the widget every field of the user's instance to re-validate.
  *
  * `kanbanViewId` is `null` when the project has no kanban view — such a
- * project cannot be mapped to buckets and the adapter skips it. The two
- * bucket ids come from that same view (recon Q5/§2.7: `views[]` is embedded
- * in `GET /projects`, so finding them costs no extra request) and are `null`
- * rather than Vikunja's `0` sentinel.
+ * project cannot be mapped to buckets and the adapter skips it. It comes from
+ * the `views[]` embedded in `GET /projects` (recon Q5/§2.7), so the scope
+ * picker costs one request. The view's done and default bucket ids are not
+ * repeated here: only `listBuckets` needs them, and it reads the view anyway
+ * to flag the buckets it returns.
  */
 export interface VikunjaProjectSummary {
   id: number
   title: string
   kanbanViewId: number | null
-  doneBucketId: number | null
-  defaultBucketId: number | null
   isArchived: boolean
 }
 
 /**
- * One bucket (kanban column) of the chosen view. `isDone` marks the view's
- * own done bucket — moving a task there flips `done` server-side (recon Q7),
- * which is why the mapping wizard treats it as the only sensible home for
- * `completed`.
+ * One bucket (kanban column) of the chosen view.
+ *
+ * `isDone` marks the view's own done bucket — moving a task there flips
+ * `done` server-side (recon Q7), which is why the mapping wizard treats it as
+ * the only sensible home for `completed`.
+ *
+ * `isDefault` marks the view's `default_bucket_id`: where Vikunja itself puts
+ * a new task, and where a task leaving the done bucket lands (recon Q8). Flat
+ * mode points everything but `completed` at it, so it is not a cosmetic flag.
  */
 export interface VikunjaBucketSummary {
   id: number
   title: string
   isDone: boolean
+  isDefault: boolean
 }
 
 /** A label, which the Todo widget surfaces as a "project". */
@@ -173,6 +178,22 @@ export interface VikunjaLabelSummary {
   /** `hex_color` without a leading `#`, or `null` when the label has none. */
   hexColor: string | null
 }
+
+/**
+ * Ceilings on the two free-text fields a pulled task carries.
+ *
+ * A Vikunja title has no server-side limit worth relying on and a description
+ * is rich text, so a single pathological task could otherwise push megabytes
+ * through `structuredClone` on this bridge and then into
+ * `chrome.storage.local`, whose quota the whole widget shares. The widget
+ * shows a card, not a document: truncating is the honest failure mode.
+ *
+ * Part of the bridge vocabulary rather than of the worker's own constants
+ * because both sides need them — the worker truncates to them, the widget's
+ * schema refuses anything longer.
+ */
+export const VIKUNJA_MAX_TITLE_LENGTH = 1024
+export const VIKUNJA_MAX_DESCRIPTION_LENGTH = 16_384
 
 /**
  * One task as the pull hands it over.

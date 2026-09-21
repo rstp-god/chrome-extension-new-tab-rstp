@@ -23,7 +23,10 @@ import type { StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/
  */
 export function statusForContainerId(id: string, mapping: StatusListMapping): TodoStatus {
   for (const status of TODO_STATUSES) {
-    if (mapping[status].includes(id)) return status
+    // Optional: a `StatusListMapping` can arrive from persisted state, and a
+    // hand-edited record missing a row must fall back to `input` rather than
+    // throw in the middle of a pull.
+    if (mapping[status]?.includes(id)) return status
   }
   return 'input'
 }

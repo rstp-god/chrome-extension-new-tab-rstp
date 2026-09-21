@@ -456,6 +456,18 @@ describe('todo store — integration: updateIntegrationConfig', () => {
     expect(useTodoStore.getState().errorKey).toBeNull()
   })
 
+  it('answers whether the write happened', () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+
+    expect(
+      useTodoStore.getState().updateIntegrationConfig({ apiKey: 'k', token: 't', boardId: 'b' }),
+    ).toBe(true)
+    expect(useTodoStore.getState().updateIntegrationConfig({ apiKey: 'k' })).toBe(false)
+
+    useTodoStore.setState({ integration: null })
+    expect(useTodoStore.getState().updateIntegrationConfig({})).toBe(false)
+  })
+
   it('refuses a config the persisted schema rejects, leaving the slice untouched', () => {
     const before = makeIntegrationState({ mapping: mappingFixture })
     useTodoStore.setState({ integration: before })
@@ -475,6 +487,19 @@ describe('todo store — integration: updateIntegrationConfig', () => {
 
 describe('todo store — integration: refreshContainers', () => {
   const refreshed: RemoteContainer[] = [...listsFixture, { id: 'list-struggle', name: 'Struggle' }]
+
+  it('answers true on success and false on failure', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState({ mapping: mappingFixture }) })
+    fakeListContainers.mockResolvedValueOnce(ok(refreshed))
+    fakeListProjects.mockResolvedValueOnce(ok(projectsFixture))
+    await expect(useTodoStore.getState().refreshContainers()).resolves.toBe(true)
+
+    fakeListContainers.mockResolvedValueOnce({ ok: false, errorKey: 'network' })
+    await expect(useTodoStore.getState().refreshContainers()).resolves.toBe(false)
+
+    useTodoStore.setState({ integration: null })
+    await expect(useTodoStore.getState().refreshContainers()).resolves.toBe(false)
+  })
 
   it('re-reads containers and projects while keeping the mapping', async () => {
     useTodoStore.setState({ integration: makeIntegrationState({ mapping: mappingFixture }) })
@@ -834,6 +859,32 @@ describe('todo store — integration: syncNow Phase 2 (pull + reconcile)', () =>
     expect(state.integration?.lastSyncAt).not.toBeNull()
     expect(state.loading).toBe(false)
     expect(state.errorKey).toBeNull()
+  })
+})
+
+describe('todo store — integration: syncNow concurrency', () => {
+  it('does not revert containers that refreshContainers read mid-sync', async () => {
+    const grown: RemoteContainer[] = [...listsFixture, { id: 'list-new', name: 'Struggle' }]
+    useTodoStore.setState({
+      integration: makeIntegrationState({ mapping: mappingFixture }),
+      tasks: [],
+    })
+
+    // The wizard creates a column while the pull is in flight: the refresh
+    // lands first, and `syncNow` finishes by writing `lastSyncAt`. A spread
+    // of its own stale snapshot would take the new column back out.
+    fakePullTasks.mockImplementationOnce(async () => {
+      useTodoStore.setState((state) => ({
+        integration: state.integration ? { ...state.integration, lists: grown } : null,
+      }))
+      return ok({ tasks: [], refs: {} })
+    })
+
+    await useTodoStore.getState().syncNow()
+
+    const integration = useTodoStore.getState().integration
+    expect(integration?.lists).toEqual(grown)
+    expect(integration?.lastSyncAt).toBeGreaterThan(0)
   })
 })
 

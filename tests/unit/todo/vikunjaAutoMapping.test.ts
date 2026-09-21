@@ -11,7 +11,7 @@ import type { RemoteContainer, StatusListMapping } from '@/widgets/Todo/integrat
 
 /** The board the recon instance actually has. */
 const THREE_COLUMNS: RemoteContainer[] = [
-  { id: '1', name: 'To-Do' },
+  { id: '1', name: 'To-Do', isDefault: true },
   { id: '2', name: 'Doing' },
   { id: '3', name: 'Done', isTerminal: true },
 ]
@@ -46,6 +46,36 @@ describe('suggestMapping', () => {
       completed: ['3'],
       deleted: ['5'],
     })
+  })
+
+  it.each([
+    // Word-bounded and stem-based, so an unrelated column keeps its peace.
+    ['Binder', 'deleted'],
+    ['Newsletter', 'input'],
+    ['Combine', 'deleted'],
+  ])('does not read %s as %s', (name, status) => {
+    expect(suggestMapping([{ id: '1', name }])[status as 'deleted' | 'input']).toEqual([])
+  })
+
+  it.each([
+    ['Удаленные', 'deleted'],
+    ['Удалённые', 'deleted'],
+    ['Корзина', 'deleted'],
+    ['В процессе', 'inprogress'],
+    ['В работе', 'inprogress'],
+    ['Входящие', 'input'],
+    ['Затыки', 'struggle'],
+    ['Застрял', 'struggle'],
+  ])('reads the Russian %s as %s', (name, status) => {
+    expect(suggestMapping([{ id: '1', name }])[status as 'deleted']).toEqual(['1'])
+  })
+
+  it('is idempotent — re-suggesting over its own result changes nothing', () => {
+    // The suggestion is a pure function of the containers, so a second pass
+    // over the same board has to agree with the first.
+    const once = suggestMapping(FULL_BOARD)
+    expect(suggestMapping(FULL_BOARD)).toEqual(once)
+    expect(suggestMapping([...FULL_BOARD])).toEqual(once)
   })
 
   it('matches a Russian board by name', () => {
@@ -123,7 +153,7 @@ describe('validateMapping', () => {
   it('is happy with a complete, conflict-free mapping', () => {
     expect(validateMapping(base, FULL_BOARD)).toEqual({
       conflicts: [],
-      deletedOnTerminal: false,
+      terminalMisused: [],
       completedNotTerminal: false,
       missing: [],
     })
@@ -138,9 +168,21 @@ describe('validateMapping', () => {
   it('reports the done bucket used as the trash', () => {
     const problems = validateMapping({ ...base, deleted: ['3'] }, FULL_BOARD)
 
-    expect(problems.deletedOnTerminal).toBe(true)
+    expect(problems.terminalMisused).toEqual(['deleted'])
     // It is also a conflict with `completed`, and both are reported.
     expect(problems.conflicts).toEqual([['completed', 'deleted']])
+  })
+
+  it('reports every non-completed status that was handed the done bucket', () => {
+    // Entering the done bucket sets `done` server-side, so "in progress on
+    // the done bucket" is just as broken as "trash on the done bucket".
+    const problems = validateMapping(
+      { ...base, inprogress: ['3'], struggle: ['3'], completed: ['4'] },
+      FULL_BOARD,
+    )
+
+    expect(problems.terminalMisused).toEqual(['inprogress', 'struggle'])
+    expect(problems.completedNotTerminal).toBe(true)
   })
 
   it('reports completed pointing somewhere other than the done bucket', () => {
@@ -154,7 +196,7 @@ describe('validateMapping', () => {
     const problems = validateMapping(base, noTerminal)
 
     expect(problems.completedNotTerminal).toBe(false)
-    expect(problems.deletedOnTerminal).toBe(false)
+    expect(problems.terminalMisused).toEqual([])
   })
 
   it('lists the empty rows', () => {
@@ -173,7 +215,7 @@ describe('validateMapping', () => {
 })
 
 describe('flatModeMapping', () => {
-  it('points everything but completed at the default column', () => {
+  it('points everything but completed at the view\u2019s default bucket', () => {
     expect(flatModeMapping(THREE_COLUMNS)).toEqual({
       input: ['1'],
       inprogress: ['1'],
@@ -189,6 +231,25 @@ describe('flatModeMapping', () => {
     for (const ids of Object.values(flat ?? {})) {
       expect(ids.length).toBeGreaterThan(0)
     }
+  })
+
+  it('prefers the flagged default bucket over the leftmost column', () => {
+    // Vikunja drops a new task into `default_bucket_id`, and a task leaving
+    // the done bucket lands there too — so that is where flat mode writes.
+    const reordered: RemoteContainer[] = [
+      { id: '9', name: 'Ideas' },
+      { id: '1', name: 'To-Do', isDefault: true },
+      { id: '3', name: 'Done', isTerminal: true },
+    ]
+    expect(flatModeMapping(reordered)).toMatchObject({ input: ['1'], deleted: ['1'] })
+  })
+
+  it('falls back to the leftmost non-terminal column when no default is flagged', () => {
+    const unflagged: RemoteContainer[] = [
+      { id: '9', name: 'Ideas' },
+      { id: '3', name: 'Done', isTerminal: true },
+    ]
+    expect(flatModeMapping(unflagged)).toMatchObject({ input: ['9'], completed: ['3'] })
   })
 
   it('falls back to the terminal bucket when it is the only column', () => {

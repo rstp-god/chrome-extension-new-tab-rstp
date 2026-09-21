@@ -74,6 +74,15 @@ function totalPages(headers: Headers): number | null {
   return parsed
 }
 
+/**
+ * The cap is a safety valve, not a normal outcome: hitting it means the read
+ * is incomplete and the user is quietly seeing a truncated board. Path
+ * template only — never the host or the body.
+ */
+function warnPageCap(path: string): void {
+  console.warn('[vikunja] page cap reached', { path })
+}
+
 const NETWORK_FAILURE: VikunjaResponse<never> = { ok: false, errorKey: 'network' }
 const UNKNOWN_FAILURE: VikunjaResponse<never> = { ok: false, errorKey: 'unknown' }
 
@@ -195,6 +204,7 @@ export class VikunjaClient {
       }
 
       if (!sawFullBucket) break
+      if (page === VIKUNJA_MAX_PULL_PAGES) warnPageCap(path)
     }
 
     return { ok: true, value: [...merged.values()] }
@@ -267,6 +277,7 @@ export class VikunjaClient {
       } else if (page >= total) {
         break
       }
+      if (page === VIKUNJA_MAX_PULL_PAGES) warnPageCap(path)
     }
 
     return { ok: true, value: collected }

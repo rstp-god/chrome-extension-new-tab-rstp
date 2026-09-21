@@ -290,7 +290,8 @@ describe('5xx backoff', () => {
 
 // ---------- read path (task 5) ----------
 
-const VIEW_BASE = 'https://vikunja.example/api/v1/projects/1/views/4'
+const VIEW_PATH = '/projects/1/views/4'
+const VIEW_BASE = `https://vikunja.example/api/v1${VIEW_PATH}`
 
 function kanbanView(overrides: Record<string, unknown> = {}) {
   return {
@@ -415,12 +416,15 @@ describe('paged collections', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('never exceeds the page cap', async () => {
+  it('never exceeds the page cap, and warns when it is hit', async () => {
     // A server that always claims one more page than it delivered.
     const fetchMock = stubFetch(async () => pagedResponse([project(1)], 9999))
 
     await expect(client().getProjects()).resolves.toMatchObject({ ok: true })
     expect(fetchMock).toHaveBeenCalledTimes(VIKUNJA_MAX_PULL_PAGES)
+    expect(vi.mocked(console.warn)).toHaveBeenCalledWith('[vikunja] page cap reached', {
+      path: '/projects',
+    })
   })
 })
 
@@ -505,7 +509,8 @@ describe('getViewTasks', () => {
     const firstPage = Array.from({ length: 50 }, (_unused, index) => task(index + 1))
     const fetchMock = stubFetch(async (url) =>
       url.includes('page=2')
-        ? pagedResponse([{ ...bucket(1), tasks: [task(50), task(51)] }])
+        ? // Task 50 is on both pages; only 51 is new.
+          pagedResponse([{ ...bucket(1), tasks: [task(50), task(51)] }])
         : pagedResponse([{ ...bucket(1), tasks: firstPage }]),
     )
 
@@ -514,15 +519,22 @@ describe('getViewTasks', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(out).toMatchObject({ ok: true })
     if (!out.ok) return
-    expect(out.value[0].tasks?.map((t) => t.id)).toHaveLength(51)
+    // Exactly 1..51, in page order, with no duplicate of 50.
+    expect(out.value[0].tasks?.map((entry) => entry.id)).toEqual(
+      Array.from({ length: 51 }, (_unused, index) => index + 1),
+    )
   })
 
-  it('stops at the page cap when the instance keeps answering full pages', async () => {
+  it('stops at the page cap when the instance keeps answering full pages, and says so', async () => {
     const fullPage = Array.from({ length: 50 }, (_unused, index) => task(index + 1))
     const fetchMock = stubFetch(async () => pagedResponse([{ ...bucket(1), tasks: fullPage }]))
 
     await expect(client().getViewTasks(1, 4)).resolves.toMatchObject({ ok: true })
     expect(fetchMock).toHaveBeenCalledTimes(VIKUNJA_MAX_PULL_PAGES)
+    // A truncated board must not be silent.
+    expect(vi.mocked(console.warn)).toHaveBeenCalledWith('[vikunja] page cap reached', {
+      path: `${VIEW_PATH}/tasks`,
+    })
   })
 
   it('propagates a failure mid-pull', async () => {

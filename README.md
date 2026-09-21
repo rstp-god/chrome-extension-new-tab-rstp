@@ -448,11 +448,13 @@ export const descriptor: IntegrationDescriptor = {
   titleI18nKey: 'todoWidget:integrations.myservice.title',
   descriptionI18nKey: 'todoWidget:integrations.myservice.description',
   ConnectForm: MyServiceConnectForm,
-  // Необязательный: свой шаг маппинга вместо общей таблицы. Если шагу нужен
-  // стор, подключайте его через `lazy(() => import(...))` — статический
-  // импорт замкнул бы цикл `store → registry → descriptor → шаг → store`
-  // (см. дескриптор Vikunja).
-  // MappingStep: lazy(async () => ({ default: (await import('./MyMappingStep.tsx')).MyMappingStep })),
+  // Необязательный: свой шаг маппинга вместо общей таблицы (см. дескриптор
+  // Vikunja). Правило для обоих UI-компонентов дескриптора: они получают всё
+  // пропсами и **никогда не импортируют стор** — стор сам импортирует реестр
+  // интеграций, и обратный импорт замкнул бы цикл
+  // `store → registry → descriptor → компонент → store`. Стор читает слой
+  // настроек (`TodoSettingsStepBody`) и передаёт шагу `MappingStepProps`.
+  // MappingStep: MyMappingStep,
   create: (config) => new MyIntegration(config as MyServiceConfig),
   // Где внутри конфига лежит адрес — знает только дескриптор; отдельного
   // персистентного поля у scope нет.
@@ -1007,11 +1009,14 @@ export const descriptor: IntegrationDescriptor = {
   titleI18nKey: 'todoWidget:integrations.myservice.title',
   descriptionI18nKey: 'todoWidget:integrations.myservice.description',
   ConnectForm: MyServiceConnectForm,
-  // Optional: your own mapping step instead of the generic table. If the step
-  // needs the store, reference it through `lazy(() => import(...))` — a static
-  // import would close the loop `store → registry → descriptor → step → store`
-  // (see the Vikunja descriptor).
-  // MappingStep: lazy(async () => ({ default: (await import('./MyMappingStep.tsx')).MyMappingStep })),
+  // Optional: your own mapping step instead of the generic table (see the
+  // Vikunja descriptor). The rule for both of a descriptor's UI components:
+  // they take everything as props and **never import the store** — the store
+  // imports the integration registry, so importing it back would close the
+  // loop `store → registry → descriptor → component → store`. The settings
+  // layer (`TodoSettingsStepBody`) reads the store and hands the step its
+  // `MappingStepProps`.
+  // MappingStep: MyMappingStep,
   create: (config) => new MyIntegration(config as MyServiceConfig),
   // Only the descriptor knows where the address lives inside its config —
   // the scope is not a separate persisted field.

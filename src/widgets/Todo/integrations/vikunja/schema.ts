@@ -8,6 +8,11 @@
 
 import { z } from 'zod'
 
+import {
+  VIKUNJA_MAX_DESCRIPTION_LENGTH,
+  VIKUNJA_MAX_TITLE_LENGTH,
+} from '@/background/vikunja/messages.ts'
+
 import type {
   VikunjaBucketSummary,
   VikunjaConnectInfo,
@@ -37,8 +42,6 @@ export const vikunjaProjectSummarySchema: z.ZodType<VikunjaProjectSummary> = z.o
   id: z.number(),
   title: z.string(),
   kanbanViewId: z.number().nullable(),
-  doneBucketId: z.number().nullable(),
-  defaultBucketId: z.number().nullable(),
   isArchived: z.boolean(),
 })
 
@@ -48,6 +51,7 @@ export const vikunjaBucketSummarySchema: z.ZodType<VikunjaBucketSummary> = z.obj
   id: z.number(),
   title: z.string(),
   isDone: z.boolean(),
+  isDefault: z.boolean(),
 })
 
 export const vikunjaBucketSummaryListSchema = z.array(vikunjaBucketSummarySchema)
@@ -63,8 +67,11 @@ export const vikunjaLabelSummaryListSchema = z.array(vikunjaLabelSummarySchema)
 export const vikunjaPulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
   id: z.number(),
   identifier: z.string(),
-  title: z.string(),
-  description: z.string(),
+  // The same ceilings the worker truncates to: a payload over them did not
+  // come from our own `pull`, and the widget refuses it rather than
+  // persisting it.
+  title: z.string().max(VIKUNJA_MAX_TITLE_LENGTH),
+  description: z.string().max(VIKUNJA_MAX_DESCRIPTION_LENGTH),
   done: z.boolean(),
   doneAt: z.string().nullable(),
   bucketId: z.number(),

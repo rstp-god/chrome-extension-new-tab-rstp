@@ -81,8 +81,8 @@ interface TodoWidgetState {
     projects: Project[],
   ) => void
   setMapping: (mapping: StatusListMapping) => Promise<void>
-  updateIntegrationConfig: (config: unknown) => void
-  refreshContainers: () => Promise<void>
+  updateIntegrationConfig: (config: unknown) => boolean
+  refreshContainers: () => Promise<boolean>
   clearIntegration: () => void
   syncNow: () => Promise<void>
 }
@@ -411,18 +411,23 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
        * mapping step, writing `kanbanMapping: false`) sets the matching
        * mapping itself, and silently dropping it here would strand the user
        * on the mapping step.
+       *
+       * Answers whether the write happened, so a caller that is about to
+       * save a matching mapping can stop instead of persisting a mapping for
+       * a mode the config never entered.
        */
       updateIntegrationConfig: (config) => {
         const integration = get().integration
-        if (!integration) return
+        if (!integration) return false
 
         const parsed = integrationSchema.safeParse({ ...integration, config })
         if (!parsed.success) {
           set({ errorKey: 'unknown' })
-          return
+          return false
         }
 
         set({ integration: parsed.data, errorKey: null })
+        return true
       },
 
       /**
@@ -433,14 +438,18 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
        * when the user changes scope and wrong here: this runs right after the
        * wizard created the missing columns, and the draft mapping it is about
        * to save refers to them.
+       *
+       * Answers whether the cache is now up to date; a caller that is about
+       * to save a mapping pointing at freshly created containers needs to
+       * know.
        */
       refreshContainers: async () => {
         const active = getActive(get())
-        if (!active) return
+        if (!active) return false
         const { adapter, descriptor, integration } = active
 
         const scope = descriptor.getScope(integration.config)
-        if (!scope) return
+        if (!scope) return false
 
         set({ loading: true, errorKey: null })
         const [containers, projects] = await Promise.all([
@@ -449,11 +458,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         ])
         if (!containers.ok) {
           set({ loading: false, errorKey: containers.errorKey })
-          return
+          return false
         }
         if (!projects.ok) {
           set({ loading: false, errorKey: projects.errorKey })
-          return
+          return false
         }
 
         // The slice may have moved while the two requests were in flight, so
@@ -461,7 +470,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         const current = get().integration
         if (!current) {
           set({ loading: false })
-          return
+          return false
         }
 
         const parsed = integrationSchema.safeParse({
@@ -471,10 +480,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         })
         if (!parsed.success) {
           set({ loading: false, errorKey: 'unknown' })
-          return
+          return false
         }
 
         set({ integration: parsed.data, loading: false, errorKey: null })
+        return true
       },
 
       clearIntegration: () => {
@@ -595,11 +605,17 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           }
         }
 
-        set({
+        // Functional update over the *current* slice, not over the snapshot
+        // this run started from: `refreshContainers` (the mapping wizard
+        // creating columns) can land while the pull is in flight, and
+        // spreading the stale `integration` would silently revert its
+        // freshly-read containers.
+        const lastSyncAt = Date.now()
+        set((current) => ({
           tasks: reconciled,
-          integration: { ...integration, lastSyncAt: Date.now() },
+          integration: current.integration ? { ...current.integration, lastSyncAt } : null,
           loading: false,
-        })
+        }))
       },
     }
   }),

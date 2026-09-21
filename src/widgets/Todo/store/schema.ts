@@ -88,12 +88,14 @@ const remoteListSchema = z.object({
 })
 
 /**
- * A container that may be the backend's own terminal ("done") column. Only
- * the Vikunja branch stores the flag — the Trello branch keeps the narrower
- * shape it has always written, so old records stay byte-identical.
+ * A container that may be the backend's own terminal ("done") or default
+ * column. Only the Vikunja branch stores the flags — the Trello branch keeps
+ * the narrower shape it has always written, so old records stay
+ * byte-identical.
  */
 const remoteContainerSchema = remoteListSchema.extend({
   isTerminal: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
 })
 
 const trelloIntegrationSchema = z.object({

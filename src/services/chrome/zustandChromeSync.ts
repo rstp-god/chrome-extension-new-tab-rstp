@@ -88,18 +88,25 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
         }
       }
 
+      // A scheduled write has nobody to reject to: `storage.local` can fail
+      // (quota, a closing context), and an unhandled rejection would take the
+      // page's error handler by surprise instead of showing up as a log line.
+      const logWriteFailure = (err: unknown) => {
+        console.error('[sync] write failed', err)
+      }
+
       const scheduleWrite = () => {
         if (applyingRemote) return
 
         if (debounceMs <= 0) {
-          void writeNow()
+          void writeNow().catch(logWriteFailure)
           return
         }
 
         if (timer !== null) clearTimeout(timer)
         timer = setTimeout(() => {
           timer = null
-          void writeNow()
+          void writeNow().catch(logWriteFailure)
         }, debounceMs)
       }
 

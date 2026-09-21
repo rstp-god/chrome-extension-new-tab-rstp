@@ -38,6 +38,10 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
   // generic `descriptor.SummaryNotice` component would be a bigger change
   // for one line of copy — branch here instead, and promote it if a second
   // backend ever grows a caveat.
+  //
+  // The per-status table is hidden in that mode rather than shown: it would
+  // list the same default bucket four times, which describes a placeholder
+  // the sync deliberately never writes to.
   const flatMode = integration.name === 'vikunja' && !integration.config.kanbanMapping
 
   const handleSync = async () => {
@@ -74,12 +78,15 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
       </div>
 
       {flatMode && (
-        <p className="rounded-2xl border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+        <p
+          role="alert"
+          className="rounded-2xl border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground"
+        >
           {t('integrations.vikunja.mapping.flatNotice')}
         </p>
       )}
 
-      {integration.mapping && (
+      {integration.mapping && !flatMode && (
         <div className="grid gap-1.5 rounded-2xl border border-border bg-muted/20 p-3 text-sm">
           <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {t('integrations.trello.summary.mappingLabel')}
@@ -87,7 +94,7 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
           {TODO_STATUSES.map((status) => (
             <div key={status} className="flex items-start justify-between gap-3">
               <span className="text-muted-foreground">
-                {t(`integrations.trello.mapping.row.${status}`)}
+                {t(`integrations.mapping.row.${status}`)}
               </span>
               <span className="text-right">
                 {integration.mapping?.[status].map((id) => listNameById.get(id) ?? id).join(', ')}

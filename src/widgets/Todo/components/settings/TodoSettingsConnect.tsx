@@ -25,7 +25,7 @@ export function TodoSettingsConnect({ integrationName, onBack }: Props) {
         <p className="text-sm text-destructive">{t('integrations.errors.unknown')}</p>
         <Button type="button" variant="outline" onClick={onBack}>
           <ChevronLeftIcon className="size-4" />
-          {t('integrations.trello.board.back')}
+          {t('integrations.actions.back')}
         </Button>
       </div>
     )
@@ -50,7 +50,7 @@ export function TodoSettingsConnect({ integrationName, onBack }: Props) {
         className="self-start"
       >
         <ChevronLeftIcon className="size-4" />
-        {t('integrations.trello.board.back')}
+        {t('integrations.actions.back')}
       </Button>
     </div>
   )

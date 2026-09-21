@@ -11,18 +11,12 @@
 
 import { normalizeVikunjaTimestamp } from '@/background/vikunja/messages.ts'
 import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.ts'
-import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 
 import { VIKUNJA_RESERVED_LABEL_PREFIXES } from './constants.ts'
 import { getVikunjaProjectPillClass } from './projectStyles.ts'
 
 import type { VikunjaLabelSummary, VikunjaPulledTask } from '@/background/vikunja/messages.ts'
-import type {
-  Project,
-  RemoteTaskRef,
-  StatusListMapping,
-  TodoStatus,
-} from '@/widgets/Todo/integrations/types.ts'
+import type { Project, StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 
 /** Statuses flat mode keeps locally because Vikunja has nowhere to put them. */
@@ -69,6 +63,23 @@ function escapeHtml(text: string): string {
 }
 
 /**
+ * A `<script>` or `<style>` element, contents and all.
+ *
+ * Their text is code, not prose: stripping only the tags would leave the
+ * whole stylesheet sitting in the task's description. Nothing legitimate puts
+ * either in a Vikunja description, but a shared project is enough for someone
+ * else to try.
+ */
+const CODE_BLOCK_RE = /<(script|style)\b[\s\S]*?<\/\1\s*>/gi
+
+/**
+ * Any tag, tolerating a `>` inside a quoted attribute — `<img alt="a > b">`
+ * is one tag, and a naive `/<[^>]*>/` would cut it in half and spill
+ * `b">` into the text.
+ */
+const TAG_RE = /<(?:"[^"]*"|'[^']*'|[^'">])*>/g
+
+/**
  * Vikunja's rich-text description → the plain text the widget shows.
  *
  * Regex-based rather than DOM-based because this runs in the widget *and*
@@ -79,6 +90,7 @@ function escapeHtml(text: string): string {
 export function htmlToText(html: string): string {
   const withBreaks = html
     .replace(/\r\n?/g, '\n')
+    .replace(CODE_BLOCK_RE, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p\s*>/gi, '\n\n')
     .replace(/<\/div\s*>/gi, '\n')
@@ -86,7 +98,7 @@ export function htmlToText(html: string): string {
 
   // Tags first, entities second: an escaped `&lt;b&gt;` the user typed must
   // survive as text instead of being decoded into a tag and then stripped.
-  const stripped = withBreaks.replace(/<[^>]*>/g, '')
+  const stripped = withBreaks.replace(TAG_RE, '')
 
   return decodeEntities(stripped)
     .replace(/[ \t]+\n/g, '\n')
@@ -135,7 +147,12 @@ export function labelToProject(label: VikunjaLabelSummary): Project {
 
 export interface VikunjaTaskContext {
   mapping: StatusListMapping
-  knownRefs: Record<string, RemoteTaskRef>
+  /**
+   * Local task id per known Vikunja task id, built once by the adapter. An
+   * index rather than the raw `knownRefs` record, so mapping a board stays
+   * linear in the number of tasks.
+   */
+  localIdByTaskId: Map<number, string>
   knownStatuses: Record<string, TodoStatus>
   /** `true` when the user declined the bucket mapping — see `flatModeMapping`. */
   flat: boolean
@@ -148,19 +165,6 @@ function parseTimestamp(iso: string | null, fallback: number): number {
   if (iso === null) return fallback
   const parsed = Date.parse(iso)
   return Number.isFinite(parsed) ? parsed : fallback
-}
-
-/**
- * The local id this remote task already has, if any. Matching on the ref
- * (not on the derived id) is what keeps a task linked after it was created
- * locally: it was born with a random uuid and only later learned its
- * `taskId`.
- */
-function knownLocalId(taskId: number, knownRefs: Record<string, RemoteTaskRef>): string | null {
-  for (const [localId, ref] of Object.entries(knownRefs)) {
-    if (isVikunjaRef(ref) && ref.taskId === taskId) return localId
-  }
-  return null
 }
 
 /**
@@ -180,7 +184,10 @@ function statusFor(task: VikunjaPulledTask, localId: string, ctx: VikunjaTaskCon
 }
 
 export function vikunjaTaskToTodo(task: VikunjaPulledTask, ctx: VikunjaTaskContext): TodoTask {
-  const id = knownLocalId(task.id, ctx.knownRefs) ?? localIdForTask(task.id)
+  // The index is keyed by the remote id rather than the derived local one:
+  // that is what keeps a task linked after it was created locally, born with
+  // a random uuid and only later told its `taskId`.
+  const id = ctx.localIdByTaskId.get(task.id) ?? localIdForTask(task.id)
   const status = statusFor(task, id, ctx)
 
   const description = htmlToText(task.description)

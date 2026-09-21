@@ -16,6 +16,8 @@ import {
   normalizeVikunjaBaseUrl,
   normalizeVikunjaTimestamp,
   vikunjaHostPattern,
+  VIKUNJA_MAX_DESCRIPTION_LENGTH,
+  VIKUNJA_MAX_TITLE_LENGTH,
   VIKUNJA_UNKNOWN_FAILURE,
 } from '@/background/vikunja/messages.ts'
 
@@ -35,6 +37,7 @@ import type {
   VikunjaLabel,
   VikunjaProject,
   VikunjaTask,
+  VikunjaView,
 } from '@/background/vikunja/schema.ts'
 
 /**
@@ -132,11 +135,6 @@ const vikunjaBucketTitleSchema = z
   .transform((raw) => raw.trim())
   .refine((title) => title.length > 0)
 
-/** Vikunja's `0` means "unset" for a bucket id (recon Q5), never bucket zero. */
-function bucketIdOrNull(raw: number | undefined): number | null {
-  return raw === undefined || raw === 0 ? null : raw
-}
-
 function toProjectSummary(project: VikunjaProject): VikunjaProjectSummary {
   // The first kanban view wins. A project can hold several, but they share
   // the same tasks — picking one deterministically beats asking the user to
@@ -146,14 +144,22 @@ function toProjectSummary(project: VikunjaProject): VikunjaProjectSummary {
     id: project.id,
     title: project.title,
     kanbanViewId: kanban?.id ?? null,
-    doneBucketId: bucketIdOrNull(kanban?.done_bucket_id),
-    defaultBucketId: bucketIdOrNull(kanban?.default_bucket_id),
     isArchived: project.is_archived,
   }
 }
 
-function toBucketSummary(bucket: VikunjaBucket, doneBucketId: number): VikunjaBucketSummary {
-  return { id: bucket.id, title: bucket.title, isDone: bucket.id === doneBucketId }
+/**
+ * Both flags come from the view, not from the bucket: a bucket record says
+ * nothing about the role the view gave it. `0` is Vikunja's "unset" sentinel
+ * (recon Q5) and no bucket has id 0, so no special case is needed.
+ */
+function toBucketSummary(bucket: VikunjaBucket, view: VikunjaView): VikunjaBucketSummary {
+  return {
+    id: bucket.id,
+    title: bucket.title,
+    isDone: bucket.id === view.done_bucket_id,
+    isDefault: bucket.id === view.default_bucket_id,
+  }
 }
 
 function toLabelSummary(label: VikunjaLabel): VikunjaLabelSummary {
@@ -166,13 +172,18 @@ function toLabelSummary(label: VikunjaLabel): VikunjaLabelSummary {
  * `task.bucket_id`: the latter is only correct inside a view response and is
  * `0` everywhere else (recon Q3), so trusting the field instead of the
  * position would silently unmap every task.
+ *
+ * `title` and `description` are truncated to the documented ceilings.
  */
 function toPulledTask(task: VikunjaTask, bucketId: number): VikunjaPulledTask {
   return {
     id: task.id,
     identifier: task.identifier,
-    title: task.title,
-    description: task.description,
+    // Bounded here, at the edge: everything downstream — the message clone,
+    // the local store, `chrome.storage.local`'s shared quota — pays for
+    // whatever a single task happens to carry.
+    title: task.title.slice(0, VIKUNJA_MAX_TITLE_LENGTH),
+    description: task.description.slice(0, VIKUNJA_MAX_DESCRIPTION_LENGTH),
     done: task.done,
     doneAt: task.done_at,
     bucketId,
@@ -216,7 +227,7 @@ export function handleListBuckets(
 
     return {
       ok: true,
-      value: buckets.value.map((bucket) => toBucketSummary(bucket, view.value.done_bucket_id)),
+      value: buckets.value.map((bucket) => toBucketSummary(bucket, view.value)),
     }
   })
 }
@@ -244,9 +255,12 @@ export function handleCreateBucket(
   return withVikunjaClient(req.cfg, async (client) => {
     const out = await client.createBucket(projectId, viewId, title.data)
     if (!out.ok) return out
-    // A freshly created bucket is never the done bucket: the view's
-    // `done_bucket_id` still points at whatever it pointed at before.
-    return { ok: true, value: { id: out.value.id, title: out.value.title, isDone: false } }
+    // A freshly created bucket is neither the done nor the default bucket:
+    // the view's ids still point at whatever they pointed at before.
+    return {
+      ok: true,
+      value: { id: out.value.id, title: out.value.title, isDone: false, isDefault: false },
+    }
   })
 }
 

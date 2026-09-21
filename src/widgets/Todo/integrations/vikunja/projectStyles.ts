@@ -10,8 +10,9 @@
 import {
   DEFAULT_PROJECT_PILL_CLASS,
   projectPillClassForHue,
-  type ProjectPillHue,
 } from '@/widgets/Todo/utils/projectPillPalette.ts'
+
+import type { ProjectPillHue } from '@/widgets/Todo/utils/projectPillPalette.ts'
 
 /**
  * Representative angle of each coloured hue on the HSL wheel. `black` is

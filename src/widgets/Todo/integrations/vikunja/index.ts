@@ -1,5 +1,4 @@
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
-import { lazy } from 'react'
 
 import { sendVikunjaMessage } from './bridge.ts'
 import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
@@ -12,8 +11,13 @@ import {
   vikunjaPullResultSchema,
 } from './schema.ts'
 import { VikunjaConnectForm } from './VikunjaConnectForm.tsx'
+import { VikunjaMappingStep } from './VikunjaMappingStep.tsx'
 
-import type { VikunjaRequest, VikunjaWire } from '@/background/vikunja/messages.ts'
+import type {
+  VikunjaBucketSummary,
+  VikunjaRequest,
+  VikunjaWire,
+} from '@/background/vikunja/messages.ts'
 import type {
   IntegrationDescriptor,
   IntegrationOutcome,
@@ -150,10 +154,17 @@ export class VikunjaIntegration implements TodoIntegration {
     )
     if (!pull.ok) return pull
 
+    // One pass over the known refs instead of a scan per pulled task: a
+    // board with a few hundred tasks would otherwise be quadratic.
+    const localIdByTaskId = new Map<number, string>()
+    for (const [localId, ref] of Object.entries(ctx.knownRefs)) {
+      if (isVikunjaRef(ref)) localIdByTaskId.set(ref.taskId, localId)
+    }
+
     const projectIds = new Set(labels.value.map((label) => String(label.id)))
     const taskContext = {
       mapping: ctx.mapping,
-      knownRefs: ctx.knownRefs,
+      localIdByTaskId,
       knownStatuses: ctx.knownStatuses,
       // `kanbanMapping: false` means the user skipped the bucket wizard and
       // only `completed` round-trips.
@@ -232,16 +243,17 @@ export class VikunjaIntegration implements TodoIntegration {
 }
 
 /**
- * `isTerminal` is set only when true, never as `false`: the persisted
- * container schema makes it optional so records written by the Trello-only
- * build stay byte-identical, and writing an explicit `false` would start
- * changing them for no reason.
+ * The flags are set only when true, never as `false`: the persisted container
+ * schema makes them optional so records written by the Trello-only build stay
+ * byte-identical, and writing an explicit `false` would start changing them
+ * for no reason.
  */
-function toContainer(bucket: { id: number; title: string; isDone: boolean }): RemoteContainer {
+function toContainer(bucket: VikunjaBucketSummary): RemoteContainer {
   return {
     id: String(bucket.id),
     name: bucket.title,
     ...(bucket.isDone ? { isTerminal: true } : {}),
+    ...(bucket.isDefault ? { isDefault: true } : {}),
   }
 }
 
@@ -254,21 +266,8 @@ export const descriptor: IntegrationDescriptor = {
    * The generic mapping table cannot express Vikunja's rules: the done
    * bucket owns `completed`, and a board without a struggle/trash column
    * needs either new columns or flat mode.
-   *
-   * Referenced lazily, and that is load-bearing rather than an optimisation.
-   * The step is store-driven like every other settings step, and the store
-   * imports this registry to resolve descriptors — a static import here would
-   * close the loop `store → registry → descriptor → step → store`. A live
-   * cycle like that makes module init order significant (and, concretely,
-   * makes the registry unmockable in the store's own tests). A dynamic import
-   * has no such edge: by the time the factory runs, the store is long since
-   * initialised. The connect forms avoid the same loop by taking everything
-   * as props; this step needs three store actions, so it takes the other way
-   * out.
    */
-  MappingStep: lazy(async () => ({
-    default: (await import('./VikunjaMappingStep.tsx')).VikunjaMappingStep,
-  })),
+  MappingStep: VikunjaMappingStep,
   create: (config) => new VikunjaIntegration(config as VikunjaConfig),
   /**
    * The scope is the pair, not either half: a project without a view cannot

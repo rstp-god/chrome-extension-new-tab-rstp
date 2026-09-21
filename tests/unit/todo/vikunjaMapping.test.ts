@@ -13,11 +13,7 @@ import { vikunjaHueFor } from '@/widgets/Todo/integrations/vikunja/projectStyles
 import { DEFAULT_PROJECT_PILL_CLASS } from '@/widgets/Todo/utils/projectPillPalette.ts'
 
 import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
-import type {
-  RemoteTaskRef,
-  StatusListMapping,
-  TodoStatus,
-} from '@/widgets/Todo/integrations/types.ts'
+import type { StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
 import type { VikunjaTaskContext } from '@/widgets/Todo/integrations/vikunja/mapping.ts'
 
 const MAPPING: StatusListMapping = {
@@ -47,16 +43,12 @@ function pulled(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
 function context(overrides: Partial<VikunjaTaskContext> = {}): VikunjaTaskContext {
   return {
     mapping: MAPPING,
-    knownRefs: {},
+    localIdByTaskId: new Map(),
     knownStatuses: {},
     flat: false,
     projectIds: new Set<string>(),
     ...overrides,
   }
-}
-
-function vikunjaRef(taskId: number): RemoteTaskRef {
-  return { taskId, identifier: `#${taskId}`, bucketId: 1, updated: '2026-01-01T00:00:00.000Z' }
 }
 
 describe('statusForContainerId', () => {
@@ -108,6 +100,18 @@ describe('htmlToText', () => {
 
   it('answers an empty string for an empty description', () => {
     expect(htmlToText('')).toBe('')
+  })
+
+  it('drops a script or style block with its contents', () => {
+    // Stripping only the tags would leave the code sitting in the task text.
+    expect(htmlToText('<p>before</p><script>alert(1)</script><p>after</p>')).toBe('before\n\nafter')
+    expect(htmlToText('<style>.a { color: red }</style><p>text</p>')).toBe('text')
+    expect(htmlToText('<SCRIPT type="text/javascript">let a = 1 > 0</SCRIPT>x')).toBe('x')
+  })
+
+  it('treats a quoted > inside an attribute as part of the tag', () => {
+    expect(htmlToText('<p><img alt="a > b" src="x.png">text</p>')).toBe('text')
+    expect(htmlToText("<p><span data-x='a > b'>text</span></p>")).toBe('text')
   })
 })
 
@@ -191,18 +195,13 @@ describe('vikunjaTaskToTodo — identity', () => {
     expect(localIdForTask(4)).toBe('vikunja:4')
   })
 
-  it('keeps the local id a known ref already points at', () => {
-    const ctx = context({ knownRefs: { 'local-uuid': vikunjaRef(4) } })
+  it('keeps the local id the index already points at', () => {
+    const ctx = context({ localIdByTaskId: new Map([[4, 'local-uuid']]) })
     expect(vikunjaTaskToTodo(pulled(), ctx).id).toBe('local-uuid')
   })
 
-  it('ignores a known ref for a different task and a foreign ref', () => {
-    const ctx = context({
-      knownRefs: {
-        other: vikunjaRef(9),
-        trello: { cardId: 'c', shortLink: null, listId: 'l', etag: null },
-      },
-    })
+  it('ignores an index entry for a different task', () => {
+    const ctx = context({ localIdByTaskId: new Map([[9, 'other']]) })
     expect(vikunjaTaskToTodo(pulled(), ctx).id).toBe('vikunja:4')
   })
 
@@ -274,10 +273,10 @@ describe('vikunjaTaskToTodo — flat mode', () => {
     expect(vikunjaTaskToTodo(pulled(), flat({ 'vikunja:4': 'completed' })).status).toBe('input')
   })
 
-  it('keeps the local status under the id a known ref points at', () => {
+  it('keeps the local status under the id the index points at', () => {
     const ctx = context({
       flat: true,
-      knownRefs: { 'local-uuid': vikunjaRef(4) },
+      localIdByTaskId: new Map([[4, 'local-uuid']]),
       knownStatuses: { 'local-uuid': 'inprogress' },
     })
     expect(vikunjaTaskToTodo(pulled(), ctx).status).toBe('inprogress')

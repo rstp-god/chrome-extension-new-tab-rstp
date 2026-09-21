@@ -32,15 +32,7 @@ const MAPPING: StatusListMapping = {
 }
 
 function summaryProject(overrides: Partial<VikunjaProjectSummary> = {}): VikunjaProjectSummary {
-  return {
-    id: 1,
-    title: 'Inbox',
-    kanbanViewId: 4,
-    doneBucketId: 3,
-    defaultBucketId: 1,
-    isArchived: false,
-    ...overrides,
-  }
+  return { id: 1, title: 'Inbox', kanbanViewId: 4, isArchived: false, ...overrides }
 }
 
 function pulledTask(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
@@ -173,12 +165,13 @@ describe('VikunjaIntegration.listScopes', () => {
 })
 
 describe('VikunjaIntegration.listContainers', () => {
-  it('marks the done bucket as terminal and leaves the flag off the others', async () => {
+  it('carries the terminal and default flags, and only when true', async () => {
     bridge.mockResolvedValue({
       ok: true,
       value: [
-        { id: 1, title: 'To-Do', isDone: false },
-        { id: 3, title: 'Done', isDone: true },
+        { id: 1, title: 'To-Do', isDone: false, isDefault: true },
+        { id: 2, title: 'Doing', isDone: false, isDefault: false },
+        { id: 3, title: 'Done', isDone: true, isDefault: false },
       ],
     })
 
@@ -187,14 +180,16 @@ describe('VikunjaIntegration.listContainers', () => {
     expect(out).toEqual({
       ok: true,
       value: [
-        { id: '1', name: 'To-Do' },
+        { id: '1', name: 'To-Do', isDefault: true },
+        { id: '2', name: 'Doing' },
         { id: '3', name: 'Done', isTerminal: true },
       ],
     })
     // Absent, not `false`: the persisted shape has to stay identical to what
     // the Trello-only build wrote.
     if (!out.ok) return
-    expect('isTerminal' in out.value[0]).toBe(false)
+    expect('isTerminal' in out.value[1]).toBe(false)
+    expect('isDefault' in out.value[1]).toBe(false)
     expect(bridge).toHaveBeenCalledWith({
       type: 'vikunja',
       op: 'listBuckets',
@@ -327,8 +322,11 @@ describe('VikunjaIntegration.pullTasks', () => {
 })
 
 describe('VikunjaIntegration.createContainer', () => {
-  it('creates a bucket and returns it as a non-terminal container', async () => {
-    bridge.mockResolvedValue({ ok: true, value: { id: 25, title: 'Struggle', isDone: false } })
+  it('creates a bucket and returns it as a plain container', async () => {
+    bridge.mockResolvedValue({
+      ok: true,
+      value: { id: 25, title: 'Struggle', isDone: false, isDefault: false },
+    })
 
     await expect(
       new VikunjaIntegration(CONFIG).createContainer(SCOPE, 'Struggle'),

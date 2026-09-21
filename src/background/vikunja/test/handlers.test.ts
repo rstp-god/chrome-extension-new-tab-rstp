@@ -6,6 +6,11 @@ import {
   withVikunjaClient,
 } from '@/background/vikunja/handlers.ts'
 
+import {
+  VIKUNJA_MAX_DESCRIPTION_LENGTH,
+  VIKUNJA_MAX_TITLE_LENGTH,
+} from '@/background/vikunja/messages.ts'
+
 import type { VikunjaConnectInfo } from '@/background/vikunja/messages.ts'
 
 const TOKEN = 'tk_super-secret-value'
@@ -362,51 +367,10 @@ describe('listProjects', () => {
     expect(out).toEqual({
       ok: true,
       value: [
-        {
-          id: 1,
-          title: 'Inbox',
-          kanbanViewId: 4,
-          doneBucketId: 3,
-          defaultBucketId: 1,
-          isArchived: false,
-        },
-        {
-          id: 2,
-          title: 'Archived',
-          kanbanViewId: 4,
-          doneBucketId: 3,
-          defaultBucketId: 1,
-          isArchived: true,
-        },
-        {
-          id: 3,
-          title: 'No kanban',
-          kanbanViewId: null,
-          doneBucketId: null,
-          defaultBucketId: null,
-          isArchived: false,
-        },
+        { id: 1, title: 'Inbox', kanbanViewId: 4, isArchived: false },
+        { id: 2, title: 'Archived', kanbanViewId: 4, isArchived: true },
+        { id: 3, title: 'No kanban', kanbanViewId: null, isArchived: false },
       ],
-    })
-  })
-
-  it('maps the 0 sentinel of a view without buckets to null', async () => {
-    stubPermissions(true)
-    stubFetch(
-      routes({
-        '/projects': [
-          projectBody({
-            views: [{ ...KANBAN_VIEW, done_bucket_id: 0, default_bucket_id: 0 }],
-          }),
-        ],
-      }),
-    )
-
-    await expect(
-      handleVikunjaRequest({ type: 'vikunja', op: 'listProjects', cfg: CFG }),
-    ).resolves.toMatchObject({
-      ok: true,
-      value: [{ doneBucketId: null, defaultBucketId: null }],
     })
   })
 
@@ -449,9 +413,11 @@ describe('listBuckets', () => {
     await expect(handleVikunjaRequest(request)).resolves.toEqual({
       ok: true,
       value: [
-        { id: 1, title: 'To-Do', isDone: false },
-        { id: 2, title: 'Doing', isDone: false },
-        { id: 3, title: 'Done', isDone: true },
+        // `default_bucket_id: 1`, `done_bucket_id: 3` — both come from the
+        // view, not from the bucket records.
+        { id: 1, title: 'To-Do', isDone: false, isDefault: true },
+        { id: 2, title: 'Doing', isDone: false, isDefault: false },
+        { id: 3, title: 'Done', isDone: true, isDefault: false },
       ],
     })
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -557,7 +523,7 @@ describe('createBucket', () => {
 
     await expect(handleVikunjaRequest(request)).resolves.toEqual({
       ok: true,
-      value: { id: 25, title: 'Struggle', isDone: false },
+      value: { id: 25, title: 'Struggle', isDone: false, isDefault: false },
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
@@ -656,6 +622,28 @@ describe('pull', () => {
       },
     ])
     expect(value.pulledAt).toBeGreaterThan(0)
+  })
+
+  it('truncates a pathological title and description', async () => {
+    stubPermissions(true)
+    stubFetch(
+      routes({
+        '/projects/1/views/4/tasks': [
+          {
+            ...bucketBody(1, 'To-Do'),
+            tasks: [taskBody({ title: 'x'.repeat(5000), description: 'y'.repeat(50_000) })],
+          },
+        ],
+      }),
+    )
+
+    const out = await handleVikunjaRequest(request)
+
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    const [task] = (out.value as { tasks: { title: string; description: string }[] }).tasks
+    expect(task.title).toHaveLength(VIKUNJA_MAX_TITLE_LENGTH)
+    expect(task.description).toHaveLength(VIKUNJA_MAX_DESCRIPTION_LENGTH)
   })
 
   it('answers with an empty list for a board with no tasks', async () => {

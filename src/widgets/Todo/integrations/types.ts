@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 
-import type { TodoTask } from '../store/store.ts'
+import type { IntegrationState, TodoTask } from '../store/store.ts'
 
 /**
  * The five possible states a todo can occupy. Maps onto Trello columns
@@ -45,14 +45,18 @@ export interface RemoteScopeOption {
 
 /**
  * A column/bucket inside a scope — what `StatusListMapping` maps statuses to.
+ *
  * `isTerminal` marks the backend's own "done" container (Vikunja's done
- * bucket), which has semantics the adapter must respect; Trello has no such
- * notion and never sets it.
+ * bucket), which has semantics the adapter must respect; `isDefault` marks
+ * the one the backend drops new items into. Both are set only when true, so a
+ * backend without the notion (Trello: any list can mean anything) writes the
+ * plain `{ id, name }` it always has.
  */
 export interface RemoteContainer {
   id: string
   name: string
   isTerminal?: boolean
+  isDefault?: boolean
 }
 
 /** Pointer to the remote Trello card for a local task. */
@@ -205,12 +209,41 @@ export interface ConnectFormProps {
 }
 
 /**
- * Props of a backend's own mapping step. Deliberately the same single prop
- * the generic step takes: everything else the step needs (the integration
- * slice, the store actions) it reads from the store itself.
+ * The store actions a mapping step is allowed to call. Handed over rather
+ * than imported for the same reason as everything else below.
+ */
+export interface MappingStepActions {
+  /** Persists the mapping and kicks off a sync. */
+  setMapping: (mapping: StatusListMapping) => Promise<void>
+  /** Replaces the integration's config; `false` when it did not validate. */
+  updateIntegrationConfig: (config: unknown) => boolean
+  /** Re-reads containers and projects, keeping the mapping; `false` on failure. */
+  refreshContainers: () => Promise<boolean>
+}
+
+/**
+ * Props of a backend's own mapping step.
+ *
+ * Everything the step needs arrives as a prop: a descriptor's UI components
+ * are prop-driven and never import the store. The store imports the
+ * integration registry to resolve descriptors, so a component reached from a
+ * descriptor that imported the store back would close the loop
+ * `store → registry → descriptor → component → store` — a live import cycle
+ * whose module init order is significant. `ConnectForm` follows the same
+ * rule; the settings layer (`TodoSettingsStepBody`) is where the store is
+ * read, and it has all of this at hand already.
  */
 export interface MappingStepProps {
   onBack: () => void
+  /** The active integration slice, for its containers, mapping and config. */
+  integration: IntegrationState
+  /** Adapter built from that slice by the settings layer. */
+  adapter: TodoIntegration
+  /** The scope the containers belong to. */
+  scope: RemoteScope
+  /** Current store-level error, if any. */
+  errorKey: IntegrationErrorKey | null
+  actions: MappingStepActions
 }
 
 export interface IntegrationDescriptor {
@@ -229,6 +262,8 @@ export interface IntegrationDescriptor {
    * carry rules the generic table knows nothing about — a done bucket that
    * flips `done` server-side, and a flat fallback for boards that cannot be
    * mapped at all.
+   *
+   * Like `ConnectForm`, it is prop-driven (see `MappingStepProps`).
    */
   MappingStep?: ComponentType<MappingStepProps>
   /** Pure factory: takes persisted config, returns a ready adapter. */
