@@ -71,7 +71,8 @@ const NO_BOARD: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncom
 /**
  * Not one of the connected boards has a finished bucket wizard.
  *
- * The mapping lives on the board (task 2), so this is a question the adapter
+ * The mapping lives on the board rather than on the slice, so this is a
+ * question the adapter
  * can answer on its own instead of trusting whatever the store passed in
  * `ctx.mapping` — which, with several boards, could only ever be one board's.
  * A pull skips an unmapped board rather than refusing the sync, so this is
@@ -236,6 +237,9 @@ export class VikunjaIntegration implements TodoIntegration {
           projectId: board.projectId,
           viewId: board.viewId,
           force: ctx.force === true,
+          // Every board of this connection shares one snapshot budget, and
+          // the worker cannot count them from a request about one view.
+          boardCount: this.config.boards.length,
         },
         vikunjaPullResultSchema,
       )
@@ -244,7 +248,8 @@ export class VikunjaIntegration implements TodoIntegration {
 
       const taskContext = {
         // The board's own mapping — `ctx.mapping` is the slice mirror, which
-        // this backend stopped keeping (task 2).
+        // this backend does not keep: with several boards there is no single
+        // mapping to put there.
         mapping: board.mapping,
         localIdByTaskId,
         knownStatuses: ctx.knownStatuses,
@@ -537,6 +542,15 @@ export const descriptor: IntegrationDescriptor = {
     if (!board) return null
     return { projectId: board.projectId, viewId: board.viewId }
   },
+  /**
+   * Required by the interface, and **not on any path a user can reach**: the
+   * generic scope picker is what calls it (through the store's `pickScope`),
+   * and this descriptor replaces that picker with `VikunjaBoardsStep`, which
+   * writes the whole list of boards through `updateIntegrationConfig`
+   * instead. It stays correct — and tested — because the contract says a
+   * descriptor answers it, and because a backend that syncs a list still has
+   * to say what "write this one scope in" would mean.
+   */
   withScope: (config, scope) => {
     const current = config as VikunjaConfig
     const pair = scopePair(scope)
@@ -586,9 +600,10 @@ export const descriptor: IntegrationDescriptor = {
    * The cached name, columns and mapping belong to the board they were read
    * from, so they are written into it rather than only onto the slice.
    *
-   * The default board is the one the settings UI is showing (task 4 adds the
-   * switcher), and a config with no board at all comes back untouched — see
-   * `withDefaultBoardPatch`.
+   * The default board is the one the store means when it caches per-scope
+   * state without naming a scope; the settings UI writes a *named* board
+   * through `withBoardPatch` instead. A config with no board at all comes
+   * back untouched — see `withDefaultBoardPatch`.
    */
   withBoardState: (config, patch) =>
     withDefaultBoardPatch(config as VikunjaConfig, {

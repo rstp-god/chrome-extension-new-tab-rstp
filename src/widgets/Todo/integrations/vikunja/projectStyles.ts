@@ -17,6 +17,17 @@ import {
 } from '@/widgets/Todo/utils/projectPillPalette.ts'
 
 /**
+ * The hues a board may be painted in: every one but the neutral grey.
+ *
+ * `black` is the palette's colourless bucket (zinc), and it is what the
+ * *fallback* pill already looks like — a board that happened to land on it
+ * would read as "no colour could be found for this one" rather than as its
+ * own colour. There is nothing to find here: the hue is derived from the id
+ * and always succeeds, so the rotation only offers colours that say so.
+ */
+const BOARD_PILL_HUES = PROJECT_PILL_HUES.filter((hue) => hue !== 'black')
+
+/**
  * The pill of a board, painted from its project id.
  *
  * An id maps onto the palette: stable (the same board is always the same
@@ -28,6 +39,6 @@ import {
 export function getVikunjaBoardPillClass(projectId: number): string {
   if (!Number.isFinite(projectId)) return DEFAULT_PROJECT_PILL_CLASS
   return projectPillClassForHue(
-    PROJECT_PILL_HUES[Math.abs(Math.trunc(projectId)) % PROJECT_PILL_HUES.length],
+    BOARD_PILL_HUES[Math.abs(Math.trunc(projectId)) % BOARD_PILL_HUES.length],
   )
 }

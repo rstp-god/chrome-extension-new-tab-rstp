@@ -300,6 +300,18 @@ describe('TodoSettingsDialog — leaving the boards step', () => {
     expect(onScopePicker()).toBe(true)
   })
 
+  it('says what the step is exactly once', async () => {
+    await open(vikunja())
+
+    await click(screen.getByRole('button', { name: 'integrations.vikunja.summary.editBoards' }))
+
+    // The dialog's header already names the step and explains it; the step
+    // itself adds no heading of its own, or the user would read the same
+    // instruction twice in a row.
+    expect(screen.getAllByText('integrations.vikunja.board.title')).toHaveLength(1)
+    expect(screen.getAllByText('integrations.vikunja.board.description')).toHaveLength(1)
+  })
+
   it('disconnects when the boards step is the freshly connected integration’s first step', async () => {
     // No scope yet — the state right after the connect form.
     await open(vikunja({ config: { ...vikunja().config, boards: [], defaultProjectId: null } }))

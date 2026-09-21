@@ -154,7 +154,7 @@ export function validateMapping(
  *
  * It is a real `StatusListMapping` (the persisted schema needs every row
  * filled), but in flat mode the adapter writes to no bucket other than the
- * terminal one — `kanbanMapping: false` is what task 6 reads to know that.
+ * terminal one — `kanbanMapping: false` is what the push reads to know that.
  * `input` / `inprogress` / `struggle` / `deleted` are then local-only
  * statuses that survive in the widget's own store, and only "done" crosses to
  * Vikunja.
@@ -183,20 +183,6 @@ export function flatModeMapping(containers: RemoteContainer[]): StatusListMappin
   }
 }
 
-/** What copying one board's mapping onto another's columns produced. */
-export interface CopiedMapping {
-  /**
-   * The mapping, with a row left **empty** wherever the target board has no
-   * column by that name. Deliberately partial: a wizard row the user still
-   * has to fill is exactly what `validateMapping` already reports, and
-   * inventing a column for it would map a status onto a bucket the user never
-   * chose.
-   */
-  mapping: StatusListMapping
-  /** The statuses whose row came back empty — the same list, said plainly. */
-  missing: TodoStatus[]
-}
-
 /**
  * Carries a board's mapping over to another board by **column name**.
  *
@@ -216,11 +202,16 @@ export interface CopiedMapping {
  * everywhere else: entering it sets `done` server-side, so it can only mean
  * `completed` — whatever it is called on either board, and even when the
  * source mapped `completed` to something else entirely.
+ *
+ * A row the target board has no column for comes back **empty** rather than
+ * guessed at, and nothing else is reported: an empty row is already what the
+ * wizard's `validateMapping` reads to block the save and what the
+ * "create the missing columns" panel offers to fill.
  */
 export function copyMappingByNames(
   source: VikunjaBoard,
   targetContainers: RemoteContainer[],
-): CopiedMapping {
+): StatusListMapping {
   const sourceNameById = new Map(
     source.containers.map((container) => [container.id, normalizeName(container.name)]),
   )
@@ -249,5 +240,5 @@ export function copyMappingByNames(
 
   if (terminal) mapping.completed = [terminal.id]
 
-  return { mapping, missing: TODO_STATUSES.filter((status) => mapping[status].length === 0) }
+  return mapping
 }

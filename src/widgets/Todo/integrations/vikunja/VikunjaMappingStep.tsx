@@ -308,52 +308,53 @@ export function VikunjaMappingStep({
       onDone()
       return
     }
-    const upcoming = frozen.boards[next]
+
+    // Read off the live config, never off the frozen plan: the plan names
+    // which board comes next and nothing more (see the note at the top of
+    // the file), and its snapshot of that board's buckets may be minutes old.
+    const upcoming =
+      config?.boards.find((entry) => entry.projectId === frozen.boards[next].projectId) ?? null
+
     setPosition(next)
     setConfirmCompleted(false)
     setCreatedNote(false)
     setCreateErrorKey(null)
     setDraft(
-      upcoming.kanbanMapping && upcoming.mapping
+      upcoming && upcoming.kanbanMapping && upcoming.mapping
         ? upcoming.mapping
-        : suggestMapping(upcoming.containers),
+        : suggestMapping(upcoming?.containers ?? []),
     )
   }
 
-  /** Accepts flat mode for this board: only "done" round-trips. */
+  /**
+   * Accepts flat mode for this board: only "done" round-trips.
+   *
+   * Synchronous, and no `busy` around it: the write is a store `set` that has
+   * either happened or been refused by the time the next line runs, so there
+   * is no window for a second click to fall into. `busy` guards the one
+   * handler that awaits the network (`handleCreateColumns`).
+   */
   const handleSkipToFlat = () => {
     if (!flat || busy) return
-
-    setBusy(true)
-    try {
-      // Both halves in one write: a flat mapping under a kanban flag would
-      // sync four statuses into one bucket, and the flag without the mapping
-      // would describe a mode the board is not in.
-      if (!patchBoard({ kanbanMapping: false, mapping: flat })) return
-      advance()
-    } finally {
-      setBusy(false)
-    }
+    // Both halves in one write: a flat mapping under a kanban flag would sync
+    // four statuses into one bucket, and the flag without the mapping would
+    // describe a mode the board is not in.
+    if (!patchBoard({ kanbanMapping: false, mapping: flat })) return
+    advance()
   }
 
   const handleSave = () => {
     if (blocked || busy) return
-
-    setBusy(true)
-    try {
-      // Saving a real bucket mapping leaves flat mode behind.
-      if (!patchBoard({ kanbanMapping: true, mapping: draft })) return
-      advance()
-    } finally {
-      setBusy(false)
-    }
+    // Saving a real bucket mapping leaves flat mode behind.
+    if (!patchBoard({ kanbanMapping: true, mapping: draft })) return
+    advance()
   }
 
   /** "Same as <board>": the other board's mapping, translated by column name. */
   const handleCopyFrom = () => {
     if (!source) return
     setCreatedNote(false)
-    setDraft(copyMappingByNames(source, buckets).mapping)
+    setDraft(copyMappingByNames(source, buckets))
   }
 
   // The summary named a board this connection no longer has — nothing here

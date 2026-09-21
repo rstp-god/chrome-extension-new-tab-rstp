@@ -282,7 +282,7 @@ describe('withVikunjaClient', () => {
   })
 })
 
-// ---------- read path (task 5) ----------
+// ---------- read path ----------
 
 const CFG = { baseUrl: 'https://vikunja.example', token: TOKEN }
 const API = 'https://vikunja.example/api/v1'
@@ -636,7 +636,7 @@ describe('pull', () => {
   })
 })
 
-// ---------- write path (task 6) ----------
+// ---------- write path ----------
 
 /**
  * The write ops care about the *method* as well as the path (`GET /tasks/4`

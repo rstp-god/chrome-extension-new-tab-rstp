@@ -136,6 +136,33 @@ export function VikunjaBoardsStep({
     setBusy(true)
     setStepErrorKey(null)
     try {
+      const kept: VikunjaBoard[] = []
+      for (const board of boards) {
+        if (!checked.has(board.projectId)) continue
+
+        const offered = rows.find((row) => row.projectId === board.projectId)
+        if (!offered || offered.viewId === board.viewId) {
+          kept.push(board)
+          continue
+        }
+
+        // The project's kanban view is not the one this board was set up
+        // against — deleted and recreated, most likely. Same rule as picking
+        // a scope: the buckets and the mapping built from them describe a
+        // view that is gone, so they are read and asked for again. The tasks
+        // stay, which is the point of repairing the board instead of
+        // dropping it.
+        const reread = await adapter.listContainers({
+          projectId: board.projectId,
+          viewId: offered.viewId,
+        })
+        if (!reread.ok) {
+          setStepErrorKey(reread.errorKey)
+          return
+        }
+        kept.push({ ...board, viewId: offered.viewId, containers: reread.value, mapping: null })
+      }
+
       const added: VikunjaBoard[] = []
       for (const row of rows) {
         if (!checked.has(row.projectId)) continue
@@ -161,13 +188,13 @@ export function VikunjaBoardsStep({
         })
       }
 
-      const next = [...boards.filter((board) => checked.has(board.projectId)), ...added]
+      const next = [...kept, ...added]
 
       // The star must always point at a board that exists — the one the user
       // set, or the first one left.
       const nextDefault = next.some((board) => board.projectId === defaultId)
         ? defaultId
-        : next[0].projectId
+        : (next[0]?.projectId ?? null)
 
       // The config goes first: it is the write that can still be refused, and
       // dropping the tasks of a board that then stays in the list would take
@@ -210,14 +237,10 @@ export function VikunjaBoardsStep({
   const loading = options === null && stepErrorKey === null
 
   return (
+    // No heading of its own: the dialog's own header already says what this
+    // step is ("Boards") and what it is for, and a second copy under it read
+    // as two different instructions.
     <div data-testid={TestId.TodoBoardsStep} className="grid gap-4">
-      <div className="grid gap-1">
-        <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          {t(boardsKey('title'))}
-        </div>
-        <p className="text-sm text-muted-foreground">{t(boardsKey('description'))}</p>
-      </div>
-
       {loading && (
         <div className="grid gap-2">
           <p className="text-sm text-muted-foreground">{t(boardsKey('loading'))}</p>

@@ -8,13 +8,14 @@
  * own way.
  *
  * "The default board" itself is `defaultVikunjaBoard` in the bridge's shared
- * vocabulary, because the service worker's background pull has to resolve it
- * the same way — a rule the two sides cannot afford to implement twice.
+ * vocabulary, where the persisted config's schema lives: what
+ * `defaultProjectId` means is part of that config, not of this widget.
  *
- * The adapter's read and write paths ask about every board (a pull reads each
- * one, a push resolves the board of the task it is given); the wizard and the
- * summary still ask about the default one, which is the board the settings UI
- * shows.
+ * Who asks what: the adapter's read and write paths ask about every board (a
+ * pull reads each one, a push resolves the board of the task it is given);
+ * the wizard walks the boards it has to map; the summary lists them all and
+ * asks for the default one only to star it. The store asks for it when it has
+ * per-scope state to cache and knows only "the board the UI is about".
  */
 
 import { defaultVikunjaBoard } from '@/background/vikunja/messages.ts'

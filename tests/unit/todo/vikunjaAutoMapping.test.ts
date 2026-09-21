@@ -303,14 +303,11 @@ describe('copyMappingByNames — carrying a mapping to a board built from the sa
     ]
 
     expect(copyMappingByNames(source, target)).toEqual({
-      mapping: {
-        input: ['t1'],
-        inprogress: ['t2'],
-        struggle: ['t3'],
-        completed: ['t4'],
-        deleted: ['t5'],
-      },
-      missing: [],
+      input: ['t1'],
+      inprogress: ['t2'],
+      struggle: ['t3'],
+      completed: ['t4'],
+      deleted: ['t5'],
     })
   })
 
@@ -323,12 +320,13 @@ describe('copyMappingByNames — carrying a mapping to a board built from the sa
       { id: 't5', name: 'Trash' },
     ]
 
-    const { mapping, missing } = copyMappingByNames(source, target)
+    const mapping = copyMappingByNames(source, target)
 
     // Nothing was called "Done" on the target board; the terminal bucket is
     // still the only honest home for `completed`.
     expect(mapping.completed).toEqual(['t9'])
-    expect(missing).toEqual([])
+    // Every other row found its column, so nothing is left for the wizard.
+    expect(validateMapping(mapping, target).missing).toEqual([])
   })
 
   it('never carries a row onto the done bucket, even when the names agree', () => {
@@ -341,11 +339,13 @@ describe('copyMappingByNames — carrying a mapping to a board built from the sa
       { id: 't5', name: 'Trash', isTerminal: true },
     ]
 
-    const { mapping, missing } = copyMappingByNames(source, target)
+    const mapping = copyMappingByNames(source, target)
 
+    // Left empty rather than carried onto the done bucket: the wizard's own
+    // validation is what reports it, and the save stays blocked.
     expect(mapping.deleted).toEqual([])
     expect(mapping.completed).toEqual(['t5'])
-    expect(missing).toEqual(['deleted'])
+    expect(validateMapping(mapping, target).missing).toEqual(['deleted'])
   })
 
   it('reports every row the target board has no column for', () => {
@@ -355,7 +355,7 @@ describe('copyMappingByNames — carrying a mapping to a board built from the sa
       { id: 't4', name: 'Done', isTerminal: true },
     ]
 
-    const { mapping, missing } = copyMappingByNames(source, target)
+    const mapping = copyMappingByNames(source, target)
 
     expect(mapping).toEqual({
       input: ['t1'],
@@ -364,16 +364,22 @@ describe('copyMappingByNames — carrying a mapping to a board built from the sa
       completed: ['t4'],
       deleted: [],
     })
-    // Exactly what the "create the missing columns" panel then offers.
-    expect(missing).toEqual(['struggle', 'deleted'])
+    // The empty rows are exactly what the "create the missing columns" panel
+    // then offers to build.
+    expect(validateMapping(mapping, target).missing).toEqual(['struggle', 'deleted'])
   })
 
   it('answers an all-empty mapping for a source that was never mapped', () => {
-    const { mapping, missing } = copyMappingByNames({ ...source, mapping: null }, [
-      { id: 't1', name: 'To-Do' },
-    ])
+    const target: RemoteContainer[] = [{ id: 't1', name: 'To-Do' }]
+    const mapping = copyMappingByNames({ ...source, mapping: null }, target)
 
     expect(mapping.input).toEqual([])
-    expect(missing).toEqual(['input', 'inprogress', 'struggle', 'completed', 'deleted'])
+    expect(validateMapping(mapping, target).missing).toEqual([
+      'input',
+      'inprogress',
+      'struggle',
+      'completed',
+      'deleted',
+    ])
   })
 })

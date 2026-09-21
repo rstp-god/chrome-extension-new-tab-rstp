@@ -132,6 +132,22 @@ export type VikunjaRequest =
        * about it.
        */
       force?: boolean
+      /**
+       * How many boards this connection syncs, so the snapshot the worker
+       * writes takes its share of the connection's total budget and not the
+       * whole per-board cap.
+       *
+       * The page has to say it: the worker serves a pull for one view and has
+       * no idea how many others the caller is about to ask for — while the
+       * alarm, which walks the schedule itself, counts them for its own
+       * pulls. Without it the two paths would disagree about the size of the
+       * same snapshot, and the first board the *page* pulled would take the
+       * budget the alarm had divided.
+       *
+       * Optional, and anything unusable falls back to one board, which is the
+       * per-board cap — the budget can only shrink from here, never grow.
+       */
+      boardCount?: number
     }
   | { type: 'vikunja'; op: 'create'; cfg: VikunjaWire; projectId: number; payload: TaskPayload }
   | {
@@ -570,15 +586,17 @@ export function vikunjaHostPattern(baseUrl: string): string | null {
  * connected.
  *
  * Structural on purpose — it asks for `projectId` and answers with whatever
- * was passed in — so the two sides of the bridge can share the rule without
- * sharing a type. The worker's board is the three fields its schedule schema
- * reads; the widget's is the full `VikunjaBoard`. Both would otherwise
- * implement "the default board" separately, and the pull would drift from
- * what the page is showing.
+ * was passed in — so a caller may hand it the full `VikunjaBoard` or the
+ * three fields the worker's schedule schema keeps, without the two sides
+ * sharing a type.
  *
- * Lives here because this is the one module both sides may import (see the
- * boundary rule at the top of this file), and because the rule is part of
- * the persisted config's meaning rather than of either side's UI.
+ * The background pull does not ask: it walks every board of the schedule, so
+ * "the default one" means nothing to it. What does depend on this rule is the
+ * persisted config's own meaning — `defaultProjectId` is the board a new task
+ * is created in, and the board the settings UI stars — and that meaning
+ * belongs beside the schema it is part of, in the one module both sides may
+ * import (see the boundary rule at the top of this file), rather than in a
+ * widget helper the worker could not read.
  */
 export function defaultVikunjaBoard<TBoard extends { projectId: number }>(config: {
   boards: readonly TBoard[]

@@ -92,7 +92,7 @@ yarn preview:showcase
 - Спеки интерактивных сценариев виджетов лежат рядом с виджетами: `src/widgets/*/test/*.scenario.spec.ts`.
 - Playwright-спеки Todo-виджета и Vikunja:
   - `src/widgets/Todo/test/TodoWidget.scenario.spec.ts` — базовые сценарии виджета;
-  - `src/widgets/Todo/test/TodoVikunja.scenario.spec.ts` — сценарии Vikunja: форма подключения и запрос разрешения, мастер маппинга, плоский режим, баннер отозванного разрешения, импорт локальных задач. Часть проверок — скриншотные, baseline лежат в `src/widgets/Todo/test/chromium-mac/TodoVikunja/`; **папки `chromium-ci` для них ещё нет** — снять её можно только workflow `Update Visual Snapshots` (или `yarn test:extension:update-snapshots:ci` на Linux), никогда не с macOS.
+  - `src/widgets/Todo/test/TodoVikunja.scenario.spec.ts` — сценарии Vikunja: форма подключения и запрос разрешения, шаг выбора досок (мультивыбор со звёздочкой), мастер маппинга по доскам, сводка со списком досок и плоским режимом, баннер отозванного разрешения, импорт локальных задач. Часть проверок — скриншотные, baseline лежат в `src/widgets/Todo/test/chromium-mac/TodoVikunja/`; **папки `chromium-ci` для них ещё нет** — снять её можно только workflow `Update Visual Snapshots` (или `yarn test:extension:update-snapshots:ci` на Linux), никогда не с macOS.
   - `tests/extension/vikunjaBridge.spec.ts` — мост «страница ↔ service worker»: доставка сообщения, ping на холодном старте воркера, постановка и снятие alarm'а фонового пулла по сохранённому конфигу. Скриншотов нет, baseline не нужны.
 - Обе спеки попадают в `yarn test:extension:local` / `:ci` — они уже покрыты путями `tests/extension src/widgets` в скриптах.
 - Browser job в GitHub Actions публикует скачиваемые артефакты: `playwright-report/` и `test-results/`.
@@ -333,9 +333,17 @@ Todo-виджет умеет двусторонне синхронизирова
 3. **API-токен** — в Vikunja: «Настройки» → «API-токены». Токену нужны скоупы `tasks` и `projects.read_all`; чтобы мастер маппинга мог достроить колонки — ещё `projects.views_buckets_put` и `views_buckets_delete` (без них шаг «создать недостающие колонки» ответит 403).
 4. По кнопке «Подключить» **Chrome спросит разрешение на этот хост**. Если отказать — ничего не сохранится: нажмите «Подключить» ещё раз и примите запрос.
 
-### Проект и вью
+### Доски
 
-Дальше выбирается проект — виджет синхронизируется с его **канбан-вью**. Проекты без канбан-вью в списке не показываются. Сменить проект можно позже в сводке настроек («Сменить проект»).
+Дальше выбираются **доски** — проекты Vikunja, с чьими канбан-вью синхронизируется виджет. Проекты без канбан-вью в списке не показываются.
+
+- отмечайте чекбоксами **сколько угодно досок**: виджет пуллит и пушит каждую из них;
+- **звёздочка** помечает доску по умолчанию — ту, в которой создаются новые задачи (перенести её можно в любой момент, она всегда указывает на существующую доску);
+- снятая галочка у настроенной доски = «перестать её синхронизировать». Перед записью виджет спросит подтверждение и покажет, **сколько задач этой доски исчезнет из виджета** (в Vikunja они остаются) и сколько из них с неотправленными правками;
+- хотя бы одна доска должна остаться отмеченной — чтобы не синхронизировать ничего, отключите интеграцию целиком;
+- изменить набор досок позже — в сводке настроек, кнопка «Сменить доски».
+
+Если канбан-вью проекта пересоздали, достаточно снова отметить эту доску: виджет подхватит новый `viewId`, перечитает бакеты и попросит разметить их заново — задачи при этом остаются.
 
 ### Мастер маппинга
 
@@ -343,12 +351,16 @@ Todo-виджет умеет двусторонне синхронизирова
 
 - бакеты **предварительно сопоставляются по названиям** — строки остаётся проверить и поправить;
 - один статус может собирать задачи из нескольких бакетов; первый в строке — тот, куда уходят новые задачи;
-- чего в проекте нет, мастер предлагает **создать** — «Затык» и «Корзина»;
+- чего на доске нет, мастер предлагает **создать** — «Затык» и «Корзина»;
 - done-бакет Vikunja может означать только «Готово»: задача, попавшая туда, закрывается на сервере, поэтому назначить его другому статусу нельзя.
+
+Досок может быть несколько, и бакеты у каждой свои, поэтому мастер идёт по ним **по очереди** — в заголовке видно «Доска N из M — <название>». Для доски, собранной по тому же шаблону, есть кнопка **«Как в доске X»**: она переносит разметку с уже размеченной доски, сопоставляя колонки по названиям (регистр и пробелы не важны, done-бакет всегда остаётся «Готово»). Чего на этой доске нет — строка остаётся пустой, и её либо заполняют вручную, либо достраивают колонки той же панелью.
+
+Позже вернуться к разметке одной доски можно из сводки настроек: у каждой доски в списке своя кнопка «Колонки».
 
 ### Плоский режим
 
-Если маппинг пропустить («Пропустить — плоский режим»), в Vikunja уходит только «Готово», а «В работе» / «Затыки» / «Удалено» остаются видны **только внутри расширения** и живут в локальном сторе виджета. В сводке настроек такой проект помечен «Только внутри расширения», а таблица маппинга не показывается — в плоском режиме она описывала бы то, чего не происходит. Сохранить строки маппинга поверх плоского режима можно в любой момент — проект перейдёт на полную синхронизацию по бакетам.
+Если маппинг пропустить («Пропустить — плоский режим»), в Vikunja уходит только «Готово», а «В работе» / «Затыки» / «Удалено» остаются видны **только внутри расширения** и живут в локальном сторе виджета. Режим **у каждой доски свой**: в списке досок в сводке настроек он подписан («канбан» / «плоский режим»), а пояснение «Только внутри расширения» появляется, как только плоская доска есть хотя бы одна. Сохранить строки маппинга поверх плоского режима можно в любой момент — доска перейдёт на полную синхронизацию по бакетам.
 
 ### Фоновая синхронизация
 
@@ -364,7 +376,7 @@ Alarm один на подключение, а не на доску: за оди
 
 ### Импорт локальных задач
 
-Задачи, созданные **до** подключения интеграции, сами в Vikunja не уезжают: автоматическая миграция в чужой трекер необратима, а подключение своего трекера — это просьба видеть _его_ задачи в виджете, а не наоборот. Такие задачи остаются локальными и несвязанными, пока в сводке настроек не нажать «Импортировать N задач в &lt;проект&gt;» — только после этого они будут созданы на следующей синхронизации.
+Задачи, созданные **до** подключения интеграции, сами в Vikunja не уезжают: автоматическая миграция в чужой трекер необратима, а подключение своего трекера — это просьба видеть _его_ задачи в виджете, а не наоборот. Такие задачи остаются локальными и несвязанными, пока в сводке настроек не нажать «Импортировать N задач в &lt;доску&gt;» — они будут созданы в **доске по умолчанию** на следующей синхронизации.
 
 ### Что где хранится
 
@@ -466,7 +478,7 @@ export interface TodoIntegration {
 }
 ```
 
-`RemoteScope` — это `Record<string, string | number>`, непрозрачный для стора адрес вашего списка задач: у Trello `{ boardId }`, у Vikunja `{ projectId, viewId }`. `listScopes` возвращает `RemoteScopeOption[]` (`{ scope, name }`) для шага выбора, `listContainers` — `RemoteContainer[]` (`{ id, name, isTerminal? }`), колонки/корзины внутри scope; `isTerminal` помечает собственную «готово»-колонку сервиса (у Trello такой нет — флаг не ставится). Выбранный scope приезжает в адаптер в `PullContext.scope` / `PushContext.scope`.
+`RemoteScope` — это `Record<string, string | number>`, непрозрачный для стора адрес вашего списка задач: у Trello `{ boardId }`, у Vikunja `{ projectId, viewId }`. `listScopes` возвращает `RemoteScopeOption[]` (`{ scope, name }`) для шага выбора, `listContainers` — `RemoteContainer[]` (`{ id, name, isTerminal?, isDefault? }`), колонки/корзины внутри scope; `isTerminal` помечает собственную «готово»-колонку сервиса, `isDefault` — ту, куда сам бэкенд кладёт новую запись (у Trello нет ни того, ни другого — флаги не ставятся, и оба читаются как «нет»). Выбранный scope приезжает в адаптер в `PullContext.scope` / `PushContext.scope`.
 
 `PullContext` — это то, что стор знает о задачах на момент пулла:
 
@@ -556,15 +568,20 @@ export const descriptor: IntegrationDescriptor = {
   // пропсами и **никогда не импортируют стор** — стор сам импортирует реестр
   // интеграций, и обратный импорт замкнул бы цикл
   // `store → registry → descriptor → компонент → store`. Стор читает слой
-  // настроек (`TodoSettingsStepBody`) и передаёт шагу `MappingStepProps`.
+  // настроек (`TodoSettingsStepBody`) — он и вызывает его экшены, — и отдаёт
+  // шагу `MappingStepProps`.
   // MappingStep: MyMappingStep,
   // Необязательный: свой шаг выбора scope вместо общего пикера — нужен
   // бэкенду, у которого scope не один (`ScopeStepProps`, те же правила).
   // Оба шага получают один набор действий стора (`SettingsStepActions`):
-  // setMapping, updateIntegrationConfig, refreshContainers и
-  // dropTasksOfProject — последний убирает из виджета задачи отключённого
-  // проекта (в трекере они остаются); шаг маппинга ещё получает `target` —
-  // какой scope просили разметить, если пользователь назвал его в сводке.
+  // setMapping, updateIntegrationConfig, refreshContainers,
+  // dropTasksOfProject (убирает из виджета задачи отключённого проекта — в
+  // трекере они остаются) и syncNow (нужен шагу, который пишет конфиг
+  // напрямую: `setMapping` синхронизирует сам, `updateIntegrationConfig` —
+  // нет). Оба зовут `onDone()`, когда своё дело сделано: `onBack()` значит
+  // «пользователь нажал Назад», и диалог отвечает на них по-разному. Шаг
+  // маппинга ещё получает `target` — какой scope просили разметить, если
+  // пользователь назвал его в сводке.
   // ScopeStep: MyScopeStep,
   // Необязательный: на каком шаге настроек стоит подключение
   // ('board' | 'mapping' | 'summary'). Отсутствие = обычное правило: нет
@@ -589,6 +606,17 @@ export const descriptor: IntegrationDescriptor = {
     ...(config as MyServiceConfig),
     spaceId: String(scope.spaceId),
   }),
+  // Необязательный: куда положить то, что стор прочитал про scope — его имя,
+  // колонки и маппинг (`BoardStatePatch`; заданы только те поля, которые
+  // вызывающий знает, остальные не должны перетирать конфиг). Отсутствие
+  // значит «бэкенд держит это на слайсе интеграции» (`boardName` / `lists` /
+  // `mapping`) — так и есть у Trello: одна доска, один набор колонок, один
+  // маппинг. Реализуйте, если scope'ов список и у каждого свои колонки:
+  // Vikunja пишет патч в доску, а слайсовые поля для такого дескриптора стор
+  // держит пустыми — вторая копия, которую никто не обновляет, хуже её
+  // отсутствия. Чистая функция, как и withScope: возвращает копию конфига,
+  // а стор ещё раз валидирует её схемой хранилища.
+  // withBoardState: (config, patch) => ({ ...(config as MyServiceConfig), ...patch }),
   // Ваш ли это remoteRef: чужие стор не выбрасывает, а перепривязывает.
   ownsRef: (ref) => 'myServiceId' in ref,
   // Необязательный: подписка на изменения на бэкенде — вызывайте onEvent и
@@ -824,7 +852,7 @@ Showcase runs with `VITE_RUNTIME_MODE=showcase` and uses demo data instead of li
 - Widget interaction scenario specs live next to widgets under `src/widgets/*/test/*.scenario.spec.ts`.
 - Todo widget and Vikunja Playwright specs:
   - `src/widgets/Todo/test/TodoWidget.scenario.spec.ts` — the widget's base scenarios;
-  - `src/widgets/Todo/test/TodoVikunja.scenario.spec.ts` — Vikunja scenarios: the connect form and its permission request, the mapping wizard, flat mode, the revoked-permission banner, importing local tasks. Some assertions are screenshots; their baselines live in `src/widgets/Todo/test/chromium-mac/TodoVikunja/`, and **there is no `chromium-ci` folder for them yet** — it can only be produced by the `Update Visual Snapshots` workflow (or `yarn test:extension:update-snapshots:ci` on Linux), never from a Mac.
+  - `src/widgets/Todo/test/TodoVikunja.scenario.spec.ts` — Vikunja scenarios: the connect form and its permission request, the boards step (multi-select with the default star), the per-board mapping wizard, the summary's list of boards and flat mode, the revoked-permission banner, importing local tasks. Some assertions are screenshots; their baselines live in `src/widgets/Todo/test/chromium-mac/TodoVikunja/`, and **there is no `chromium-ci` folder for them yet** — it can only be produced by the `Update Visual Snapshots` workflow (or `yarn test:extension:update-snapshots:ci` on Linux), never from a Mac.
   - `tests/extension/vikunjaBridge.spec.ts` — the page ↔ service worker bridge: message delivery, a ping that cold-starts the worker, and scheduling/clearing the background-pull alarm from the stored config. No screenshots, so no baselines.
 - Both specs are already covered by `yarn test:extension:local` / `:ci` — the scripts point Playwright at `tests/extension src/widgets`.
 - GitHub Actions browser job uploads downloadable artifacts: `playwright-report/` and `test-results/`.
@@ -1058,9 +1086,17 @@ The Todo widget can sync two-way with a self-hosted [Vikunja](https://vikunja.io
 3. **API token** — in Vikunja: Settings → API tokens. The token needs the `tasks` and `projects.read_all` scopes; for the mapping wizard to build missing columns it also needs `projects.views_buckets_put` and `views_buckets_delete` (without them the "create missing columns" step answers 403).
 4. Pressing "Connect" makes **Chrome ask for permission for that host**. Decline and nothing is saved: press Connect again and accept the prompt.
 
-### Project and view
+### Boards
 
-Next you pick a project — the widget syncs with its **kanban view**. Projects without a kanban view are not listed. You can change it later from the settings summary ("Change project").
+Next you pick the **boards** — Vikunja projects whose kanban views the widget syncs with. Projects without a kanban view are not listed.
+
+- tick **as many boards as you like**: the widget pulls and pushes every one of them;
+- the **star** marks the default board — the one new tasks are created in (move it whenever you like; it always points at a board that exists);
+- unticking a configured board means "stop syncing it". Before anything is written the widget confirms, saying **how many of that board's tasks will disappear from the widget** (they stay in Vikunja) and how many of those carry unsent changes;
+- at least one board has to stay ticked — to sync nothing at all, disconnect the integration;
+- to change the set later, use "Change boards" in the settings summary.
+
+If a project's kanban view was recreated, simply tick that board again: the widget picks up the new `viewId`, re-reads the buckets and asks you to map them once more — the tasks stay.
 
 ### The mapping wizard
 
@@ -1068,12 +1104,16 @@ The kanban view's buckets are mapped onto the widget's five statuses (`Input`, `
 
 - buckets are **pre-matched by name** — check the rows and fix anything that looks off;
 - one status can pull from several buckets; the first one in a row is where new tasks land;
-- whatever the project lacks, the wizard offers to **create** — `Struggle` and `Trash`;
+- whatever the board lacks, the wizard offers to **create** — `Struggle` and `Trash`;
 - Vikunja's done bucket can only mean `Completed`: a task moved there is marked done server-side, so it cannot be assigned to another status.
+
+With several boards the buckets are per board, so the wizard walks them **one at a time** — the header says "Board N of M — <name>". For a board built from the same template there is **"Same as X"**: it carries the mapping over from a board that is already mapped, matching columns by name (case and spacing ignored; the done bucket always stays `Completed`). A row this board has no column for is left empty, to fill by hand or to build with the same "create the missing columns" panel.
+
+To come back to one board's mapping later, use its own "Columns" button in the settings summary's list of boards.
 
 ### Flat mode
 
-Skip the mapping ("Skip — flat mode") and only `Completed` syncs to Vikunja, while `In progress` / `Struggle` / `Deleted` remain visible **inside the extension only**, living in the widget's local store. The settings summary marks such a project "Only inside the extension" and hides the mapping table — in flat mode it would describe something that does not happen. Saving mapping rows over flat mode switches the project to full bucket sync at any time.
+Skip the mapping ("Skip — flat mode") and only `Completed` syncs to Vikunja, while `In progress` / `Struggle` / `Deleted` remain visible **inside the extension only**, living in the widget's local store. The mode is **per board**: the summary's list of boards labels each one ("kanban" / "flat"), and the "Only inside the extension" note appears as soon as any board is flat. Saving mapping rows over flat mode switches that board to full bucket sync at any time.
 
 ### Background sync
 
@@ -1089,7 +1129,7 @@ If a task changed in Vikunja while it was being edited locally, **the remote ver
 
 ### Importing local tasks
 
-Tasks created **before** the integration was connected are not pushed on their own: an automatic migration into someone's own tracker cannot be taken back, and connecting your tracker is a request to see _its_ tasks in the widget, not the other way round. Such tasks stay local and unlinked until you press "Import N local tasks into &lt;project&gt;" in the settings summary — only then are they created on the next sync.
+Tasks created **before** the integration was connected are not pushed on their own: an automatic migration into someone's own tracker cannot be taken back, and connecting your tracker is a request to see _its_ tasks in the widget, not the other way round. Such tasks stay local and unlinked until you press "Import N local tasks into &lt;board&gt;" in the settings summary — they are then created on the **default board** on the next sync.
 
 ### What is stored where
 
@@ -1191,7 +1231,7 @@ export interface TodoIntegration {
 }
 ```
 
-`RemoteScope` is a `Record<string, string | number>` — an address for your task list that the store treats as opaque: `{ boardId }` for Trello, `{ projectId, viewId }` for Vikunja. `listScopes` returns `RemoteScopeOption[]` (`{ scope, name }`) for the picker step, `listContainers` returns `RemoteContainer[]` (`{ id, name, isTerminal? }`) — the columns/buckets inside a scope, where `isTerminal` marks the backend's own "done" column (Trello has none, so it never sets the flag). The chosen scope reaches the adapter as `PullContext.scope` / `PushContext.scope`.
+`RemoteScope` is a `Record<string, string | number>` — an address for your task list that the store treats as opaque: `{ boardId }` for Trello, `{ projectId, viewId }` for Vikunja. `listScopes` returns `RemoteScopeOption[]` (`{ scope, name }`) for the picker step, `listContainers` returns `RemoteContainer[]` (`{ id, name, isTerminal?, isDefault? }`) — the columns/buckets inside a scope, where `isTerminal` marks the backend's own "done" column and `isDefault` the one it drops a new record into (Trello has neither, so it sets no flags and both read as "no"). The chosen scope reaches the adapter as `PullContext.scope` / `PushContext.scope`.
 
 `PullContext` is what the store knows about its tasks at pull time:
 
@@ -1287,10 +1327,14 @@ export const descriptor: IntegrationDescriptor = {
   // Optional: your own scope step instead of the generic picker — for a
   // backend whose scope is not a single one (`ScopeStepProps`, same rules).
   // Both steps get one bundle of store actions (`SettingsStepActions`):
-  // setMapping, updateIntegrationConfig, refreshContainers and
-  // dropTasksOfProject — the last one takes the tasks of a project you stop
-  // syncing out of the widget (they stay in the tracker); the mapping step
-  // also gets `target`, the scope the user named in the summary, if any.
+  // setMapping, updateIntegrationConfig, refreshContainers,
+  // dropTasksOfProject (takes the tasks of a project you stop syncing out of
+  // the widget — they stay in the tracker) and syncNow (for a step that
+  // writes the config directly: `setMapping` syncs on its own,
+  // `updateIntegrationConfig` does not). Both call `onDone()` once they have
+  // finished what they were opened for; `onBack()` means "the user pressed
+  // Back", and the dialog answers the two differently. The mapping step also
+  // gets `target`, the scope the user named in the summary, if any.
   // ScopeStep: MyScopeStep,
   // Optional: which settings step this connection is on ('board' | 'mapping'
   // | 'summary'). Absent means the usual rule: no scope → 'board', no mapping
@@ -1315,6 +1359,18 @@ export const descriptor: IntegrationDescriptor = {
     ...(config as MyServiceConfig),
     spaceId: String(scope.spaceId),
   }),
+  // Optional: where to put what the store read about a scope — its name, its
+  // containers, its mapping (`BoardStatePatch`; only the fields the caller
+  // knows are set, and an absent one must not overwrite the config). Absent
+  // means "this backend keeps that on the integration slice" (`boardName` /
+  // `lists` / `mapping`), which is all Trello needs: one board, one set of
+  // columns, one mapping. Implement it when your scopes are a *list* and
+  // each has its own columns: Vikunja writes the patch into the board, and
+  // the store keeps the slice fields empty for such a descriptor — a second
+  // copy nobody updates is worse than none. Pure, like withScope: it returns
+  // a copy of the config, which the store re-validates against the storage
+  // schema.
+  // withBoardState: (config, patch) => ({ ...(config as MyServiceConfig), ...patch }),
   // Is this remoteRef yours? Foreign refs are re-linked, never dropped.
   ownsRef: (ref) => 'myServiceId' in ref,
   // Optional: watch the backend — call onEvent and return the unsubscribe.

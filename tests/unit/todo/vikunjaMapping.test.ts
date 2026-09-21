@@ -6,6 +6,7 @@ import {
 } from '@/background/vikunja/messages.ts'
 import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.ts'
 import { getVikunjaBoardPillClass } from '@/widgets/Todo/integrations/vikunja/projectStyles.ts'
+import { projectPillClassForHue } from '@/widgets/Todo/utils/projectPillPalette.ts'
 import {
   clampForVikunja,
   htmlToText,
@@ -160,6 +161,19 @@ describe('getVikunjaBoardPillClass', () => {
     const neutral = getVikunjaBoardPillClass(Number.NaN)
     expect(neutral).toBe(getVikunjaBoardPillClass(Number.POSITIVE_INFINITY))
     expect(neutral).toEqual(expect.any(String))
+  })
+
+  it('never paints a board in the colour of "no colour found"', () => {
+    // The neutral pill is what an unplaceable colour looks like. A board's
+    // hue is derived and always succeeds, so none of them may look like a
+    // failure — whatever id the rotation lands on.
+    const neutral = getVikunjaBoardPillClass(Number.NaN)
+    const grey = projectPillClassForHue('black')
+    for (let projectId = 1; projectId <= 40; projectId += 1) {
+      const painted = getVikunjaBoardPillClass(projectId)
+      expect(painted).not.toBe(neutral)
+      expect(painted).not.toBe(grey)
+    }
   })
 })
 

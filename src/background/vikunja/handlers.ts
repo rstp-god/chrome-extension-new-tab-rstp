@@ -228,7 +228,17 @@ export async function handlePull(
   if (!scope.success) return VIKUNJA_UNKNOWN_FAILURE
   const { projectId, viewId } = scope.data
 
-  const out = await runPull(req.cfg, projectId, viewId, { force: req.force === true })
+  // A count the page made up (or left out) must not buy a bigger snapshot
+  // than one board's share, so anything unusable reads as one board.
+  const boardCount =
+    Number.isInteger(req.boardCount) && (req.boardCount as number) > 0
+      ? (req.boardCount as number)
+      : 1
+
+  const out = await runPull(req.cfg, projectId, viewId, {
+    force: req.force === true,
+    boardCount,
+  })
   if (!out.ok) return out
 
   // The delta and the snapshot's fate stay in the worker: the widget

@@ -418,13 +418,15 @@ describe('VikunjaIntegration.pullTasks', () => {
     expect(out.value.tasks[0].status).toBe('inprogress')
   })
 
-  it('addresses the board’s own project and view', async () => {
+  it('addresses the board’s own project and view, and says how many there are', async () => {
     stubPull([])
 
     await new VikunjaIntegration(CONFIG).pullTasks(ctx)
 
     expect(bridge).toHaveBeenCalledWith(
-      expect.objectContaining({ op: 'pull', projectId: 1, viewId: 4 }),
+      // `boardCount` is what lets the worker give this snapshot its share of
+      // the connection's total budget instead of a whole board's cap.
+      expect.objectContaining({ op: 'pull', projectId: 1, viewId: 4, boardCount: 1 }),
     )
   })
 
@@ -493,6 +495,20 @@ describe('VikunjaIntegration.pullTasks — every board, not just the default one
       .filter((request) => request.op === 'pull')
       .map((request) => ({ projectId: request.projectId, viewId: request.viewId }))
   }
+
+  it('tells the worker how many boards share the snapshot budget', async () => {
+    stubPerBoard({ 1: [], 8: [] })
+
+    await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks(ctx)
+
+    // Every board of the connection, not the number left to read: the budget
+    // has to be the same for each of them however they are pulled.
+    const counts = bridge.mock.calls
+      .map(([request]) => request)
+      .filter((request) => request.op === 'pull')
+      .map((request) => request.boardCount)
+    expect(counts).toEqual([2, 2])
+  })
 
   it('sends one pull per board, each addressing its own project and view', async () => {
     stubPerBoard({ 1: [], 8: [] })

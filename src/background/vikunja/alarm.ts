@@ -303,6 +303,20 @@ function scheduleSignature(schedule: VikunjaSchedule): string {
   return `${host}|${schedule.boards.map((board) => `${board.projectId}:${board.viewId}`).join(',')}`
 }
 
+/**
+ * Stops the alarm and forgets what was swept for it.
+ *
+ * The two go together: `lastPrunedSignature` says "the snapshots of this
+ * board set have already been tidied for the schedule that is running", and
+ * once there is no schedule running that claim is about nothing. Keeping it
+ * would let a board removed while the alarm was down go unswept for the rest
+ * of the worker's life.
+ */
+async function retireAlarm(): Promise<void> {
+  await clearAlarm()
+  lastPrunedSignature = null
+}
+
 async function applySchedule(schedule: VikunjaSchedule | null): Promise<void> {
   const existing = await getExistingAlarm()
 
@@ -311,11 +325,8 @@ async function applySchedule(schedule: VikunjaSchedule | null): Promise<void> {
     // path (`clearIntegration` wipes the local envelope) is the only way an
     // alarm and its snapshots become garbage.
     if (!existing) return
-    await clearAlarm()
+    await retireAlarm()
     await clearSnapshots()
-    // Everything is gone, so the next connection sweeps again rather than
-    // trusting a signature about a config that no longer exists.
-    lastPrunedSignature = null
     return
   }
 
@@ -417,7 +428,11 @@ async function runScheduledPull(): Promise<void> {
   const schedule = await readVikunjaScheduleFromStorage()
   if (!schedule) {
     // Configuration disappeared between the alarm being set and it firing.
-    await applySchedule(null)
+    // Through `reconcile` like every other change of the alarm's state: a
+    // `storage.onChanged` reconciliation may be in flight right now, and two
+    // runs both reading "no alarm" is exactly what the single flight exists
+    // to prevent.
+    await reconcile(async () => null)
     return
   }
 
@@ -449,7 +464,9 @@ async function runScheduledPull(): Promise<void> {
     }
 
     const terminal = isTerminalFailure(out.errorKey)
-    if (terminal) await clearAlarm()
+    // The alarm is retired rather than merely cleared: with no schedule
+    // running, what was swept for it is no longer a fact about anything.
+    if (terminal) await retireAlarm()
     // Failures stay **per board**: which board is unreachable is the whole
     // content of the message, and a page shows it as that board's state.
     broadcastVikunja({

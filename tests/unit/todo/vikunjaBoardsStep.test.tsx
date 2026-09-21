@@ -257,6 +257,52 @@ describe('VikunjaBoardsStep — adding a board', () => {
   })
 })
 
+describe('VikunjaBoardsStep — a board whose kanban view was recreated', () => {
+  it('re-points it at the offered view and asks for the mapping again', async () => {
+    // Same project, a different kanban view: the old one was deleted, so the
+    // buckets the mapping names do not exist any more.
+    listScopes = vi.fn(async () => ({
+      ok: true as const,
+      value: [{ scope: { projectId: 8, viewId: 81 }, name: 'Work' }],
+    }))
+    const RECREATED: RemoteContainer[] = [
+      { id: '10', name: 'To-Do', isDefault: true },
+      { id: '11', name: 'Done', isTerminal: true },
+    ]
+    listContainers = vi.fn(async () => ({ ok: true as const, value: RECREATED }))
+
+    await setup([board()], [makeTask({ id: 'a', projectId: '8' })])
+
+    // Still checked — the user is repairing the board, not adding one.
+    expect(checkbox('Work')).toHaveProperty('checked', true)
+    await userEvent.click(continueButton())
+
+    await waitFor(() => expect(updateIntegrationConfig).toHaveBeenCalledTimes(1))
+    expect(listContainers).toHaveBeenCalledWith({ projectId: 8, viewId: 81 })
+    expect(written().boards[0]).toMatchObject({
+      projectId: 8,
+      viewId: 81,
+      containers: RECREATED,
+      // Same rule as picking a scope: another view means other buckets, so
+      // the mapping built from the old ones is asked for again.
+      mapping: null,
+    })
+    // The point of repairing instead of dropping: the tasks stay.
+    expect(dropTasksOfProject).not.toHaveBeenCalled()
+  })
+
+  it('leaves a board alone while its view is the one it was set up against', async () => {
+    await setup([board()])
+
+    await userEvent.click(continueButton())
+
+    await waitFor(() => expect(updateIntegrationConfig).toHaveBeenCalledTimes(1))
+    // Nothing to re-read, and the mapping survives.
+    expect(listContainers).not.toHaveBeenCalled()
+    expect(written().boards[0]).toMatchObject({ viewId: 80, mapping: MAPPING })
+  })
+})
+
 describe('VikunjaBoardsStep — dropping a board', () => {
   const home = board({ projectId: 9, viewId: 90, name: 'Home' })
 

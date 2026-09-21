@@ -57,7 +57,7 @@ function nullableArray<T extends z.ZodType>(item: T) {
 /**
  * `GET /info`. Only the fields we act on: `version` is shown on the connect
  * screen and gates the "tested with 2.6" warning, `max_items_per_page` sizes
- * the paged pull (task 5). The latter is optional — an older instance may not
+ * the paged pull. The latter is optional — an older instance may not
  * report it, and a missing field must not cost the user a connection.
  */
 export const vikunjaInfoSchema = z.object({
@@ -131,7 +131,7 @@ export const vikunjaBucketSchema = z.object({
  * A task.
  *
  * **Loose on purpose.** `POST /tasks/:id` is a full replace — a partial body
- * blanks every field left out (recon Q9) — so task 6 has to read, modify and
+ * blanks every field left out (recon Q9) — so every write has to read, modify and
  * write back the whole record. A stripping schema would silently drop every
  * field this file does not model (`reactions`, `subscription`, `cover_*`,
  * anything a future Vikunja adds) and the first edit would wipe them from the

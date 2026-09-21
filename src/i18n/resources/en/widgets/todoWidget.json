@@ -172,7 +172,7 @@
     },
     "vikunja": {
       "title": "Vikunja",
-      "description": "Two-way sync with a self-hosted Vikunja project.",
+      "description": "Two-way sync with your self-hosted Vikunja — one board or several.",
       "connect": {
         "title": "Connect Vikunja",
         "description": "Point the widget at your Vikunja instance and paste a personal API token.",
@@ -191,15 +191,11 @@
       },
       "board": {
         "title": "Boards",
-        "description": "Choose the projects to sync; one of them is the default for new tasks.",
-        "pickLabel": "Project",
-        "empty": "No projects with a kanban view on this account."
+        "description": "Choose the boards to sync; one of them is the default for new tasks."
       },
       "boards": {
-        "title": "Projects to sync",
-        "description": "Every checked project syncs both ways. New tasks are created in the starred one.",
-        "loading": "Reading the projects…",
-        "empty": "No projects with a kanban view on this account.",
+        "loading": "Reading the boards…",
+        "empty": "No boards with a kanban view on this account.",
         "default": "Default board",
         "defaultHint": "New tasks are created here.",
         "continue": "Save boards",
@@ -208,7 +204,7 @@
         "removeBody_other": "{{name}}: {{count}} tasks disappear from the widget (they stay in Vikunja).",
         "removeDirty_one": "{{count}} of them has a change that never reached Vikunja — it will be lost.",
         "removeDirty_other": "{{count}} of them have changes that never reached Vikunja — they will be lost.",
-        "keepOne": "At least one board has to stay — disconnect the integration to sync none."
+        "keepOne": "At least one board has to stay — disconnect the integration to sync nothing at all."
       },
       "mapping": {
         "title": "Map buckets to statuses",
@@ -229,25 +225,22 @@
         "created": "Columns created.",
         "skipFlat": "Skip — flat mode",
         "flatNotice": "In flat mode In progress / Struggle / Deleted are visible only in the extension; only Completed syncs to Vikunja.",
-        "flatActive": "Flat mode is active. The rows above are a suggestion — saving them switches this project to full bucket sync.",
+        "flatActive": "Flat mode is active. The rows above are a suggestion — saving them switches this board to full bucket sync.",
         "columnStruggle": "Struggle",
         "columnTrash": "Trash"
       },
       "summary": {
         "title": "Vikunja",
-        "boardLabel": "Project",
         "boards": "Boards",
         "modeKanban": "kanban",
         "modeFlat": "flat",
         "defaultBadge": "default",
         "columns": "Columns",
         "editBoards": "Change boards",
-        "mappingLabel": "Mapping",
         "lastSync": "Last sync",
         "neverSynced": "never",
         "disconnect": "Disconnect",
         "disconnectConfirm": "Disconnect Vikunja? The todos stay in the widget and stop syncing. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
-        "rePickBoard": "Change project",
         "switch": "Switch integration",
         "switchConfirm": "Disconnect Vikunja and pick another integration? The todos stay in the widget, unlinked. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
         "localOnlyLabel": "Only inside the extension",

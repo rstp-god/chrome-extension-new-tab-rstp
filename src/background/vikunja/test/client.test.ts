@@ -288,7 +288,7 @@ describe('5xx backoff', () => {
   })
 })
 
-// ---------- read path (task 5) ----------
+// ---------- read path ----------
 
 const VIEW_PATH = '/projects/1/views/4'
 const VIEW_BASE = `https://vikunja.example/api/v1${VIEW_PATH}`
@@ -540,7 +540,7 @@ describe('getViewTasks', () => {
   })
 })
 
-// ---------- write path (task 6) ----------
+// ---------- write path ----------
 
 const TASKS_BASE = 'https://vikunja.example/api/v1/tasks'
 
