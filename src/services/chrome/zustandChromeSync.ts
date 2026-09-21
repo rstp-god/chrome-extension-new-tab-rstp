@@ -92,7 +92,11 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
       // (quota, a closing context), and an unhandled rejection would take the
       // page's error handler by surprise instead of showing up as a log line.
       const logWriteFailure = (err: unknown) => {
-        console.error('[sync] write failed', err)
+        // The name, not the error: a storage failure's message can quote the
+        // value it refused, and these envelopes are the user's own data.
+        console.error('[sync] write failed', {
+          error: err instanceof Error ? err.name : 'unknown',
+        })
       }
 
       const scheduleWrite = () => {

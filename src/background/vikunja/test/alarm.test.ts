@@ -23,6 +23,9 @@ const CONFIG = {
   kanbanMapping: true,
 }
 
+/** Host the snapshots of `CONFIG` are keyed under — see `snapshotKey`. */
+const SNAPSHOT_HOST = 'vikunja.example'
+
 const MAPPING = {
   input: ['1'],
   inprogress: ['2'],
@@ -382,7 +385,13 @@ describe('ensureAlarm', () => {
     const chromeMock = installChrome({
       seed: {
         [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope(),
-        [snapshotKey(1, 4)]: { projectId: 1, viewId: 4, tasks: [pulledTask()], pulledAt: 1 },
+        [snapshotKey(SNAPSHOT_HOST, 1, 4)]: {
+          host: SNAPSHOT_HOST,
+          projectId: 1,
+          viewId: 4,
+          tasks: [pulledTask()],
+          pulledAt: 1,
+        },
       },
     })
     await ensureAlarm()
@@ -392,7 +401,7 @@ describe('ensureAlarm', () => {
 
     expect(chromeMock.alarmClear).toHaveBeenCalledWith(VIKUNJA_PULL_ALARM)
     expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(false)
-    expect(chromeMock.store.has(snapshotKey(1, 4))).toBe(false)
+    expect(chromeMock.store.has(snapshotKey(SNAPSHOT_HOST, 1, 4))).toBe(false)
   })
 })
 
@@ -446,7 +455,13 @@ describe('setupVikunjaPull', () => {
     const chromeMock = installChrome({
       seed: {
         [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope(),
-        [snapshotKey(1, 4)]: { projectId: 1, viewId: 4, tasks: [pulledTask()], pulledAt: 1 },
+        [snapshotKey(SNAPSHOT_HOST, 1, 4)]: {
+          host: SNAPSHOT_HOST,
+          projectId: 1,
+          viewId: 4,
+          tasks: [pulledTask()],
+          pulledAt: 1,
+        },
       },
     })
     setupVikunjaPull()
@@ -457,7 +472,7 @@ describe('setupVikunjaPull', () => {
     await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, undefined)
 
     expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(false)
-    expect(chromeMock.store.has(snapshotKey(1, 4))).toBe(false)
+    expect(chromeMock.store.has(snapshotKey(SNAPSHOT_HOST, 1, 4))).toBe(false)
   })
 })
 
@@ -490,7 +505,8 @@ describe('the alarm firing', () => {
       seed: {
         [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope(),
         // The snapshot already matches what the instance will answer.
-        [snapshotKey(1, 4)]: {
+        [snapshotKey(SNAPSHOT_HOST, 1, 4)]: {
+          host: SNAPSHOT_HOST,
           projectId: 1,
           viewId: 4,
           tasks: [pulledTask()],
@@ -699,7 +715,13 @@ describe('reacting to storage without re-reading it', () => {
     const chromeMock = installChrome({
       seed: {
         [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope(),
-        [snapshotKey(1, 4)]: { projectId: 1, viewId: 4, tasks: [pulledTask()], pulledAt: 1 },
+        [snapshotKey(SNAPSHOT_HOST, 1, 4)]: {
+          host: SNAPSHOT_HOST,
+          projectId: 1,
+          viewId: 4,
+          tasks: [pulledTask()],
+          pulledAt: 1,
+        },
       },
     })
     setupVikunjaPull()
@@ -709,7 +731,7 @@ describe('reacting to storage without re-reading it', () => {
     await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, undefined)
 
     expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(false)
-    expect(chromeMock.store.has(snapshotKey(1, 4))).toBe(false)
+    expect(chromeMock.store.has(snapshotKey(SNAPSHOT_HOST, 1, 4))).toBe(false)
   })
 })
 

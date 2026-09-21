@@ -28,7 +28,7 @@
 import { z } from 'zod'
 
 import { broadcastVikunja } from '@/background/vikunja/broadcast.ts'
-import { readSnapshot, writeSnapshot } from '@/background/vikunja/cache.ts'
+import { readSnapshot, snapshotHost, writeSnapshot } from '@/background/vikunja/cache.ts'
 import { VIKUNJA_SNAPSHOT_FRESH_MS } from '@/background/vikunja/constants.ts'
 import { withVikunjaClient } from '@/background/vikunja/gate.ts'
 import {
@@ -268,7 +268,11 @@ async function pullView(
   viewId: number,
   opts: RunPullOptions,
 ): Promise<VikunjaResponse<VikunjaPullOutcome>> {
-  const previous = await readSnapshot(projectId, viewId)
+  // The config is `unknown` here (it is validated inside `withVikunjaClient`),
+  // and the snapshot is keyed per instance — so the host is derived defensively
+  // rather than read off a trusted shape.
+  const host = snapshotHost((cfg as { baseUrl?: unknown } | null)?.baseUrl)
+  const previous = await readSnapshot(host, projectId, viewId)
 
   if (!opts.force && previous && isFresh(previous, Date.now())) {
     return {
@@ -294,7 +298,7 @@ async function pullView(
     const delta = computeDelta(previous?.tasks ?? null, tasks)
     const pulledAt = Date.now()
 
-    const persisted = await writeSnapshot({ projectId, viewId, tasks, pulledAt })
+    const persisted = await writeSnapshot({ host, projectId, viewId, tasks, pulledAt })
     announce({ projectId, viewId, pulledAt, delta, persisted, firstSnapshot: previous === null })
 
     return { ok: true, value: { tasks, pulledAt, delta, persisted } }

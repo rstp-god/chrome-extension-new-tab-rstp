@@ -117,19 +117,33 @@ export class VikunjaIntegration implements TodoIntegration {
   /**
    * One full read of the view: every bucket, every task, done included.
    *
-   * The labels are fetched alongside it because a task carries only label
-   * *ids* and the adapter has to know which of them are real projects rather
-   * than the reserved `energy:` / `mood:` ones. A failure there is
-   * propagated instead of defaulting to "everything counts": defaulting would
-   * stamp a reserved label onto tasks as their project, which is precisely
-   * what the reserved list exists to prevent.
+   * The labels are fetched alongside it on a **forced** pull, because a task
+   * carries only label *ids* and the adapter has to know which of them are
+   * real projects rather than the reserved `energy:` / `mood:` ones. A
+   * failure there is propagated instead of defaulting to "everything
+   * counts": defaulting would stamp a reserved label onto tasks as their
+   * project, which is precisely what the reserved list exists to prevent. A
+   * non-forced pull spends no request on them at all — see the body.
    */
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
     const pair = scopePair(ctx.scope)
     if (!pair) return NO_SCOPE
 
-    const labels = await this.listLabels()
-    if (!labels.ok) return labels
+    /**
+     * Labels are read only when the pull is a real read of the instance.
+     *
+     * They are needed to tell a task's project from a reserved label, and
+     * they are instance-wide — so re-listing them on every sync meant a
+     * second request to someone's own server for an answer that had not
+     * changed, on every background broadcast. A non-forced pull therefore
+     * uses the ids the store already has (`knownProjectIds`); a forced one —
+     * the user's own sync, a freshly mounted widget — refreshes them, which
+     * is also what puts a newly created label on a card.
+     */
+    const cachedProjectIds = ctx.knownProjectIds
+    const labels =
+      ctx.force === true || cachedProjectIds === undefined ? await this.listLabels() : null
+    if (labels && !labels.ok) return labels
 
     // `force` decides whether the worker reads the instance or answers from
     // the snapshot it broadcast a moment ago — see `PullContext.force`.
@@ -146,7 +160,9 @@ export class VikunjaIntegration implements TodoIntegration {
       if (isVikunjaRef(ref)) localIdByTaskId.set(ref.taskId, localId)
     }
 
-    const projectIds = new Set(labels.value.map((label) => String(label.id)))
+    const projectIds = new Set(
+      labels ? labels.value.map((label) => String(label.id)) : (cachedProjectIds ?? []),
+    )
     const taskContext = {
       mapping: ctx.mapping,
       localIdByTaskId,

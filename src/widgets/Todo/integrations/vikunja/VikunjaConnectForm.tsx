@@ -204,7 +204,7 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
   // to any message, so a success and a failure never share the screen.
   const probed = probe !== null
   const showConnected = probe !== null && message === null
-  const outdated = showConnected && probe !== null && !isTestedVikunjaVersion(probe.version)
+  const outdated = showConnected && !isTestedVikunjaVersion(probe.version)
 
   return (
     <form className="grid gap-4" onSubmit={handleSubmit}>

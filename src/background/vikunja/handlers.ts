@@ -399,6 +399,10 @@ export function handleSetLabels(
   }
 
   return withVikunjaClient(req.cfg, async (client) => {
+    // Deliberately unqueued: it only decides which labels are ours to touch,
+    // and `addLabel` / `removeLabel` below each take the task's chain
+    // themselves — a job holding that chain while calling them would wait on
+    // a chain it is itself holding (see `mutationQueue`).
     const current = await client.getTaskRaw(taskId.data)
     if (!current.ok) return current
 

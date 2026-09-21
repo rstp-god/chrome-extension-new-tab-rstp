@@ -34,10 +34,23 @@ import {
 
 import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
 
-/** One key per view, so two configured projects cannot overwrite each other. */
+/**
+ * One key per view **of one instance**, so neither two configured projects
+ * nor two instances can overwrite each other.
+ *
+ * The host matters because project and view ids are per instance: someone who
+ * moves the widget from a test instance to their real one (or runs both) has
+ * every chance of hitting the same `1:4` pair, and a delta computed against
+ * the other server's tasks would report its whole board as removed.
+ */
 export const VIKUNJA_SNAPSHOT_PREFIX = 'vikunja:snapshot:'
 
+/** Host used when the config does not carry a parseable instance URL. */
+const UNKNOWN_HOST = 'unknown'
+
 export interface VikunjaSnapshot {
+  /** Instance host, as `snapshotHost` derives it from the config's baseUrl. */
+  host: string
   projectId: number
   viewId: number
   tasks: VikunjaPulledTask[]
@@ -45,8 +58,25 @@ export interface VikunjaSnapshot {
   pulledAt: number
 }
 
-export function snapshotKey(projectId: number, viewId: number): string {
-  return `${VIKUNJA_SNAPSHOT_PREFIX}${projectId}:${viewId}`
+/**
+ * Host of an instance URL, for the key above.
+ *
+ * Takes the raw config value because the worker keeps no state and every op
+ * arrives with its own `cfg`; anything unparseable collapses to one shared
+ * bucket rather than throwing — a cache must not be the thing that breaks a
+ * pull.
+ */
+export function snapshotHost(baseUrl: unknown): string {
+  if (typeof baseUrl !== 'string') return UNKNOWN_HOST
+  try {
+    return new URL(baseUrl).host || UNKNOWN_HOST
+  } catch {
+    return UNKNOWN_HOST
+  }
+}
+
+export function snapshotKey(host: string, projectId: number, viewId: number): string {
+  return `${VIKUNJA_SNAPSHOT_PREFIX}${host}:${projectId}:${viewId}`
 }
 
 /**
@@ -75,6 +105,7 @@ const pulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
 })
 
 const snapshotSchema: z.ZodType<VikunjaSnapshot> = z.object({
+  host: z.string().min(1),
   projectId: z.number().int().positive(),
   viewId: z.number().int().positive(),
   // The same ceiling `writeSnapshot` truncates to: a longer record did not
@@ -93,22 +124,24 @@ function localArea(): chrome.storage.LocalStorageArea | null {
 }
 
 /**
- * The snapshot for this view, or `null` when there is none, it does not
- * parse, or it belongs to another view.
+ * The snapshot for this view of this instance, or `null` when there is none,
+ * it does not parse, or it belongs somewhere else.
  *
  * The last case is not paranoia for its own sake: the key is built from the
- * pair, so a record whose body disagrees with its key was written by
- * something other than `writeSnapshot`, and a delta computed against another
- * project's tasks would report that board's every task as removed.
+ * host and the pair, so a record whose body disagrees with its key was
+ * written by something other than `writeSnapshot`, and a delta computed
+ * against another project's tasks would report that board's every task as
+ * removed.
  */
 export async function readSnapshot(
+  host: string,
   projectId: number,
   viewId: number,
 ): Promise<VikunjaSnapshot | null> {
   const area = localArea()
   if (!area) return null
 
-  const key = snapshotKey(projectId, viewId)
+  const key = snapshotKey(host, projectId, viewId)
   let raw: unknown
   try {
     const items = await area.get(key)
@@ -122,6 +155,7 @@ export async function readSnapshot(
 
   const parsed = snapshotSchema.safeParse(raw)
   if (!parsed.success) return null
+  if (parsed.data.host !== host) return null
   if (parsed.data.projectId !== projectId || parsed.data.viewId !== viewId) return null
   return parsed.data
 }
@@ -176,7 +210,7 @@ export async function writeSnapshot(snapshot: VikunjaSnapshot): Promise<boolean>
   const bounded = withinBudget(snapshot)
 
   try {
-    await area.set({ [snapshotKey(bounded.projectId, bounded.viewId)]: bounded })
+    await area.set({ [snapshotKey(bounded.host, bounded.projectId, bounded.viewId)]: bounded })
     return true
   } catch (err) {
     // Only the error's name: a quota message can embed the record it refused.

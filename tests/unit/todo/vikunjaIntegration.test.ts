@@ -296,6 +296,43 @@ describe('VikunjaIntegration.pullTasks', () => {
     expect(bridge).toHaveBeenCalledWith(expect.objectContaining({ op: 'pull', force: expected }))
   })
 
+  it('spends no request on the labels when the store already knows the projects', async () => {
+    stubPull([pulledTask({ labelIds: [1, 3] })])
+
+    const out = await new VikunjaIntegration(CONFIG).pullTasks({
+      ...ctx,
+      knownProjectIds: ['3'],
+    })
+
+    // One message, and it is the pull: a background refresh must not cost a
+    // second request to someone's own server for labels that have not moved.
+    expect(bridge).toHaveBeenCalledTimes(1)
+    expect(bridge.mock.calls[0][0]).toMatchObject({ op: 'pull' })
+    // The cached ids still tell a project from a reserved label.
+    expect(out.ok && out.value.tasks[0].projectId).toBe('3')
+  })
+
+  it('refreshes the labels on a forced pull', async () => {
+    stubPull([pulledTask()])
+
+    await new VikunjaIntegration(CONFIG).pullTasks({
+      ...ctx,
+      knownProjectIds: ['3'],
+      force: true,
+    })
+
+    expect(bridge).toHaveBeenCalledTimes(2)
+    expect(bridge.mock.calls.map(([req]) => req.op).sort()).toEqual(['listLabels', 'pull'])
+  })
+
+  it('reads them anyway when the caller has no cache to offer', async () => {
+    stubPull([pulledTask()])
+
+    await new VikunjaIntegration(CONFIG).pullTasks(ctx)
+
+    expect(bridge).toHaveBeenCalledTimes(2)
+  })
+
   it('maps every task and reports its ref', async () => {
     stubPull([pulledTask({ bucketId: 2, labelIds: [1, 3] })])
 

@@ -8,7 +8,8 @@ import type { VikunjaRequest, VikunjaResponse } from '@/background/vikunja/messa
 /**
  * Only the *envelope* is validated here. `value` stays `unknown` all the way
  * through and is cast to `T` at the boundary below: the bridge has no idea
- * what any given op returns. Callers (tasks 4–7) parse `value` with their own
+ * what any given op returns. Callers (the adapter in `index.ts` and the push
+ * rules in `push.ts`) parse `value` with their own
  * Zod schema before reading a single field out of it.
  */
 const responseSchema = z.union([

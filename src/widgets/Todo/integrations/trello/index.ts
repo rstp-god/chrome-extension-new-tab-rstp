@@ -26,15 +26,15 @@ import {
 import { TrelloConnectForm } from './TrelloConnectForm.tsx'
 import type { TrelloConfig } from './types.ts'
 
+/** A mapping row that names no list cannot address a destination. */
+const NO_DESTINATION: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
+
 /**
  * `RemoteScope` is an open record, so `boardId` may be missing, numeric (other
  * backends address themselves that way) or empty. Total by construction: a
  * scope that doesn't name a board yields `null` rather than the string
  * `"undefined"` travelling into a request URL.
  */
-/** A mapping row that names no list cannot address a destination. */
-const NO_DESTINATION: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
-
 function boardIdOf(scope: RemoteScope): string | null {
   const raw: unknown = scope.boardId
   if (typeof raw !== 'string' && typeof raw !== 'number') return null

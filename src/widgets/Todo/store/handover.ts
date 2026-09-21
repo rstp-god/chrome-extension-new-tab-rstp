@@ -100,8 +100,11 @@ export async function saveHandoverSnapshot(
   try {
     await setArea('local', TODO_HANDOVER_KEY, snapshot)
   } catch (err) {
-    // Never the value, only the failure: the snapshot is task text.
-    console.warn('[todo] handover snapshot write failed:', err)
+    // The name, not the error: the snapshot is task text, and a storage
+    // failure's message can quote what it refused.
+    console.warn('[todo] handover snapshot write failed', {
+      error: err instanceof Error ? err.name : 'unknown',
+    })
   }
 }
 
@@ -125,6 +128,8 @@ export async function expireHandoverSnapshot(now = Date.now()): Promise<void> {
 
     await removeArea('local', TODO_HANDOVER_KEY)
   } catch (err) {
-    console.warn('[todo] handover snapshot cleanup failed:', err)
+    console.warn('[todo] handover snapshot cleanup failed', {
+      error: err instanceof Error ? err.name : 'unknown',
+    })
   }
 }

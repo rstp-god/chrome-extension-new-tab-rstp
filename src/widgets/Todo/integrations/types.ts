@@ -183,6 +183,20 @@ export interface PullContext {
    */
   knownStatuses: Record<string, TodoStatus>
   /**
+   * The project ids the store already has cached (`integration.projects`),
+   * for an adapter that would otherwise have to read them again to tell a
+   * task's project from something else.
+   *
+   * Vikunja needs it: a task carries label *ids*, and the adapter has to know
+   * which of them are real projects rather than the reserved `energy:` /
+   * `mood:` ones — a question it used to answer by listing every label on the
+   * instance, on every sync, including the cheap non-forced ones the
+   * background pull triggers. The cache is refreshed on a forced pull and by
+   * the scope picker / `refreshContainers`, which is exactly when the answer
+   * can have changed. A backend that does not need it (Trello) ignores it.
+   */
+  knownProjectIds?: readonly string[]
+  /**
    * Read the backend for real instead of answering from whatever the adapter
    * (or the service worker behind it) has cached.
    *

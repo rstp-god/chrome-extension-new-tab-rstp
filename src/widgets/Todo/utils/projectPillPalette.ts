@@ -24,19 +24,6 @@ export type ProjectPillHue =
   | 'pink'
   | 'black'
 
-export const PROJECT_PILL_HUES: readonly ProjectPillHue[] = [
-  'green',
-  'yellow',
-  'orange',
-  'red',
-  'purple',
-  'blue',
-  'sky',
-  'lime',
-  'pink',
-  'black',
-]
-
 const PROJECT_PILL_CLASS: Record<ProjectPillHue, string> = {
   green: 'bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/30',
   yellow: 'bg-yellow-500/15 text-yellow-300 ring-1 ring-inset ring-yellow-400/30',

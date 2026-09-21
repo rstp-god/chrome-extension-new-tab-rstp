@@ -164,10 +164,10 @@
         "lastSync": "Last sync",
         "neverSynced": "never",
         "disconnect": "Disconnect",
-        "disconnectConfirm": "Disconnect Trello? Local todos stay, but stop syncing.",
+        "disconnectConfirm": "Disconnect Trello? The todos stay in the widget and stop syncing. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
         "rePickBoard": "Change board",
         "switch": "Switch integration",
-        "switchConfirm": "Disconnect Trello and pick another integration? Local todos stay in the widget."
+        "switchConfirm": "Disconnect Trello and pick another integration? The todos stay in the widget, unlinked. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README)."
       }
     },
     "vikunja": {
@@ -222,10 +222,10 @@
         "lastSync": "Last sync",
         "neverSynced": "never",
         "disconnect": "Disconnect",
-        "disconnectConfirm": "Disconnect Vikunja? Local todos stay, but stop syncing.",
+        "disconnectConfirm": "Disconnect Vikunja? The todos stay in the widget and stop syncing. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
         "rePickBoard": "Change project",
         "switch": "Switch integration",
-        "switchConfirm": "Disconnect Vikunja and pick another integration? Tasks stay in the widget, and a copy of the list is kept in case the next connection goes wrong.",
+        "switchConfirm": "Disconnect Vikunja and pick another integration? The todos stay in the widget, unlinked. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
         "localOnlyLabel": "Only inside the extension",
         "pullPeriodLabel": "Background sync",
         "pullPeriodOption": "Every {{minutes}} min",

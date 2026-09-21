@@ -15,6 +15,9 @@ import {
 import type { VikunjaSnapshot } from '@/background/vikunja/cache.ts'
 import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
 
+/** The instance every fixture below belongs to — see `snapshotKey`. */
+const HOST = 'vikunja.example'
+
 function task(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
   return {
     id: 4,
@@ -32,7 +35,14 @@ function task(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
 }
 
 function snapshot(overrides: Partial<VikunjaSnapshot> = {}): VikunjaSnapshot {
-  return { projectId: 1, viewId: 4, tasks: [task()], pulledAt: 1_700_000_000_000, ...overrides }
+  return {
+    host: HOST,
+    projectId: 1,
+    viewId: 4,
+    tasks: [task()],
+    pulledAt: 1_700_000_000_000,
+    ...overrides,
+  }
 }
 
 /**
@@ -79,9 +89,11 @@ afterEach(() => {
 
 describe('snapshotKey', () => {
   it('is scoped to the view, under the shared prefix', () => {
-    expect(snapshotKey(1, 4)).toBe(`${VIKUNJA_SNAPSHOT_PREFIX}1:4`)
-    expect(snapshotKey(1, 5)).not.toBe(snapshotKey(1, 4))
-    expect(snapshotKey(2, 4)).not.toBe(snapshotKey(1, 4))
+    expect(snapshotKey(HOST, 1, 4)).toBe(`${VIKUNJA_SNAPSHOT_PREFIX}${HOST}:1:4`)
+    expect(snapshotKey(HOST, 1, 5)).not.toBe(snapshotKey(HOST, 1, 4))
+    expect(snapshotKey(HOST, 2, 4)).not.toBe(snapshotKey(HOST, 1, 4))
+    // Ids are per instance: the same pair on another server is another view.
+    expect(snapshotKey('other.example', 1, 4)).not.toBe(snapshotKey(HOST, 1, 4))
   })
 })
 
@@ -90,9 +102,9 @@ describe('write then read', () => {
     const { local, sync } = installStorage()
 
     await expect(writeSnapshot(snapshot())).resolves.toBe(true)
-    await expect(readSnapshot(1, 4)).resolves.toEqual(snapshot())
+    await expect(readSnapshot(HOST, 1, 4)).resolves.toEqual(snapshot())
 
-    expect(local.set).toHaveBeenCalledWith({ [snapshotKey(1, 4)]: snapshot() })
+    expect(local.set).toHaveBeenCalledWith({ [snapshotKey(HOST, 1, 4)]: snapshot() })
     expect(sync.set).not.toHaveBeenCalled()
     expect(sync.get).not.toHaveBeenCalled()
   })
@@ -102,7 +114,7 @@ describe('write then read', () => {
 
     await writeSnapshot(snapshot())
 
-    await expect(readSnapshot(1, 9)).resolves.toBeNull()
+    await expect(readSnapshot(HOST, 1, 9)).resolves.toBeNull()
   })
 
   it('truncates the task list to the documented ceiling', async () => {
@@ -113,10 +125,10 @@ describe('write then read', () => {
 
     await writeSnapshot(snapshot({ tasks }))
 
-    const stored = store.get(snapshotKey(1, 4)) as VikunjaSnapshot
+    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
     expect(stored.tasks).toHaveLength(VIKUNJA_SNAPSHOT_MAX_TASKS)
     // And the bound survives the round trip rather than being re-read as-is.
-    const read = await readSnapshot(1, 4)
+    const read = await readSnapshot(HOST, 1, 4)
     expect(read?.tasks).toHaveLength(VIKUNJA_SNAPSHOT_MAX_TASKS)
   })
 })
@@ -124,9 +136,19 @@ describe('write then read', () => {
 describe('reading a record we did not write', () => {
   it.each([
     ['a non-object', 'nonsense'],
-    ['a missing field', { projectId: 1, viewId: 4, pulledAt: 1 }],
-    ['a task with no id', { projectId: 1, viewId: 4, pulledAt: 1, tasks: [{ title: 'x' }] }],
-    ['a body addressing another view', { projectId: 1, viewId: 9, tasks: [], pulledAt: 1 }],
+    ['a missing field', { host: HOST, projectId: 1, viewId: 4, pulledAt: 1 }],
+    [
+      'a task with no id',
+      { host: HOST, projectId: 1, viewId: 4, pulledAt: 1, tasks: [{ title: 'x' }] },
+    ],
+    [
+      'a body addressing another view',
+      { host: HOST, projectId: 1, viewId: 9, tasks: [], pulledAt: 1 },
+    ],
+    [
+      'a body addressing another instance',
+      { host: 'other.example', projectId: 1, viewId: 4, tasks: [], pulledAt: 1 },
+    ],
     [
       'a task list past the ceiling',
       {
@@ -139,24 +161,24 @@ describe('reading a record we did not write', () => {
       },
     ],
   ])('treats %s as absent', async (_label, stored) => {
-    installStorage({ [snapshotKey(1, 4)]: stored })
+    installStorage({ [snapshotKey(HOST, 1, 4)]: stored })
 
-    await expect(readSnapshot(1, 4)).resolves.toBeNull()
+    await expect(readSnapshot(HOST, 1, 4)).resolves.toBeNull()
   })
 
   it('treats a storage read that throws as absent', async () => {
     const { local } = installStorage()
     local.get.mockRejectedValueOnce(new Error('storage gone'))
 
-    await expect(readSnapshot(1, 4)).resolves.toBeNull()
+    await expect(readSnapshot(HOST, 1, 4)).resolves.toBeNull()
   })
 })
 
 describe('clearSnapshots', () => {
   it('removes every snapshot and nothing else', async () => {
     const { store, sync } = installStorage({
-      [snapshotKey(1, 4)]: snapshot(),
-      [snapshotKey(7, 8)]: snapshot({ projectId: 7, viewId: 8 }),
+      [snapshotKey(HOST, 1, 4)]: snapshot(),
+      [snapshotKey(HOST, 7, 8)]: snapshot({ projectId: 7, viewId: 8 }),
       'todo-widget:v1': { keep: true },
       activity_day: { keep: true },
     })
@@ -176,7 +198,7 @@ describe('clearSnapshots', () => {
   })
 
   it('swallows a storage failure', async () => {
-    const { local } = installStorage({ [snapshotKey(1, 4)]: snapshot() })
+    const { local } = installStorage({ [snapshotKey(HOST, 1, 4)]: snapshot() })
     local.remove.mockRejectedValueOnce(new Error('quota'))
 
     await expect(clearSnapshots()).resolves.toBeUndefined()
@@ -187,7 +209,7 @@ describe('without a chrome.storage API', () => {
   it('degrades to an empty cache instead of throwing', async () => {
     Object.defineProperty(globalThis, 'chrome', { value: undefined, configurable: true })
 
-    await expect(readSnapshot(1, 4)).resolves.toBeNull()
+    await expect(readSnapshot(HOST, 1, 4)).resolves.toBeNull()
     await expect(writeSnapshot(snapshot())).resolves.toBe(false)
     await expect(clearSnapshots()).resolves.toBeUndefined()
   })
@@ -206,7 +228,7 @@ describe('the byte budget', () => {
 
     await writeSnapshot(snapshot({ tasks }))
 
-    const stored = store.get(snapshotKey(1, 4)) as VikunjaSnapshot
+    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
     expect(JSON.stringify(stored).length).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
     // Trailing tasks go, so the board's own order decides what survives.
     expect(stored.tasks.length).toBeGreaterThan(0)
@@ -220,7 +242,7 @@ describe('the byte budget', () => {
 
     await writeSnapshot(snapshot({ tasks }))
 
-    expect((store.get(snapshotKey(1, 4)) as VikunjaSnapshot).tasks).toHaveLength(50)
+    expect((store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot).tasks).toHaveLength(50)
   })
 
   it('applies the count cap before the byte budget', async () => {
@@ -231,7 +253,7 @@ describe('the byte budget', () => {
 
     await writeSnapshot(snapshot({ tasks }))
 
-    const stored = store.get(snapshotKey(1, 4)) as VikunjaSnapshot
+    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
     expect(stored.tasks).toHaveLength(VIKUNJA_SNAPSHOT_MAX_TASKS)
     expect(JSON.stringify(stored).length).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
   })
@@ -243,14 +265,14 @@ describe('the byte budget', () => {
     // of the cap is that N of them cannot multiply, not that one is refused.
     await writeSnapshot(snapshot({ tasks: [task({ description: 'x'.repeat(50_000) })] }))
 
-    expect((store.get(snapshotKey(1, 4)) as VikunjaSnapshot).tasks).toHaveLength(1)
+    expect((store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot).tasks).toHaveLength(1)
   })
 })
 
 describe('clearSnapshots key listing', () => {
   it('prefers getKeys() and never reads a single value', async () => {
     const { store, local } = installStorage({
-      [snapshotKey(1, 4)]: snapshot(),
+      [snapshotKey(HOST, 1, 4)]: snapshot(),
       'todo-widget:v1': { keep: true },
     })
     const getKeys = vi.fn(async () => [...store.keys()])
@@ -266,7 +288,7 @@ describe('clearSnapshots key listing', () => {
   })
 
   it('falls back to get(null) where getKeys is not available', async () => {
-    const { store, local } = installStorage({ [snapshotKey(1, 4)]: snapshot() })
+    const { store, local } = installStorage({ [snapshotKey(HOST, 1, 4)]: snapshot() })
 
     await clearSnapshots()
 

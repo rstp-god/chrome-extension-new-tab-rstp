@@ -119,7 +119,9 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
               // Reached by connecting: there is no earlier step inside this
               // integration, and an integration without a scope syncs nothing,
               // so back is out — disconnect and land on the picker.
-              useTodoStore.getState().clearIntegration()
+              // Nothing here waits for the storage writes; the step the
+              // dialog shows follows from the state, which is already set.
+              void useTodoStore.getState().clearIntegration()
             }}
             onLeaveMapping={() => setStepOverride('board')}
             onEditMapping={() => setStepOverride('mapping')}

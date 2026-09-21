@@ -258,7 +258,10 @@ describe('TodoWidget — a terminal error and a single-flight sync', () => {
 
     expect(fakePushTask).toHaveBeenCalledTimes(1)
     expect(fakePushTask.mock.calls[0][1]).toEqual({ kind: 'create' })
-    expect(fakePullTasks).toHaveBeenCalledTimes(1)
+    // Two runs, not two pushes: the import's own run created the task, and
+    // the manual sync that arrived meanwhile was spent on the follow-up
+    // (where there was nothing left to push).
+    expect(fakePullTasks).toHaveBeenCalledTimes(2)
   })
 })
 

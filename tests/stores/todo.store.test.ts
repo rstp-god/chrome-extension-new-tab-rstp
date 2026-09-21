@@ -606,7 +606,7 @@ describe('todo store — integration: setMapping', () => {
 })
 
 describe('todo store — integration: clearIntegration', () => {
-  it('drops integration and clears remoteRef + syncState on every task', () => {
+  it('drops integration and clears remoteRef + syncState on every task', async () => {
     useTodoStore.setState({
       integration: makeIntegrationState(),
       tasks: [
@@ -615,7 +615,7 @@ describe('todo store — integration: clearIntegration', () => {
         makeTask({ id: 'c', syncState: 'clean', remoteRef: null }),
       ],
     })
-    useTodoStore.getState().clearIntegration()
+    await useTodoStore.getState().clearIntegration()
     const state = useTodoStore.getState()
     expect(state.integration).toBeNull()
     for (const task of state.tasks) {
@@ -624,16 +624,36 @@ describe('todo store — integration: clearIntegration', () => {
     }
   })
 
-  it('wipes the device-local secret copy so the integration cannot resurrect on reload', () => {
+  it('wipes the device-local secret copy so the integration cannot resurrect on reload', async () => {
     useTodoStore.setState({ integration: makeIntegrationState(), tasks: [] })
     removeAreaMock.mockClear()
     setAreaMock.mockClear()
 
-    useTodoStore.getState().clearIntegration()
+    await useTodoStore.getState().clearIntegration()
 
     // The local envelope still holds apiKey/token; it must be removed, else
     // loadInitialEnv's "local wins" rule brings the integration back.
     expect(removeAreaMock).toHaveBeenCalledWith('local', TODO_STORAGE_KEY)
+  })
+
+  it('commits the tasks before wiping the local copy, never the other way round', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'a', remoteRef: makeRemoteRef() })],
+    })
+    removeAreaMock.mockClear()
+    setAreaMock.mockClear()
+
+    await useTodoStore.getState().clearIntegration()
+
+    // `withChromeSync` answers a refused `sync` write by writing a *local*
+    // envelope instead; a remove racing that fallback would delete the only
+    // remaining copy of the list. So the commit has to be finished first.
+    const write = setAreaMock.mock.calls.findIndex(([, key]) => key === TODO_STORAGE_KEY)
+    expect(write).toBeGreaterThanOrEqual(0)
+    expect(setAreaMock.mock.invocationCallOrder[write]).toBeLessThan(
+      removeAreaMock.mock.invocationCallOrder[0],
+    )
   })
 })
 
@@ -1258,7 +1278,7 @@ describe('todo store — conflict handling', () => {
     expect(useTodoStore.getState().conflictTaskIds).toEqual([])
   })
 
-  it('clearIntegration drops the whole list', () => {
+  it('clearIntegration drops the whole list', async () => {
     useTodoStore.setState({
       integration: makeIntegrationState(),
       tasks: [makeTask({ id: 'x', remoteRef: makeRemoteRef() })],
@@ -1616,35 +1636,107 @@ describe('todo store — clearError', () => {
     expect(seen).not.toHaveBeenCalled()
   })
 })
+describe('todo store — syncNow never overlaps, and never drops a caller', () => {
+  /**
+   * Pulls that hang until the test releases them, so a run can be held open
+   * while the next caller arrives.
+   */
+  function heldPulls() {
+    const held: { ctx: { mapping: StatusListMapping }; release: () => void }[] = []
+    fakePullTasks.mockImplementation(
+      (ctx: { mapping: StatusListMapping }) =>
+        new Promise((resolve) => {
+          held.push({ ctx, release: () => resolve(ok({ tasks: [], refs: {} })) })
+        }),
+    )
+    return held
+  }
 
-describe('todo store — syncNow is single-flight', () => {
-  it('joins a run already in progress instead of pushing everything twice', async () => {
+  it('hands every caller one run, then exactly one follow-up for the ones that waited', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), tasks: [] })
+    fakePullTasks.mockResolvedValue(ok({ tasks: [], refs: {} }))
+
+    // All three calls happen before the first run can finish, so two of them
+    // queue — and coalesce into a single follow-up.
+    const first = useTodoStore.getState().syncNow()
+    const second = useTodoStore.getState().syncNow({ silent: true })
+    const third = useTodoStore.getState().syncNow({ silent: true })
+
+    expect(second).toBe(first)
+    expect(third).toBe(first)
+    await Promise.all([first, second, third])
+
+    expect(fakePullTasks).toHaveBeenCalledTimes(2)
+  })
+
+  it('pushes what a caller made pending *after* the running sync read the list', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), tasks: [] })
+    const held = heldPulls()
+    fakePushTask.mockResolvedValue(ok(makeRemoteRef()))
+
+    const first = useTodoStore.getState().syncNow()
+    await vi.waitFor(() => expect(held).toHaveLength(1))
+
+    // Phase 1 of the running sync has already iterated its snapshot, so this
+    // task can only be pushed by a run that starts afterwards.
+    useTodoStore.setState({
+      tasks: [makeTask({ id: 'late', syncState: 'dirty', remoteRef: null })],
+    })
+    const second = useTodoStore.getState().syncNow()
+
+    held[0].release()
+    await vi.waitFor(() => expect(held).toHaveLength(2))
+    held[1].release()
+    await Promise.all([first, second])
+
+    // Two runs, and the late task pushed once by the second of them.
+    expect(fakePullTasks).toHaveBeenCalledTimes(2)
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+    expect((fakePushTask.mock.calls[0][0] as TodoTask).id).toBe('late')
+  })
+
+  it('never pushes the same task twice, however many callers overlap', async () => {
     useTodoStore.setState({
       integration: makeIntegrationState(),
       tasks: [makeTask({ id: 'a', syncState: 'dirty', remoteRef: null })],
     })
-    // A holder rather than a plain `let`: the assignment happens inside the
-    // mock's callback, which TypeScript's flow analysis cannot see.
-    const push: { release: (() => void) | null } = { release: null }
-    fakePushTask.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          push.release = () => resolve(ok(makeRemoteRef()))
-        }),
-    )
-    fakePullTasks.mockResolvedValue(ok({ tasks: [], refs: {} }))
+    const held = heldPulls()
+    fakePushTask.mockResolvedValue(ok(makeRemoteRef()))
 
     const first = useTodoStore.getState().syncNow()
+    await vi.waitFor(() => expect(held).toHaveLength(1))
     const second = useTodoStore.getState().syncNow({ silent: true })
 
-    // The same promise: the second caller joined the first run. Two runs
-    // would each see the task as pending and create it remotely twice.
-    expect(second).toBe(first)
-    push.release?.()
+    held[0].release()
+    await vi.waitFor(() => expect(held).toHaveLength(2))
+    held[1].release()
     await Promise.all([first, second])
 
+    // The first run pushed it and marked it clean; the follow-up finds
+    // nothing to do — a second `create` would mean two records remotely.
     expect(fakePushTask).toHaveBeenCalledTimes(1)
-    expect(fakePullTasks).toHaveBeenCalledTimes(1)
+  })
+
+  it('reconciles under the mapping that was saved during the running sync', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), tasks: [] })
+    const held = heldPulls()
+
+    const running = useTodoStore.getState().syncNow()
+    await vi.waitFor(() => expect(held).toHaveLength(1))
+
+    // `setMapping` writes the mapping and syncs; the sync it asks for must
+    // be a *new* run, or the widget reconciles the pull of the old mapping
+    // and shows every task in the wrong section until the next sync.
+    const nextMapping: StatusListMapping = { ...mappingFixture, input: ['list-renamed'] }
+    const saving = useTodoStore.getState().setMapping(nextMapping)
+
+    held[0].release()
+    await vi.waitFor(() => expect(held).toHaveLength(2))
+    held[1].release()
+    await Promise.all([running, saving])
+
+    expect(held[0].ctx.mapping).toEqual(mappingFixture)
+    expect(held[1].ctx.mapping).toEqual(nextMapping)
   })
 
   it('releases the slot, so a later sync really runs', async () => {
@@ -1657,32 +1749,32 @@ describe('todo store — syncNow is single-flight', () => {
     expect(fakePullTasks).toHaveBeenCalledTimes(2)
   })
 
-  it('has importLocalTasks join a sync that is already running', async () => {
+  it('creates the imported tasks even when a sync was already running', async () => {
     useTodoStore.setState({
       integration: makeVikunjaIntegrationState(),
       tasks: [makeTask({ id: 'a', syncState: 'clean', remoteRef: null })],
     })
-    const pull: { release: (() => void) | null } = { release: null }
-    fakePullTasks.mockImplementation(
-      () =>
-        new Promise((resolve) => {
-          pull.release = () => resolve(ok({ tasks: [], refs: {} }))
-        }),
-    )
+    const held = heldPulls()
     fakePushTask.mockResolvedValue(ok(makeForeignRef({ taskId: 5 })))
 
-    // A sync is in flight (its push phase pushed nothing: the task is a
-    // clean local one Vikunja does not import by itself).
+    // A sync is in flight, and its push phase pushed nothing: the task is a
+    // clean local one Vikunja does not import by itself.
     const running = useTodoStore.getState().syncNow()
-    await vi.waitFor(() => expect(fakePullTasks).toHaveBeenCalled())
+    await vi.waitFor(() => expect(held).toHaveLength(1))
+
     const importing = useTodoStore.getState().importLocalTasks(['a'])
 
-    pull.release?.()
+    held[0].release()
+    await vi.waitFor(() => expect(held).toHaveLength(2))
+    held[1].release()
     await Promise.all([running, importing])
 
-    // The import marked the task dirty and joined the running sync rather
-    // than starting a second push of the same task.
-    expect(fakePushTask).toHaveBeenCalledTimes(0)
-    expect(useTodoStore.getState().tasks[0].syncState).toBe('dirty')
+    // The import marked the task dirty and the follow-up run created it.
+    // Joining the running sync instead would have resolved with the task
+    // still dirty and the button still offering an import of it.
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+    expect((fakePushTask.mock.calls[0][0] as TodoTask).id).toBe('a')
+    expect((fakePushTask.mock.calls[0][0] as TodoTask).syncState).toBe('dirty')
+    expect(fakePushTask.mock.calls[0][1]).toEqual({ kind: 'create' })
   })
 })

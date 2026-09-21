@@ -473,7 +473,7 @@ export function isVikunjaBroadcast(msg: unknown): msg is VikunjaBroadcast {
  * dispatcher or the failure log.
  *
  * It deliberately does NOT check `cfg` or the per-op fields — payload
- * validation belongs to the op handlers (tasks 4–7).
+ * validation belongs to the op handlers in `handlers.ts`.
  */
 export function isVikunjaRequest(msg: unknown): msg is VikunjaRequest {
   if (typeof msg !== 'object' || msg === null) return false

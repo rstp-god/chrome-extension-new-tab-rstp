@@ -85,6 +85,19 @@ describe('vikunja write surface', () => {
     expect(offenders).toEqual([])
   })
 
+  it('no widget module asks the worker to delete a task', () => {
+    // The widget never destroys a record: `removeTask` moves the task to the
+    // `deleted` status, which the push maps onto a bucket (or, in flat mode,
+    // onto nothing at all). The `delete` op exists for a caller that means
+    // it, and the widget is not one — a stray one here would turn "hide from
+    // my list" into "gone from the tracker".
+    const offenders = listSourceFiles(path.join(SRC, 'widgets'))
+      .filter((file) => /op:\s*'delete'/.test(code(file)))
+      .map((file) => path.relative(ROOT, file))
+
+    expect(offenders).toEqual([])
+  })
+
   it('nothing outside the client fetches a Vikunja URL', () => {
     // The worker is the only context that can reach the instance at all
     // (recon Q17), and inside it the client is the only module that may.

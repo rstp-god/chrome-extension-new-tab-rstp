@@ -101,7 +101,7 @@ interface TodoWidgetState {
   setMapping: (mapping: StatusListMapping) => Promise<void>
   updateIntegrationConfig: (config: unknown) => boolean
   refreshContainers: () => Promise<boolean>
-  clearIntegration: () => void
+  clearIntegration: () => Promise<void>
   /**
    * Leaves a handover snapshot behind, then drops the integration.
    *
@@ -255,15 +255,42 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
      * button and the back-online flush. Two overlapping runs would both read
      * the same pending list in phase 1 and push every task in it twice —
      * which, for a task with no ref yet, means the backend gets two records
-     * and the widget keeps a ref to one of them. So an overlapping caller
-     * joins the run already in progress instead of starting a second one.
+     * and the widget keeps a ref to one of them. So a run never overlaps a
+     * run.
      *
-     * The joined caller's `options` are the running sync's, not its own: a
-     * silent refresh that arrives during a manual sync cannot un-spin a
-     * spinner the user asked for, and a manual one that joins a silent run
-     * would rather have fresh data than its own flags.
+     * But an overlapping caller must not simply *join* the one in flight
+     * either: phase 1 snapshotted the task list before that caller changed
+     * it, so joining would resolve without having pushed the thing the
+     * caller had just made pending — `importLocalTasks` would mark tasks
+     * dirty, wait, and create nothing. Hence the queue below, which is the
+     * same shape as the worker's `ensureAlarm`: a request that arrives mid-run
+     * sets it, and the tail of the running sync spends it on exactly one more
+     * run. Any number of callers arriving during one run coalesce into that
+     * single follow-up, and every one of them is handed the drainer's
+     * promise — so awaiting `syncNow()` always means "my state has been
+     * synced", never "somebody else's was".
      */
     let inFlightSync: Promise<void> | null = null
+    let queuedSync: SyncNowOptions | null = null
+
+    /**
+     * Options for the follow-up run, folded together from every caller that
+     * queued it.
+     *
+     * `force` wins: a caller that wants a real read of the backend must not
+     * be answered from the worker's snapshot because someone else was happy
+     * with it. `silent` loses: one manual sync among the queued callers means
+     * the follow-up owns the spinner, because somebody is watching it.
+     */
+    const foldSyncOptions = (
+      queued: SyncNowOptions | null,
+      arriving: SyncNowOptions | undefined,
+    ): SyncNowOptions => {
+      const silent = arriving?.silent === true
+      const force = arriving?.force ?? !silent
+      if (!queued) return { silent, force }
+      return { silent: queued.silent === true && silent, force: queued.force === true || force }
+    }
 
     /**
      * Writes one settled push into the store.
@@ -399,7 +426,19 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           knownStatuses[task.id] = task.status
         }
 
-        const pull = await adapter.pullTasks({ scope, mapping, knownRefs, knownStatuses, force })
+        // Read from the current slice, not from this run's snapshot: the
+        // mapping wizard's `refreshContainers` can land mid-sync, and its
+        // freshly read projects are the better answer.
+        const knownProjectIds = (get().integration?.projects ?? []).map((project) => project.id)
+
+        const pull = await adapter.pullTasks({
+          scope,
+          mapping,
+          knownRefs,
+          knownStatuses,
+          knownProjectIds,
+          force,
+        })
         if (!pull.ok) {
           set({ errorKey: pull.errorKey })
           return
@@ -720,7 +759,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         return true
       },
 
-      clearIntegration: () => {
+      clearIntegration: async () => {
         // Drop the integration slice entirely; tasks stay (they're still
         // valid local todos, just no longer linked to a remote).
         set({
@@ -737,13 +776,19 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
         // Back to a local list → tasks belong in `sync` again. Commit now so
         // they propagate immediately instead of waiting for the next edit.
-        void useTodoStore.getState().commit()
+        //
+        // Awaited, and strictly before the remove below: when the `sync`
+        // write is refused (quota — a long list is exactly the case here)
+        // `withChromeSync` falls back to writing a **local** envelope, and a
+        // remove racing that fallback would delete the only copy of the list
+        // the user has left.
+        await useTodoStore.getState().commit()
 
         // Wipe the device-local copy that still holds the Trello secrets.
         // Otherwise the next load would see a local envelope with an active
         // integration and resurrect the just-disconnected integration (and its
         // apiKey/token) via loadInitialEnv's "local wins" rule.
-        void removeArea('local', TODO_STORAGE_KEY)
+        await removeArea('local', TODO_STORAGE_KEY)
       },
 
       switchIntegration: async () => {
@@ -752,7 +797,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         // every `remoteRef` already stripped.
         const { integration, tasks } = get()
         await saveHandoverSnapshot(integration, tasks)
-        get().clearIntegration()
+        await get().clearIntegration()
       },
 
       importLocalTasks: async (ids) => {
@@ -792,11 +837,27 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       },
 
       syncNow: (options) => {
-        // Join, don't start: see `inFlightSync`.
-        if (inFlightSync) return inFlightSync
-        inFlightSync = runSync(options).finally(() => {
+        // Queue, don't join and don't overlap: see `inFlightSync`.
+        if (inFlightSync) {
+          queuedSync = foldSyncOptions(queuedSync, options)
+          return inFlightSync
+        }
+
+        inFlightSync = (async () => {
+          await runSync(options)
+          // Drains whatever arrived while the run above was in flight. A
+          // `while`, not an `if`: a caller that arrives during the follow-up
+          // has the same claim to a run as the ones before it, and dropping
+          // it would lose exactly the mutation this queue exists for.
+          while (queuedSync) {
+            const next = queuedSync
+            queuedSync = null
+            await runSync(next)
+          }
+        })().finally(() => {
           inFlightSync = null
         })
+
         return inFlightSync
       },
     }
