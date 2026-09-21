@@ -361,6 +361,9 @@ export interface TodoIntegration {
     op: IntegrationPushOp,
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>>
+
+  /** Необязательный: создать колонку внутри scope (нужен шагу маппинга, который достраивает колонки). */
+  createContainer?(scope: RemoteScope, title: string): Promise<IntegrationOutcome<RemoteContainer>>
 }
 ```
 
@@ -445,6 +448,11 @@ export const descriptor: IntegrationDescriptor = {
   titleI18nKey: 'todoWidget:integrations.myservice.title',
   descriptionI18nKey: 'todoWidget:integrations.myservice.description',
   ConnectForm: MyServiceConnectForm,
+  // Необязательный: свой шаг маппинга вместо общей таблицы. Если шагу нужен
+  // стор, подключайте его через `lazy(() => import(...))` — статический
+  // импорт замкнул бы цикл `store → registry → descriptor → шаг → store`
+  // (см. дескриптор Vikunja).
+  // MappingStep: lazy(async () => ({ default: (await import('./MyMappingStep.tsx')).MyMappingStep })),
   create: (config) => new MyIntegration(config as MyServiceConfig),
   // Где внутри конфига лежит адрес — знает только дескриптор; отдельного
   // персистентного поля у scope нет.
@@ -912,6 +920,9 @@ export interface TodoIntegration {
     op: IntegrationPushOp,
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>>
+
+  /** Optional: create a container inside a scope (for a mapping step that builds missing columns). */
+  createContainer?(scope: RemoteScope, title: string): Promise<IntegrationOutcome<RemoteContainer>>
 }
 ```
 
@@ -996,6 +1007,11 @@ export const descriptor: IntegrationDescriptor = {
   titleI18nKey: 'todoWidget:integrations.myservice.title',
   descriptionI18nKey: 'todoWidget:integrations.myservice.description',
   ConnectForm: MyServiceConnectForm,
+  // Optional: your own mapping step instead of the generic table. If the step
+  // needs the store, reference it through `lazy(() => import(...))` — a static
+  // import would close the loop `store → registry → descriptor → step → store`
+  // (see the Vikunja descriptor).
+  // MappingStep: lazy(async () => ({ default: (await import('./MyMappingStep.tsx')).MyMappingStep })),
   create: (config) => new MyIntegration(config as MyServiceConfig),
   // Only the descriptor knows where the address lives inside its config —
   // the scope is not a separate persisted field.

@@ -439,6 +439,91 @@ describe('todo store — integration: pickScope', () => {
   })
 })
 
+describe('todo store — integration: updateIntegrationConfig', () => {
+  it('replaces the config and keeps the rest of the slice', () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState({ mapping: mappingFixture }),
+      errorKey: 'network',
+    })
+
+    useTodoStore.getState().updateIntegrationConfig({ apiKey: 'k2', token: 't2', boardId: 'b2' })
+
+    const integration = useTodoStore.getState().integration
+    if (integration?.name !== 'trello') throw new Error('expected the trello integration')
+    expect(integration.config).toEqual({ apiKey: 'k2', token: 't2', boardId: 'b2' })
+    // The mapping is the caller's business, not this action's.
+    expect(integration.mapping).toEqual(mappingFixture)
+    expect(useTodoStore.getState().errorKey).toBeNull()
+  })
+
+  it('refuses a config the persisted schema rejects, leaving the slice untouched', () => {
+    const before = makeIntegrationState({ mapping: mappingFixture })
+    useTodoStore.setState({ integration: before })
+
+    useTodoStore.getState().updateIntegrationConfig({ apiKey: 'k' })
+
+    const state = useTodoStore.getState()
+    expect(state.errorKey).toBe('unknown')
+    expect(state.integration).toBe(before)
+  })
+
+  it('is a no-op with no active integration', () => {
+    useTodoStore.getState().updateIntegrationConfig({ apiKey: 'k', token: 't', boardId: 'b' })
+    expect(useTodoStore.getState().integration).toBeNull()
+  })
+})
+
+describe('todo store — integration: refreshContainers', () => {
+  const refreshed: RemoteContainer[] = [...listsFixture, { id: 'list-struggle', name: 'Struggle' }]
+
+  it('re-reads containers and projects while keeping the mapping', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState({ mapping: mappingFixture }) })
+    fakeListContainers.mockResolvedValueOnce(ok(refreshed))
+    fakeListProjects.mockResolvedValueOnce(ok(projectsFixture))
+
+    await useTodoStore.getState().refreshContainers()
+
+    const state = useTodoStore.getState()
+    expect(fakeListContainers).toHaveBeenCalledWith({ boardId: 'board-1' })
+    expect(state.integration?.lists).toEqual(refreshed)
+    expect(state.integration?.projects).toEqual(projectsFixture)
+    // The whole point: unlike `pickScope`, this keeps the mapping the wizard
+    // is about to save.
+    expect(state.integration?.mapping).toEqual(mappingFixture)
+    expect(state.loading).toBe(false)
+    expect(state.errorKey).toBeNull()
+  })
+
+  it.each([
+    ['the containers call', true],
+    ['the projects call', false],
+  ])('reports a failure of %s and changes nothing', async (_label, containersFail) => {
+    const before = makeIntegrationState({ mapping: mappingFixture })
+    useTodoStore.setState({ integration: before })
+    const failure = { ok: false as const, errorKey: 'rateLimited' as const }
+    fakeListContainers.mockResolvedValueOnce(containersFail ? failure : ok(refreshed))
+    fakeListProjects.mockResolvedValueOnce(containersFail ? ok(projectsFixture) : failure)
+
+    await useTodoStore.getState().refreshContainers()
+
+    const state = useTodoStore.getState()
+    expect(state.errorKey).toBe('rateLimited')
+    expect(state.loading).toBe(false)
+    expect(state.integration).toBe(before)
+  })
+
+  it('is a no-op without an integration or without a scope', async () => {
+    await useTodoStore.getState().refreshContainers()
+    expect(fakeListContainers).not.toHaveBeenCalled()
+
+    useTodoStore.setState({
+      integration: makeIntegrationState({ config: { apiKey: 'k', token: 't', boardId: null } }),
+    })
+    await useTodoStore.getState().refreshContainers()
+    expect(fakeListContainers).not.toHaveBeenCalled()
+  })
+})
+
 describe('todo store — integration: setMapping', () => {
   it('writes the mapping and triggers syncNow', async () => {
     useTodoStore.setState({

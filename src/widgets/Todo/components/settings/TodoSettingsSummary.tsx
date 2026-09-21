@@ -33,6 +33,13 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
 
   if (!integration) return null
 
+  // Vikunja-specific because the condition is: the user declined the bucket
+  // mapping, so four of the five statuses never leave the extension. A
+  // generic `descriptor.SummaryNotice` component would be a bigger change
+  // for one line of copy — branch here instead, and promote it if a second
+  // backend ever grows a caveat.
+  const flatMode = integration.name === 'vikunja' && !integration.config.kanbanMapping
+
   const handleSync = async () => {
     setBusy(true)
     await syncNow()
@@ -65,6 +72,12 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
           <span className="font-medium">{lastSyncLabel}</span>
         </div>
       </div>
+
+      {flatMode && (
+        <p className="rounded-2xl border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
+          {t('integrations.vikunja.mapping.flatNotice')}
+        </p>
+      )}
 
       {integration.mapping && (
         <div className="grid gap-1.5 rounded-2xl border border-border bg-muted/20 p-3 text-sm">

@@ -27,6 +27,7 @@ export type {
   IntegrationErrorKey,
   IntegrationOutcome,
   IntegrationPushOp,
+  MappingStepProps,
   Project,
   PullContext,
   PullResult,

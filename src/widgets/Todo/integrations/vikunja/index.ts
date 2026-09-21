@@ -1,4 +1,5 @@
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
+import { lazy } from 'react'
 
 import { sendVikunjaMessage } from './bridge.ts'
 import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
@@ -249,6 +250,25 @@ export const descriptor: IntegrationDescriptor = {
   titleI18nKey: 'todoWidget:integrations.vikunja.title',
   descriptionI18nKey: 'todoWidget:integrations.vikunja.description',
   ConnectForm: VikunjaConnectForm,
+  /**
+   * The generic mapping table cannot express Vikunja's rules: the done
+   * bucket owns `completed`, and a board without a struggle/trash column
+   * needs either new columns or flat mode.
+   *
+   * Referenced lazily, and that is load-bearing rather than an optimisation.
+   * The step is store-driven like every other settings step, and the store
+   * imports this registry to resolve descriptors — a static import here would
+   * close the loop `store → registry → descriptor → step → store`. A live
+   * cycle like that makes module init order significant (and, concretely,
+   * makes the registry unmockable in the store's own tests). A dynamic import
+   * has no such edge: by the time the factory runs, the store is long since
+   * initialised. The connect forms avoid the same loop by taking everything
+   * as props; this step needs three store actions, so it takes the other way
+   * out.
+   */
+  MappingStep: lazy(async () => ({
+    default: (await import('./VikunjaMappingStep.tsx')).VikunjaMappingStep,
+  })),
   create: (config) => new VikunjaIntegration(config as VikunjaConfig),
   /**
    * The scope is the pair, not either half: a project without a view cannot

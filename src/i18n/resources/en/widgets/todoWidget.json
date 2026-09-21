@@ -165,7 +165,22 @@
       },
       "mapping": {
         "title": "Map buckets to statuses",
-        "description": "Each status can pull from multiple buckets. The first bucket in each row is where new tasks land."
+        "description": "Each status can pull from multiple buckets. The first bucket in each row is where new tasks land.",
+        "suggestedHint": "Buckets are pre-matched by name — check the rows and fix anything that looks off.",
+        "addBucket": "Add bucket",
+        "emptyHint": "Pick at least one bucket",
+        "conflict": "One bucket is mapped to two statuses. A task in it would have no single status — remove one of them.",
+        "deletedOnTerminal": "The done bucket cannot hold Deleted: Vikunja would mark everything you delete as done.",
+        "completedNotTerminal": "Completed does not point at Vikunja's done bucket. Ticking a task off here won't mark it done there, and Vikunja will keep moving finished tasks out of your column.",
+        "confirmCompleted": "I understand, sync may fight with Vikunja",
+        "createMissingTitle": "Create the missing columns",
+        "createMissingDescription": "This board has no bucket for these statuses. The widget can add them to the kanban view.",
+        "createButton": "Create columns: {{n}}",
+        "created": "Columns created.",
+        "skipFlat": "Skip — flat mode",
+        "flatNotice": "In flat mode In progress / Struggle / Deleted are visible only in the extension; only Completed syncs to Vikunja.",
+        "columnStruggle": "Struggle",
+        "columnTrash": "Trash"
       },
       "summary": {
         "title": "Vikunja"

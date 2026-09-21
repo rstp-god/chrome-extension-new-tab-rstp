@@ -186,12 +186,31 @@ export interface TodoIntegration {
     op: IntegrationPushOp,
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>>
+
+  /**
+   * Creates a container inside a scope, for a mapping step that offers to
+   * build the columns the board is missing.
+   *
+   * Optional: a backend where columns are not the widget's to create (Trello
+   * — a list belongs to the board's own workflow) simply omits it, and a
+   * mapping step must check for it before offering the button.
+   */
+  createContainer?(scope: RemoteScope, title: string): Promise<IntegrationOutcome<RemoteContainer>>
 }
 
 export interface ConnectFormProps {
   busy: boolean
   errorKey: IntegrationErrorKey | null
   onConnect: (config: unknown) => Promise<void>
+}
+
+/**
+ * Props of a backend's own mapping step. Deliberately the same single prop
+ * the generic step takes: everything else the step needs (the integration
+ * slice, the store actions) it reads from the store itself.
+ */
+export interface MappingStepProps {
+  onBack: () => void
 }
 
 export interface IntegrationDescriptor {
@@ -203,6 +222,15 @@ export interface IntegrationDescriptor {
   descriptionI18nKey: string
   /** Renders the connect form inside `TodoSettingsDialog`. */
   ConnectForm: ComponentType<ConnectFormProps>
+  /**
+   * Replaces the generic mapping table with the backend's own step. Optional:
+   * when it is absent the shared `TodoSettingsMapping` renders, which is all
+   * a backend with plain columns needs. Vikunja ships one because its buckets
+   * carry rules the generic table knows nothing about — a done bucket that
+   * flips `done` server-side, and a flat fallback for boards that cannot be
+   * mapped at all.
+   */
+  MappingStep?: ComponentType<MappingStepProps>
   /** Pure factory: takes persisted config, returns a ready adapter. */
   create: (config: unknown) => TodoIntegration
   /**
