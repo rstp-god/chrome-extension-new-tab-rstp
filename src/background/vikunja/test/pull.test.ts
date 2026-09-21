@@ -21,7 +21,6 @@ function task(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
     bucketId: 1,
     created: '2026-09-20T14:00:00.000Z',
     updated: '2026-09-20T14:57:12.000Z',
-    labelIds: [],
     ...overrides,
   }
 }

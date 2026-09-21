@@ -66,7 +66,6 @@ function pulledTask(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTa
     bucketId: 1,
     created: '2026-09-20T17:00:00+03:00',
     updated: '2026-09-20T17:30:00+03:00',
-    labelIds: [],
     ...overrides,
   }
 }
@@ -344,7 +343,7 @@ describe('VikunjaIntegration.pullTasks', () => {
     ['a background refresh', false],
     ['a pull that says nothing about it', undefined],
   ])('costs exactly one message for %s', async (_label, force) => {
-    stubPull([pulledTask({ labelIds: [1, 3] })])
+    stubPull([pulledTask()])
 
     await new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, force })
 
@@ -358,7 +357,7 @@ describe('VikunjaIntegration.pullTasks', () => {
     ['a forced pull', true],
     ['a background refresh', false],
   ])('gives every task the board as its project on %s', async (_label, force) => {
-    stubPull([pulledTask({ labelIds: [1, 3] }), pulledTask({ id: 9, labelIds: [] })])
+    stubPull([pulledTask(), pulledTask({ id: 9 })])
 
     const out = await new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, force })
 
@@ -369,7 +368,7 @@ describe('VikunjaIntegration.pullTasks', () => {
   })
 
   it('maps every task and reports its ref', async () => {
-    stubPull([pulledTask({ bucketId: 2, labelIds: [1, 3] })])
+    stubPull([pulledTask({ bucketId: 2 })])
 
     const out = await new VikunjaIntegration(CONFIG).pullTasks(ctx)
 
@@ -574,9 +573,33 @@ describe('VikunjaIntegration.pullTasks — every board, not just the default one
 
     await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks({ ...ctx, force: true })
 
+    // The count matters as much as the flag: an empty `mock.calls` would
+    // satisfy the loop below without a single board having been read.
+    expect(bridge).toHaveBeenCalledTimes(2)
     for (const [request] of bridge.mock.calls) {
       expect(request).toMatchObject({ op: 'pull', force: true })
     }
+  })
+
+  it('yields one local task when two boards return the same remote task', async () => {
+    // Real case: a task moved between projects is still in the old board's
+    // snapshot while already in the new board's live view. Appending both
+    // would hand the store two records with one id.
+    stubPerBoard({
+      1: [pulledTask({ id: 4, bucketId: 1 })],
+      8: [pulledTask({ id: 4, bucketId: 30 })],
+    })
+
+    const out = await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks(ctx)
+
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.value.tasks).toHaveLength(1)
+    // The later board wins: it was read later, and its `projectId` is the one
+    // the next push has to write to.
+    expect(out.value.tasks[0]).toMatchObject({ id: 'vikunja:4', projectId: '8' })
+    expect(out.value.refs['vikunja:4']).toMatchObject({ projectId: 8, bucketId: 30 })
+    expect(Object.keys(out.value.refs)).toStrictEqual(['vikunja:4'])
   })
 
   it('fails the whole pull on the first board error, and reports nothing else', async () => {

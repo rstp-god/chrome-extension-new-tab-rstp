@@ -244,7 +244,7 @@ export interface VikunjaBucketSummary {
 export const VIKUNJA_MAX_TITLE_LENGTH = 1024
 export const VIKUNJA_MAX_DESCRIPTION_LENGTH = 16_384
 
-/**
+/*
  * There is deliberately no "reserved label" list here any more.
  *
  * It used to name the `energy:*` / `mood:*` prefixes another feature of the
@@ -254,6 +254,9 @@ export const VIKUNJA_MAX_DESCRIPTION_LENGTH = 16_384
  * the board it lives in — so the promise is kept by there being no label
  * endpoint reachable from here at all, which is a stronger guarantee than a
  * prefix check was.
+ *
+ * A plain block comment, not a doc comment: it documents an absence, and a
+ * `/**` here would attach itself to whatever declaration came next.
  */
 
 /**
@@ -265,6 +268,13 @@ export const VIKUNJA_MAX_DESCRIPTION_LENGTH = 16_384
  * `updated` is already normalised to whole seconds (see
  * `normalizeVikunjaTimestamp`), so it can be compared with the etag stored on
  * the local task without a false conflict on every other edit.
+ *
+ * A task's **labels are not here**. They used to travel as `labelIds`, from
+ * back when the widget surfaced the instance's labels as its projects; a
+ * task's project is the board it lives in now, so no reader was left — and
+ * carrying them anyway meant a `structuredClone` and a snapshot write per
+ * pull for a field nothing read. The raw task schema still parses `labels`,
+ * because the read-modify-write in `client.ts` must hand them back untouched.
  */
 export interface VikunjaPulledTask {
   id: number
@@ -278,7 +288,6 @@ export interface VikunjaPulledTask {
   bucketId: number
   created: string
   updated: string
-  labelIds: number[]
 }
 
 /**

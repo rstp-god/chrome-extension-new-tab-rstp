@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   clearSnapshots,
+  pruneSnapshots,
   readSnapshot,
+  snapshotBudgetBytes,
   snapshotKey,
   VIKUNJA_SNAPSHOT_PREFIX,
   writeSnapshot,
@@ -10,6 +12,7 @@ import {
 import {
   VIKUNJA_SNAPSHOT_MAX_BYTES,
   VIKUNJA_SNAPSHOT_MAX_TASKS,
+  VIKUNJA_SNAPSHOT_TOTAL_MAX_BYTES,
 } from '@/background/vikunja/constants.ts'
 
 import type { VikunjaSnapshot } from '@/background/vikunja/cache.ts'
@@ -29,7 +32,6 @@ function task(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
     bucketId: 1,
     created: '2026-09-20T14:00:00.000Z',
     updated: '2026-09-20T14:57:12.000Z',
-    labelIds: [],
     ...overrides,
   }
 }
@@ -166,11 +168,149 @@ describe('reading a record we did not write', () => {
     await expect(readSnapshot(HOST, 1, 4)).resolves.toBeNull()
   })
 
+  it('still reads a snapshot an older build wrote, dropping its labelIds', async () => {
+    // The field left the wire when the widget stopped surfacing labels as
+    // projects. Refusing the record instead of stripping it would report the
+    // whole board as `added` on the next pull — a broadcast, and a full
+    // re-read in every open tab, for nothing.
+    const legacy = {
+      ...snapshot(),
+      tasks: [{ ...task(), labelIds: [1, 7] }],
+    }
+    installStorage({ [snapshotKey(HOST, 1, 4)]: legacy })
+
+    const out = await readSnapshot(HOST, 1, 4)
+
+    expect(out).toEqual(snapshot())
+    expect(out?.tasks[0]).not.toHaveProperty('labelIds')
+  })
+
   it('treats a storage read that throws as absent', async () => {
     const { local } = installStorage()
     local.get.mockRejectedValueOnce(new Error('storage gone'))
 
     await expect(readSnapshot(HOST, 1, 4)).resolves.toBeNull()
+  })
+})
+
+describe('snapshotBudgetBytes', () => {
+  it.each([
+    ['one board gets the whole per-board cap', 1, VIKUNJA_SNAPSHOT_MAX_BYTES],
+    ['two boards still fit under it', 2, VIKUNJA_SNAPSHOT_MAX_BYTES],
+    ['four boards divide the connection total', 4, VIKUNJA_SNAPSHOT_TOTAL_MAX_BYTES / 4],
+    ['ten boards divide it further', 10, VIKUNJA_SNAPSHOT_TOTAL_MAX_BYTES / 10],
+  ])('%s', (_label, boards, expected) => {
+    expect(snapshotBudgetBytes(boards)).toBe(expected)
+  })
+
+  it.each([
+    ['an absent count', undefined],
+    ['zero boards', 0],
+    ['a negative count', -3],
+    ['a fractional count', 2.5],
+  ])('falls back to one board for %s', (_label, boards) => {
+    // A caller reading one view on its own says nothing about the connection;
+    // the per-board cap is the honest answer, and a division by zero or by a
+    // fraction is not an answer at all.
+    expect(snapshotBudgetBytes(boards)).toBe(VIKUNJA_SNAPSHOT_MAX_BYTES)
+  })
+
+  it('never exceeds the per-board cap, whatever the board count', () => {
+    for (const boards of [1, 2, 3, 5, 20]) {
+      expect(snapshotBudgetBytes(boards)).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
+    }
+  })
+})
+
+describe('writeSnapshot with a divided budget', () => {
+  /** A task whose description alone is ~50 KB of rich text. */
+  function heavy(id: number): VikunjaPulledTask {
+    return task({ id, description: 'x'.repeat(50_000) })
+  }
+
+  it('trims to the budget it was given, not to the per-board cap', async () => {
+    const { store } = installStorage()
+    // 60 × 50 KB ≈ 3 MB, which fits under neither budget — but the smaller
+    // one has to keep strictly fewer tasks.
+    const tasks = Array.from({ length: 60 }, (_, index) => heavy(index + 1))
+
+    await writeSnapshot(snapshot({ tasks }), VIKUNJA_SNAPSHOT_MAX_BYTES)
+    const generous = (store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot).tasks.length
+
+    await writeSnapshot(snapshot({ tasks }), snapshotBudgetBytes(8))
+    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
+
+    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(snapshotBudgetBytes(8))
+    expect(stored.tasks.length).toBeLessThan(generous)
+    expect(stored.tasks.length).toBeGreaterThan(0)
+  })
+
+  it('defaults to the per-board cap when no budget is passed', async () => {
+    const { store } = installStorage()
+    const tasks = Array.from({ length: 60 }, (_, index) => heavy(index + 1))
+
+    await writeSnapshot(snapshot({ tasks }))
+
+    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
+    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
+    expect(JSON.stringify(stored).length).toBeGreaterThan(snapshotBudgetBytes(8))
+  })
+})
+
+describe('pruneSnapshots', () => {
+  it('removes the snapshots of boards the schedule no longer names', async () => {
+    const { store } = installStorage({
+      [snapshotKey(HOST, 1, 4)]: snapshot(),
+      // A board the user removed.
+      [snapshotKey(HOST, 7, 8)]: snapshot({ projectId: 7, viewId: 8 }),
+      // The same board re-pointed at another view: the key carries the view,
+      // so the old one is orphaned the moment `withScope` changes it.
+      [snapshotKey(HOST, 1, 99)]: snapshot({ projectId: 1, viewId: 99 }),
+    })
+
+    await pruneSnapshots(HOST, [{ projectId: 1, viewId: 4 }])
+
+    expect([...store.keys()]).toStrictEqual([snapshotKey(HOST, 1, 4)])
+  })
+
+  it('leaves another instance’s snapshots alone', async () => {
+    // Not this connection's to judge — the user may be moving between two
+    // servers, and `clearSnapshots` is what sweeps those on disconnect.
+    const other = snapshotKey('other.example', 1, 4)
+    const { store } = installStorage({
+      [snapshotKey(HOST, 7, 8)]: snapshot({ projectId: 7, viewId: 8 }),
+      [other]: snapshot(),
+    })
+
+    await pruneSnapshots(HOST, [])
+
+    expect([...store.keys()]).toStrictEqual([other])
+  })
+
+  it('leaves everything that is not a snapshot alone', async () => {
+    const { store } = installStorage({
+      'todo-widget:v1': { anything: true },
+      [snapshotKey(HOST, 7, 8)]: snapshot({ projectId: 7, viewId: 8 }),
+    })
+
+    await pruneSnapshots(HOST, [{ projectId: 1, viewId: 4 }])
+
+    expect([...store.keys()]).toStrictEqual(['todo-widget:v1'])
+  })
+
+  it('writes nothing when every board is still scheduled', async () => {
+    const { local } = installStorage({ [snapshotKey(HOST, 1, 4)]: snapshot() })
+
+    await pruneSnapshots(HOST, [{ projectId: 1, viewId: 4 }])
+
+    expect(local.remove).not.toHaveBeenCalled()
+  })
+
+  it('survives a storage listing that throws', async () => {
+    const { local } = installStorage({ [snapshotKey(HOST, 7, 8)]: snapshot() })
+    local.get.mockRejectedValueOnce(new Error('storage gone'))
+
+    await expect(pruneSnapshots(HOST, [])).resolves.toBeUndefined()
   })
 })
 

@@ -198,10 +198,10 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
       containers: [{ id: '9', name: 'Later' }],
       mapping: null,
     })
-    // The worker keeps pulling the board that *is* mapped, and leaves the
-    // freshly picked one alone until its wizard is finished — a tick reads
-    // every mapped board now, not "the default" one.
-    expect(readVikunjaScheduleFrom(envelope())?.boards).toStrictEqual([{ projectId: 1, viewId: 4 }])
+    // The worker stops pulling entirely until the new board's wizard is
+    // finished — the same rule the page follows, which keeps the user in the
+    // mapping step while any board is unmapped.
+    expect(readVikunjaScheduleFrom(envelope())).toBeNull()
   })
 
   it('refreshed containers land on the board, and only there', async () => {

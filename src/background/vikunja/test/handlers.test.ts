@@ -561,7 +561,6 @@ describe('pull', () => {
         created: '2026-09-20T17:00:00+03:00',
         // Nanoseconds gone: the etag has to match what the next GET answers.
         updated: '2026-09-20T14:57:12.000Z',
-        labelIds: [],
       },
       {
         id: 5,
@@ -573,7 +572,6 @@ describe('pull', () => {
         bucketId: 3,
         created: '2026-09-20T17:00:00+03:00',
         updated: '2026-09-20T14:57:12.000Z',
-        labelIds: [1],
       },
     ])
     expect(value.pulledAt).toBeGreaterThan(0)

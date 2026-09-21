@@ -79,11 +79,13 @@ export const vikunjaUserSchema = z.looseObject({
 /**
  * The entries of a task's `labels`.
  *
- * All that is left of the label handling: `GET /labels` is no longer read and
- * no label is ever written, but a pulled task still carries its labels and the
- * pull turns them into `labelIds` for whatever the widget may want to do with
- * them. Kept `looseObject` for the same reason as the rest of the file — an
- * instance may add fields.
+ * All that is left of the label handling: `GET /labels` is no longer read, no
+ * label is ever written, and the pull does not forward them to the widget
+ * either. The field is parsed because a task carries it and the
+ * read-modify-write in `client.ts` must write it back untouched — a sync that
+ * quietly dropped someone's labels would be worse than no sync. Kept
+ * `looseObject` for the same reason as the rest of the file: an instance may
+ * add fields.
  */
 export const vikunjaLabelSchema = z.looseObject({
   id: z.number(),

@@ -140,7 +140,16 @@ function vikunjaBoard(): Record<string, unknown> {
   }
 }
 
-/** A second board, so a fixture can show that the list is a list. */
+/**
+ * A second board, so a fixture can show that the list is a list.
+ *
+ * It runs **flat**, which is not the same as unmapped: skipping the bucket
+ * wizard still writes a full mapping (`flatModeMapping`) pointing every
+ * non-terminal status at the view's default bucket and `completed` at its
+ * done bucket. The persisted schema needs every row filled, and a board with
+ * `mapping: null` is one whose wizard was never finished — which pauses the
+ * sync for the whole connection, on the page and in the worker alike.
+ */
 function vikunjaSecondBoard(): Record<string, unknown> {
   return {
     projectId: 8,
@@ -150,8 +159,13 @@ function vikunjaSecondBoard(): Record<string, unknown> {
       { id: '30', name: 'Todo', isDefault: true },
       { id: '31', name: 'Shipped', isTerminal: true },
     ],
-    // The wizard was never finished for this one, so it runs flat.
-    mapping: null,
+    mapping: {
+      input: ['30'],
+      inprogress: ['30'],
+      struggle: ['30'],
+      completed: ['31'],
+      deleted: ['30'],
+    },
     kanbanMapping: false,
   }
 }

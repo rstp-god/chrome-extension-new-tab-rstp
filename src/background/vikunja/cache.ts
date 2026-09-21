@@ -26,6 +26,7 @@ import { z } from 'zod'
 import {
   VIKUNJA_SNAPSHOT_MAX_BYTES,
   VIKUNJA_SNAPSHOT_MAX_TASKS,
+  VIKUNJA_SNAPSHOT_TOTAL_MAX_BYTES,
 } from '@/background/vikunja/constants.ts'
 import {
   VIKUNJA_MAX_DESCRIPTION_LENGTH,
@@ -90,6 +91,11 @@ export function snapshotKey(host: string, projectId: number, viewId: number): st
  * Validated on read even though the worker wrote it: a storage record is
  * editable by anything with the extension's id on the user's own machine, and
  * these ids end up in a delta the widget acts on.
+ *
+ * `z.object` strips what it does not know, which is what makes a snapshot
+ * written by an older build — one that still carried `labelIds` — parse
+ * rather than be thrown away: a dropped snapshot would report the whole board
+ * as `added` on the next pull.
  */
 const pulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
   id: z.number().int().positive(),
@@ -101,7 +107,6 @@ const pulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
   bucketId: z.number(),
   created: z.string(),
   updated: z.string(),
-  labelIds: z.array(z.number()),
 })
 
 const snapshotSchema: z.ZodType<VikunjaSnapshot> = z.object({
@@ -161,9 +166,25 @@ export async function readSnapshot(
 }
 
 /**
+ * How many bytes one board's snapshot may take, given how many boards share
+ * the connection's total.
+ *
+ * `boardCount` is the number of boards the schedule holds, not the number
+ * that happen to have a snapshot: the budget has to be the same for each of
+ * them however they are read, or the board that happens to be pulled first
+ * would take the lot. Anything unusable (zero, a fraction, `undefined` from a
+ * caller that pulls one view on its own) falls back to one board, which is
+ * simply the per-board cap.
+ */
+export function snapshotBudgetBytes(boardCount: number | undefined): number {
+  const boards =
+    Number.isInteger(boardCount) && (boardCount as number) > 0 ? (boardCount as number) : 1
+  return Math.min(VIKUNJA_SNAPSHOT_MAX_BYTES, Math.floor(VIKUNJA_SNAPSHOT_TOTAL_MAX_BYTES / boards))
+}
+
+/**
  * Trims the snapshot to both of its budgets: at most
- * `VIKUNJA_SNAPSHOT_MAX_TASKS` tasks, and at most
- * `VIKUNJA_SNAPSHOT_MAX_BYTES` of JSON.
+ * `VIKUNJA_SNAPSHOT_MAX_TASKS` tasks, and at most `maxBytes` of JSON.
  *
  * The count cap alone is not enough — a description is rich text bounded at
  * 16 KiB, so the cap allows a theoretically enormous record — and a byte cap
@@ -175,13 +196,13 @@ export async function readSnapshot(
  * plus one comma between them, so one pass costs one `stringify` per task
  * instead of one per candidate size.
  */
-function withinBudget(snapshot: VikunjaSnapshot): VikunjaSnapshot {
+function withinBudget(snapshot: VikunjaSnapshot, maxBytes: number): VikunjaSnapshot {
   const capped: VikunjaSnapshot =
     snapshot.tasks.length > VIKUNJA_SNAPSHOT_MAX_TASKS
       ? { ...snapshot, tasks: snapshot.tasks.slice(0, VIKUNJA_SNAPSHOT_MAX_TASKS) }
       : snapshot
 
-  if (JSON.stringify(capped).length <= VIKUNJA_SNAPSHOT_MAX_BYTES) return capped
+  if (JSON.stringify(capped).length <= maxBytes) return capped
 
   let used = JSON.stringify({ ...capped, tasks: [] }).length
   const kept: VikunjaPulledTask[] = []
@@ -189,7 +210,7 @@ function withinBudget(snapshot: VikunjaSnapshot): VikunjaSnapshot {
     // `+ 1` for the comma that would separate it from the previous element;
     // over-counting by one byte per task is the safe direction.
     const cost = JSON.stringify(task).length + 1
-    if (used + cost > VIKUNJA_SNAPSHOT_MAX_BYTES) break
+    if (used + cost > maxBytes) break
     used += cost
     kept.push(task)
   }
@@ -202,12 +223,20 @@ function withinBudget(snapshot: VikunjaSnapshot): VikunjaSnapshot {
  * write landed: a first pull whose snapshot did not persist must not be
  * broadcast (see `announce` in `pull.ts`), so this is a result rather than a
  * throw.
+ *
+ * `maxBytes` defaults to the per-board cap, which is what a caller reading a
+ * single view on its own should spend; the alarm passes the divided budget
+ * (see `snapshotBudgetBytes`) so a connection with many boards cannot
+ * multiply the cap by their number.
  */
-export async function writeSnapshot(snapshot: VikunjaSnapshot): Promise<boolean> {
+export async function writeSnapshot(
+  snapshot: VikunjaSnapshot,
+  maxBytes: number = VIKUNJA_SNAPSHOT_MAX_BYTES,
+): Promise<boolean> {
   const area = localArea()
   if (!area) return false
 
-  const bounded = withinBudget(snapshot)
+  const bounded = withinBudget(snapshot, maxBytes)
 
   try {
     await area.set({ [snapshotKey(bounded.host, bounded.projectId, bounded.viewId)]: bounded })
@@ -234,6 +263,42 @@ async function listKeys(area: chrome.storage.LocalStorageArea): Promise<string[]
   const withKeys = area as chrome.storage.LocalStorageArea & { getKeys?: () => Promise<string[]> }
   if (typeof withKeys.getKeys === 'function') return withKeys.getKeys()
   return Object.keys(await area.get(null))
+}
+
+/**
+ * Drops the snapshots of **this instance** that no longer belong to a board
+ * the schedule names.
+ *
+ * The garbage a live connection produces: a board removed from the config, or
+ * one re-pointed at another view (`withScope` changes `viewId`, which changes
+ * the key). Neither has anything left to invalidate it — the pull only ever
+ * writes the keys it reads — so without this they sit in
+ * `chrome.storage.local`, a quota every widget shares, for as long as the
+ * integration is connected.
+ *
+ * Scoped to one host on purpose. A key of another instance is not this
+ * connection's to judge: the user may be moving between two servers, and
+ * `clearSnapshots` (on disconnect) is what sweeps those.
+ */
+export async function pruneSnapshots(
+  host: string,
+  boards: readonly { projectId: number; viewId: number }[],
+): Promise<void> {
+  const area = localArea()
+  if (!area) return
+
+  const keep = new Set(boards.map((board) => snapshotKey(host, board.projectId, board.viewId)))
+  const prefix = `${VIKUNJA_SNAPSHOT_PREFIX}${host}:`
+
+  try {
+    const stale = (await listKeys(area)).filter((key) => key.startsWith(prefix) && !keep.has(key))
+    if (stale.length === 0) return
+    await area.remove(stale)
+  } catch (err) {
+    console.warn('[vikunja] snapshot prune failed', {
+      error: err instanceof Error ? err.name : 'unknown',
+    })
+  }
 }
 
 /**

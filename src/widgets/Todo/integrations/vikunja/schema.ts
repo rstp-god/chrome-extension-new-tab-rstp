@@ -72,7 +72,6 @@ export const vikunjaPulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
   bucketId: z.number(),
   created: z.string(),
   updated: z.string(),
-  labelIds: z.array(z.number()),
 })
 
 export const vikunjaPullResultSchema: z.ZodType<VikunjaPullResult> = z.object({

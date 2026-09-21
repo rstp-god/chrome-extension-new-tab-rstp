@@ -76,14 +76,22 @@ export const VIKUNJA_PULL_ALARM = 'vikunja-pull'
  * How long a snapshot counts as fresh enough to answer a non-forced pull
  * without touching the network.
  *
- * This is what makes the broadcast cheap: the alarm reads the view, writes
- * the snapshot and tells the pages; each page then runs its own sync, which
- * lands here within milliseconds and is served from that very snapshot. A
- * window shorter than a round trip to a slow self-hosted instance would
+ * This is what makes the broadcast cheap: the alarm reads every connected
+ * view, writes their snapshots and tells the pages once; each page then runs
+ * its own sync, which reads *all* of its boards here and is served from those
+ * very snapshots. A window shorter than the tick that produced them would
  * defeat it, and a long one would make a user-triggered sync stale — but a
  * user-triggered sync is forced and never reaches this check.
+ *
+ * A minute rather than the original 15 s because the tick is now a loop: the
+ * first board's snapshot is already several sequential reads old by the time
+ * the last board is done and the broadcast goes out, and a self-hosted
+ * instance answering a paged view read in a few seconds per board is
+ * ordinary. Too short a window and the woken pages re-read the early boards
+ * over the network — exactly the per-tab storm the snapshot exists to
+ * prevent.
  */
-export const VIKUNJA_SNAPSHOT_FRESH_MS = 15_000
+export const VIKUNJA_SNAPSHOT_FRESH_MS = 60_000
 
 /**
  * Ceiling on how many tasks one snapshot may hold.
@@ -109,8 +117,28 @@ export const VIKUNJA_SNAPSHOT_MAX_TASKS = 2000
  *
  * 1.5 MB is generous for a board a person reads in a widget and small enough
  * that a pathological one cannot squeeze the other widgets out of storage.
+ *
+ * It is a **per-board** ceiling; `VIKUNJA_SNAPSHOT_TOTAL_MAX_BYTES` below is
+ * what stops a connection with many boards from multiplying it.
  */
 export const VIKUNJA_SNAPSHOT_MAX_BYTES = 1_500_000
+
+/**
+ * Ceiling on every snapshot of one connection put together.
+ *
+ * The per-board cap alone stopped meaning anything once a tick reads every
+ * board: ten boards at 1.5 MB each is 15 MB of `chrome.storage.local`, a
+ * quota every widget in the extension shares. So the effective per-board
+ * budget is `min(VIKUNJA_SNAPSHOT_MAX_BYTES, floor(total / boards))` — one
+ * board still gets its full 1.5 MB, and a connection with many boards divides
+ * this between them instead of each taking the maximum.
+ *
+ * 4 MB leaves the per-board cap untouched for the one, two or three boards
+ * almost everyone has (3 × 1.33 MB), and only starts biting past that — which
+ * is the point at which "every board keeps a full copy of its task list" is
+ * the thing worth bounding.
+ */
+export const VIKUNJA_SNAPSHOT_TOTAL_MAX_BYTES = 4_000_000
 
 /**
  * The Todo widget's envelope key in `chrome.storage.local`.

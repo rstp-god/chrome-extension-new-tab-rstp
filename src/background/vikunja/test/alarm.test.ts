@@ -125,7 +125,6 @@ function pulledTask(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTa
     bucketId: 1,
     created: '2026-09-20T14:00:00.000Z',
     updated: '2026-09-20T14:57:12.000Z',
-    labelIds: [],
     ...overrides,
   }
 }
@@ -420,9 +419,11 @@ describe('readVikunjaScheduleFrom — the current, multi-board shape', () => {
     ])
   })
 
-  it('leaves out a board whose mapping wizard is unfinished', () => {
-    // Nowhere to put its tasks, so a pull of it would be work nobody can
-    // use — while the mapped boards next to it are worth waking up for.
+  it('schedules nothing at all while ANY board is unmapped', () => {
+    // Deliberately not "the mapped ones": the page refuses to sync in this
+    // state (`getSetupStep` keeps the user in the wizard), so reading the
+    // other board would spend requests on someone's own server and write a
+    // snapshot nothing is going to read. One rule on both sides.
     const raw = vikunjaEnvelope({
       config: boardsConfig({
         boards: [boardsConfig().boards[0], { ...second(), mapping: null }],
@@ -430,7 +431,19 @@ describe('readVikunjaScheduleFrom — the current, multi-board shape', () => {
       mapping: null,
     })
 
-    expect(readVikunjaScheduleFrom(raw)?.boards).toStrictEqual([{ projectId: 1, viewId: 4 }])
+    expect(readVikunjaScheduleFrom(raw)).toBeNull()
+  })
+
+  it('schedules them all again once the last wizard is finished', () => {
+    const raw = vikunjaEnvelope({
+      config: boardsConfig({ boards: [boardsConfig().boards[0], second()] }),
+      mapping: null,
+    })
+
+    expect(readVikunjaScheduleFrom(raw)?.boards).toStrictEqual([
+      { projectId: 1, viewId: 4 },
+      { projectId: 8, viewId: 21 },
+    ])
   })
 
   it.each([
@@ -809,10 +822,31 @@ describe('the alarm firing — every connected board', () => {
     ])
   })
 
-  it('broadcasts what each board found, naming that board', async () => {
+  /** A snapshot that already matches what the stubbed instance will answer. */
+  function freshSnapshot(projectId: number, viewId: number) {
+    return {
+      host: SNAPSHOT_HOST,
+      projectId,
+      viewId,
+      tasks: [pulledTask()],
+      // Old enough that the forced read is not answered from the cache.
+      pulledAt: 1,
+    }
+  }
+
+  it('sends ONE vikunja/pulled for the whole tick, with the totals', async () => {
+    // Three boards, two of them moved. A broadcast per board would wake every
+    // open page twice — and each wake-up is a sync of *all* the boards, so
+    // the second one delivers news the first already covered.
     const chromeMock = installChrome({
       seed: {
-        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([boardsConfig().boards[0], second()]),
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([
+          boardsConfig().boards[0],
+          second(),
+          third(),
+        ]),
+        // Board 8 is already up to date; boards 1 and 12 are first reads.
+        [snapshotKey(SNAPSHOT_HOST, 8, 21)]: freshSnapshot(8, 21),
       },
     })
     stubFetch(() => jsonResponse(200, [bucketBody(1, [taskBody()])]))
@@ -820,10 +854,71 @@ describe('the alarm firing — every connected board', () => {
 
     await chromeMock.fire()
 
-    // Sent from the read path, once per view — a page filters on the pair.
     expect(chromeMock.sent).toEqual([
-      expect.objectContaining({ type: 'vikunja/pulled', projectId: 1, viewId: 4 }),
-      expect.objectContaining({ type: 'vikunja/pulled', projectId: 8, viewId: 21 }),
+      {
+        type: 'vikunja/pulled',
+        // The first board that changed. A page accepts a broadcast about any
+        // board it syncs and answers with one sync of all of them.
+        projectId: 1,
+        viewId: 4,
+        at: expect.any(Number),
+        // Summed across the tick: one task added on board 1, one on board 12.
+        delta: { added: 2, changed: 0, removed: 0 },
+      },
+    ])
+  })
+
+  it('stays completely quiet when no board moved', async () => {
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([boardsConfig().boards[0], second()]),
+        [snapshotKey(SNAPSHOT_HOST, 1, 4)]: freshSnapshot(1, 4),
+        [snapshotKey(SNAPSHOT_HOST, 8, 21)]: freshSnapshot(8, 21),
+      },
+    })
+    stubFetch(() => jsonResponse(200, [bucketBody(1, [taskBody()])]))
+    setupVikunjaPull()
+
+    await chromeMock.fire()
+
+    expect(chromeMock.sent).toEqual([])
+  })
+
+  it('reports the failing board on its own and still announces the rest', async () => {
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([
+          boardsConfig().boards[0],
+          second(),
+          third(),
+        ]),
+      },
+    })
+    stubFetch((url) =>
+      url.includes('/views/21/')
+        ? jsonResponse(503, {})
+        : jsonResponse(200, [bucketBody(1, [taskBody()])]),
+    )
+    setupVikunjaPull()
+
+    await chromeMock.fire()
+
+    expect(chromeMock.sent).toEqual([
+      // Per board, because *which* board is unreachable is the whole message.
+      expect.objectContaining({
+        type: 'vikunja/pull-failed',
+        projectId: 8,
+        viewId: 21,
+        errorKey: 'network',
+      }),
+      // And one aggregate for the two that did answer.
+      {
+        type: 'vikunja/pulled',
+        projectId: 1,
+        viewId: 4,
+        at: expect.any(Number),
+        delta: { added: 2, changed: 0, removed: 0 },
+      },
     ])
   })
 
@@ -930,6 +1025,69 @@ describe('the alarm firing — every connected board', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('sweeps the snapshots of a board that left the schedule', async () => {
+    // A unique board set on purpose: `applySchedule` remembers the last set
+    // it swept for, and the memo is worker-scoped — which in a test file is
+    // module-scoped and shared with every case above.
+    const kept = second({ projectId: 41, viewId: 42 })
+    const gone = third({ projectId: 43, viewId: 44 })
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([kept, gone]),
+        [snapshotKey(SNAPSHOT_HOST, 41, 42)]: {
+          host: SNAPSHOT_HOST,
+          projectId: 41,
+          viewId: 42,
+          tasks: [pulledTask()],
+          pulledAt: 1,
+        },
+        [snapshotKey(SNAPSHOT_HOST, 43, 44)]: {
+          host: SNAPSHOT_HOST,
+          projectId: 43,
+          viewId: 44,
+          tasks: [pulledTask()],
+          pulledAt: 1,
+        },
+      },
+    })
+    setupVikunjaPull()
+    await chromeMock.settle()
+    expect(chromeMock.store.has(snapshotKey(SNAPSHOT_HOST, 43, 44))).toBe(true)
+
+    // The user removes the second board. Nothing else would ever invalidate
+    // its snapshot: the pull only writes the keys it reads.
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, multiBoardEnvelope([kept]))
+
+    expect(chromeMock.store.has(snapshotKey(SNAPSHOT_HOST, 41, 42))).toBe(true)
+    expect(chromeMock.store.has(snapshotKey(SNAPSHOT_HOST, 43, 44))).toBe(false)
+    // The envelope itself is not a snapshot.
+    expect(chromeMock.store.has(VIKUNJA_TODO_STORAGE_KEY)).toBe(true)
+  })
+
+  it('sweeps a snapshot left behind when a board is re-pointed at another view', async () => {
+    const before = second({ projectId: 51, viewId: 52 })
+    const after = second({ projectId: 51, viewId: 53 })
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([before]),
+        [snapshotKey(SNAPSHOT_HOST, 51, 52)]: {
+          host: SNAPSHOT_HOST,
+          projectId: 51,
+          viewId: 52,
+          tasks: [pulledTask()],
+          pulledAt: 1,
+        },
+      },
+    })
+    setupVikunjaPull()
+    await chromeMock.settle()
+
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, multiBoardEnvelope([after]))
+
+    // The key carries the view, so changing it orphans the old record.
+    expect(chromeMock.store.has(snapshotKey(SNAPSHOT_HOST, 51, 52))).toBe(false)
+  })
+
   it('keeps one alarm for the whole connection, whatever the board count', async () => {
     const chromeMock = installChrome({
       seed: {
@@ -991,17 +1149,24 @@ describe('readVikunjaScheduleFrom', () => {
 })
 
 describe('reacting to storage without re-reading it', () => {
-  it('schedules from the change event alone', async () => {
+  it('schedules from the change event alone, and costs nothing per edit', async () => {
     const chromeMock = installChrome({ seed: {} })
     setupVikunjaPull()
     await chromeMock.settle()
-    chromeMock.storageGet.mockClear()
 
     // Chrome hands the whole envelope to the listener; going back to storage
     // for it would be a read per task the user ticks off.
     await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
-
     expect(chromeMock.alarms.get(VIKUNJA_PULL_ALARM)?.periodInMinutes).toBe(VIKUNJA_PULL_PERIOD_MIN)
+
+    // The first sight of a board set sweeps the orphaned snapshots, which
+    // costs one key listing. Every edit after it must be free — that is what
+    // the memo in `applySchedule` is for, and a widget whose envelope changes
+    // on every ticked-off task is the case it protects.
+    chromeMock.storageGet.mockClear()
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
+
     expect(chromeMock.storageGet).not.toHaveBeenCalled()
   })
 

@@ -27,7 +27,12 @@
  * **One alarm, every board.** `chrome.alarms` gives a name and a period, not
  * a payload, so the tick cannot be told which board woke it; it walks the
  * whole list instead. See `VikunjaSchedule` for why that beats an alarm per
- * board.
+ * board. A tick is therefore several sequential reads long, and MV3 may
+ * unload the worker part-way through one: the boards not yet reached are
+ * simply not read until the next period. Nothing is left inconsistent by it —
+ * each board's snapshot is written whole, before the next board is started,
+ * and the delta is always computed against whatever snapshot is actually
+ * there.
  *
  * Note what is *not* here: the `vikunja/pulled` broadcast. Every real read
  * announces itself from `pull.ts`, whichever caller started it, so a manual
@@ -38,7 +43,7 @@
 import { z } from 'zod'
 
 import { broadcastVikunja, swallowRejection } from '@/background/vikunja/broadcast.ts'
-import { clearSnapshots } from '@/background/vikunja/cache.ts'
+import { clearSnapshots, pruneSnapshots, snapshotHost } from '@/background/vikunja/cache.ts'
 import {
   VIKUNJA_PULL_ALARM,
   VIKUNJA_PULL_PERIOD_MIN,
@@ -48,6 +53,7 @@ import {
 import { runPull } from '@/background/vikunja/pull.ts'
 
 import type {
+  VikunjaDeltaCounts,
   VikunjaErrorKey,
   VikunjaPullPeriod,
   VikunjaWire,
@@ -111,10 +117,9 @@ const credentialsSchema = z.object({
 })
 
 /**
- * One board, with only its presence checked for the mapping: a board whose
- * buckets are not mapped has nowhere to put a pulled task, so pulling for it
- * would be work nobody can use and it is left out of the schedule. `null`
- * until the wizard is done.
+ * One board, with only its presence checked for the mapping: `null` until the
+ * wizard is done, and **one such board pauses the whole schedule** (see
+ * `readVikunjaScheduleFrom`).
  *
  * The mapping's *contents* are deliberately not modelled — `bucket id →
  * status` is the widget's business, and the worker only ever asks whether
@@ -165,8 +170,8 @@ function resolvePeriod(raw: number | undefined): VikunjaPullPeriod {
 
 /**
  * The schedule one stored envelope asks for, or `null` when there is nothing
- * to pull: no integration, a different backend, half a scope, or not one
- * board whose mapping the user finished.
+ * to pull: no integration, a different backend, half a scope, or a mapping
+ * wizard the user has not finished for every board.
  *
  * Takes the record rather than reading storage so the `storage.onChanged`
  * listener can parse the `newValue` Chrome already handed it — the change
@@ -185,14 +190,23 @@ export function readVikunjaScheduleFrom(raw: unknown): VikunjaSchedule | null {
     // **Every board, in stored order** — and deliberately not "the default
     // one": which board is the default is a statement about the settings UI,
     // while a board left unpulled is a board whose tasks silently go stale.
+    const boards = config.boards.map((board) => ({
+      projectId: board.projectId,
+      viewId: board.viewId,
+    }))
+    // No board at all, or **any** board whose wizard is unfinished: nothing
+    // to wake up for.
     //
-    // A board whose wizard is unfinished is left out: a pulled task would
-    // have nowhere to go, so reading it would be work nobody can use.
-    const boards = config.boards
-      .filter((board) => board.mapping !== null)
-      .map((board) => ({ projectId: board.projectId, viewId: board.viewId }))
-    // Nothing mapped at all: no reason to wake up.
+    // The second half deliberately mirrors the page rather than doing as much
+    // as it can. The widget refuses to sync at all while one board is
+    // unmapped (`getSetupStep` answers `'mapping'` and keeps the user in the
+    // wizard), so pulling the mapped boards meanwhile would spend requests on
+    // someone's own server and write snapshots no page is going to read. One
+    // rule on both sides, and the pull resumes the moment the wizard is done —
+    // finishing it writes the envelope, which is the event that reconciles
+    // the alarm.
     if (boards.length === 0) return null
+    if (config.boards.some((board) => board.mapping === null)) return null
 
     return {
       cfg: { baseUrl: config.baseUrl, token: config.token },
@@ -270,6 +284,25 @@ async function clearAlarm(): Promise<void> {
  * (or a local list) from paying for a storage sweep on every edit: no alarm
  * means this feature has nothing stored, so there is nothing to clean.
  */
+/**
+ * The board set the snapshots were last swept for, as a string.
+ *
+ * Reconciliation runs on every `storage.onChanged`, which means on every task
+ * the user ticks off — and a sweep costs a key listing, which on a Chrome
+ * without `storage.getKeys()` is a full read of everything the extension has
+ * stored. Remembering what was already swept turns that into once per
+ * distinct board set per worker lifetime: the edits in between are free, and
+ * a board added, removed or re-pointed changes the signature and sweeps
+ * again. Worker-scoped like everything else here; a cold start sweeps once,
+ * which is also what catches a board removed while the worker was asleep.
+ */
+let lastPrunedSignature: string | null = null
+
+function scheduleSignature(schedule: VikunjaSchedule): string {
+  const host = snapshotHost(schedule.cfg.baseUrl)
+  return `${host}|${schedule.boards.map((board) => `${board.projectId}:${board.viewId}`).join(',')}`
+}
+
 async function applySchedule(schedule: VikunjaSchedule | null): Promise<void> {
   const existing = await getExistingAlarm()
 
@@ -280,7 +313,20 @@ async function applySchedule(schedule: VikunjaSchedule | null): Promise<void> {
     if (!existing) return
     await clearAlarm()
     await clearSnapshots()
+    // Everything is gone, so the next connection sweeps again rather than
+    // trusting a signature about a config that no longer exists.
+    lastPrunedSignature = null
     return
+  }
+
+  // A board removed, or re-pointed at another view: its snapshot is keyed by
+  // a pair the schedule no longer names, and nothing else will ever
+  // invalidate it. Scoped to this instance's host, so a key belonging to
+  // another server is left for `clearSnapshots`.
+  const signature = scheduleSignature(schedule)
+  if (signature !== lastPrunedSignature) {
+    await pruneSnapshots(snapshotHost(schedule.cfg.baseUrl), schedule.boards)
+    lastPrunedSignature = signature
   }
 
   if (existing && existing.periodInMinutes === schedule.periodMin) return
@@ -376,15 +422,36 @@ async function runScheduledPull(): Promise<void> {
   }
 
   const { cfg, boards } = schedule
+  const totals: VikunjaDeltaCounts = { added: 0, changed: 0, removed: 0 }
+  // The board the single `vikunja/pulled` is addressed to — see `announceTick`.
+  let firstChanged: VikunjaScheduledBoard | null = null
+
   for (const { projectId, viewId } of boards) {
     // Forced, because the point of the alarm is to find out whether the
     // remote moved, which a snapshot by definition cannot answer. Unretried,
-    // because the alarm is the retry — see the module comment.
-    const out = await runPull(cfg, projectId, viewId, { force: true, retry: false })
-    if (out.ok) continue
+    // because the alarm is the retry — see the module comment. Unannounced,
+    // because the tick speaks once, at the end.
+    const out = await runPull(cfg, projectId, viewId, {
+      force: true,
+      retry: false,
+      announce: false,
+      boardCount: boards.length,
+    })
+
+    if (out.ok) {
+      if (out.value.announceable) {
+        firstChanged ??= { projectId, viewId }
+        totals.added += out.value.delta.added.length
+        totals.changed += out.value.delta.changed.length
+        totals.removed += out.value.delta.removed.length
+      }
+      continue
+    }
 
     const terminal = isTerminalFailure(out.errorKey)
     if (terminal) await clearAlarm()
+    // Failures stay **per board**: which board is unreachable is the whole
+    // content of the message, and a page shows it as that board's state.
     broadcastVikunja({
       type: 'vikunja/pull-failed',
       projectId,
@@ -392,8 +459,35 @@ async function runScheduledPull(): Promise<void> {
       at: Date.now(),
       errorKey: out.errorKey,
     })
-    if (terminal) return
+    if (terminal) break
   }
+
+  // Even after a terminal stop: the boards read before it really did move,
+  // and the pages are entitled to what was already found.
+  announceTick(firstChanged, totals)
+}
+
+/**
+ * One `vikunja/pulled` for the whole tick, or none when nothing moved.
+ *
+ * Addressed to the **first board that changed**, and that is enough by
+ * design: a page accepts a broadcast about any board it syncs
+ * (`subscribe.ts`) and answers it with one silent sync of *all* of them,
+ * served from the snapshots this tick just wrote. Naming every changed board
+ * would widen the broadcast shape for information no receiver reads. The
+ * counts are the tick's totals, so "something moved, and roughly how much"
+ * stays true across the loop.
+ */
+function announceTick(board: VikunjaScheduledBoard | null, delta: VikunjaDeltaCounts): void {
+  if (!board) return
+
+  broadcastVikunja({
+    type: 'vikunja/pulled',
+    projectId: board.projectId,
+    viewId: board.viewId,
+    at: Date.now(),
+    delta,
+  })
 }
 
 /**

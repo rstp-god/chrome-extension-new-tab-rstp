@@ -276,8 +276,9 @@ export function vikunjaTaskToTodo(task: VikunjaPulledTask, ctx: VikunjaTaskConte
     description: description.length > 0 ? description : null,
     status,
     // The board, every time: a Vikunja task lives *in* a project, so that is
-    // what its project is — `labelIds` say nothing about it. Stringified,
-    // because `Project.id` is a string for every backend.
+    // what its project is — a label never said anything about it, which is
+    // why none reaches this side any more. Stringified, because `Project.id`
+    // is a string for every backend.
     projectId: String(ctx.boardProjectId),
     createdAt: parseTimestamp(task.created, updatedAt),
     statusChangedAt: completedAt ?? updatedAt,

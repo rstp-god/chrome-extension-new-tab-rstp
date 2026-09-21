@@ -5,6 +5,7 @@ import {
   VIKUNJA_MAX_TITLE_LENGTH,
 } from '@/background/vikunja/messages.ts'
 import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.ts'
+import { getVikunjaBoardPillClass } from '@/widgets/Todo/integrations/vikunja/projectStyles.ts'
 import {
   clampForVikunja,
   htmlToText,
@@ -36,7 +37,6 @@ function pulled(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
     bucketId: 1,
     created: '2026-09-20T17:00:00+03:00',
     updated: '2026-09-20T17:30:00+03:00',
-    labelIds: [],
     ...overrides,
   }
 }
@@ -137,6 +137,29 @@ describe('textToHtml', () => {
     'multi\nline\n\nwith a gap',
   ])('round-trips %j', (text) => {
     expect(htmlToText(textToHtml(text))).toBe(text)
+  })
+})
+
+describe('getVikunjaBoardPillClass', () => {
+  it('paints one board the same colour every time', () => {
+    // Derived from the id rather than cached, so the pill survives a reload,
+    // a new device and a config the user never re-saves.
+    expect(getVikunjaBoardPillClass(8)).toBe(getVikunjaBoardPillClass(8))
+    expect(getVikunjaBoardPillClass(8)).toEqual(expect.any(String))
+  })
+
+  it('gives neighbouring ids different colours', () => {
+    // Two boards created one after the other are the common case, and two
+    // pills the user cannot tell apart would defeat the point of having them.
+    expect(getVikunjaBoardPillClass(8)).not.toBe(getVikunjaBoardPillClass(9))
+  })
+
+  it('falls back to the neutral pill for an id that is not a number', () => {
+    // Belt and braces: the persisted schema forbids one, and a NaN would
+    // otherwise index outside the palette.
+    const neutral = getVikunjaBoardPillClass(Number.NaN)
+    expect(neutral).toBe(getVikunjaBoardPillClass(Number.POSITIVE_INFINITY))
+    expect(neutral).toEqual(expect.any(String))
   })
 })
 
@@ -279,13 +302,13 @@ describe('vikunjaTaskToTodo — fields', () => {
     expect(Number.isFinite(task.statusChangedAt)).toBe(true)
   })
 
-  it('makes the board the task’s project, whatever its labels say', () => {
+  it('makes the board the task’s project, for every task of it', () => {
     // A Vikunja task lives *in* a project, and that project is the board it
     // was pulled from — labels are somebody else's vocabulary.
     const ctx = context({ boardProjectId: 8 })
 
-    expect(vikunjaTaskToTodo(pulled({ labelIds: [1, 7] }), ctx).projectId).toBe('8')
-    expect(vikunjaTaskToTodo(pulled({ labelIds: [] }), ctx).projectId).toBe('8')
+    expect(vikunjaTaskToTodo(pulled(), ctx).projectId).toBe('8')
+    expect(vikunjaTaskToTodo(pulled({ id: 9 }), ctx).projectId).toBe('8')
     // The same id the ref records, and the same one `Project.id` uses.
     expect(vikunjaTaskToTodo(pulled(), ctx).remoteRef).toMatchObject({ projectId: 8 })
   })

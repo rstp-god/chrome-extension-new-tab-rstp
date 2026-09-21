@@ -51,6 +51,9 @@ import type { z } from 'zod'
 /** A scope that does not address a project *and* a view addresses nothing. */
 const NO_SCOPE: IntegrationOutcome<never> = { ok: false, errorKey: 'notFound' }
 
+/** A `Project.id` that is plainly a Vikunja project id — see `boardFor`. */
+const DIGITS_RE = /^\d+$/
+
 /**
  * No board to run the operation on: none picked at all, or — for a push —
  * none this config knows about the one the task claims to live on.
@@ -166,12 +169,16 @@ export class VikunjaIntegration implements TodoIntegration {
    *   of its own config — and each board's own mapping and mode, which is
    *   what makes mixing a kanban board and a flat one in one connection work
    *   at all.
-   * - **An unmapped board is skipped, not refused.** A kanban board whose
-   *   wizard was never finished has no bucket → status rule, so its tasks
-   *   could only be read as `input`; the other boards are still perfectly
-   *   syncable, and the user is already being sent to the wizard by
-   *   `getSetupStep`. Not one mapped board left means there is nothing this
-   *   sync can honestly do.
+   * - **An unmapped board is skipped rather than refused** — a defensive
+   *   guard rather than a path the UI can reach: `getSetupStep` answers
+   *   `'mapping'` while **any** board is unmapped, so the settings screen
+   *   keeps the user in the wizard and the store does not sync at all in that
+   *   state (the worker's schedule agrees — see `readVikunjaScheduleFrom`).
+   *   It stays because the alternative is reading a board with no bucket →
+   *   status rule, whose every task would come back as `input`. The filter is
+   *   `mapping !== null` and **not** `kanbanMapping`: a flat board always
+   *   carries a `flatModeMapping` (the persisted schema needs every row
+   *   filled), so flat mode is never what this skips.
    * - **The first failure ends the pull, and nothing at all is reported.**
    *   The store's reconcile treats a pull as authoritative: a task with one
    *   of our refs that the pull did not return is taken to be gone remotely
@@ -182,6 +189,16 @@ export class VikunjaIntegration implements TodoIntegration {
    * Sequential rather than concurrent: the worker single-flights a read per
    * view, this is somebody's own server, and a pull is already one request
    * per page of every bucket.
+   *
+   * **The reads are therefore not atomic**, and nothing here pretends
+   * otherwise. A task moved between two projects while the loop is part-way
+   * through can be read on neither board — out of the one already visited,
+   * not yet into the one still to come — and so goes missing for that cycle.
+   * The next pull sees it on its new board and restores it, and no local
+   * state is corrupted meanwhile: the task is dropped, not rewritten. Holding
+   * every board still for the duration is not something the API offers, and a
+   * cross-board transaction is far more machinery than one cycle of lag is
+   * worth.
    */
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
     if (this.config.boards.length === 0) return NO_BOARD
@@ -197,7 +214,14 @@ export class VikunjaIntegration implements TodoIntegration {
       if (isVikunjaRef(ref)) localIdByTaskId.set(ref.taskId, localId)
     }
 
-    const tasks: TodoTask[] = []
+    // Keyed by local id rather than appended, so the same remote task read on
+    // two boards yields one local task instead of a duplicate the store would
+    // then try to reconcile twice. That happens for real: a task moved
+    // between projects sits in the old board's snapshot and the new board's
+    // live view at the same time. **The later board wins** — it was read
+    // later, so its answer is the more recent one, and it is also the one
+    // whose `projectId` the next push has to use.
+    const byId = new Map<string, TodoTask>()
     const refs: Record<string, RemoteTaskRef> = {}
 
     for (const board of boards) {
@@ -234,12 +258,12 @@ export class VikunjaIntegration implements TodoIntegration {
 
       for (const remote of pull.value.tasks) {
         const task = vikunjaTaskToTodo(remote, taskContext)
-        tasks.push(task)
+        byId.set(task.id, task)
         if (task.remoteRef) refs[task.id] = task.remoteRef
       }
     }
 
-    return { ok: true, value: { tasks, refs } }
+    return { ok: true, value: { tasks: [...byId.values()], refs } }
   }
 
   /** Creates one kanban column, for the mapping wizard. */
@@ -325,8 +349,15 @@ export class VikunjaIntegration implements TodoIntegration {
     const ref = task.remoteRef
     if (ref && isVikunjaRef(ref)) return boardForProject(this.config, ref.projectId)
 
-    const named =
-      task.projectId === null ? null : boardForProject(this.config, Number(task.projectId))
+    // Digits only. `Number()` is far too generous for an id that came out of
+    // persisted state: it reads `''`, `' 7 '`, `'0x8'` and `'1e3'` as numbers,
+    // so a record written by another backend could name a board by accident.
+    // Anything that is not plainly a project id falls through to the default
+    // board, which is where `projectPolicy.defaultId` already promised a new
+    // task would go.
+    const named = DIGITS_RE.test(task.projectId ?? '')
+      ? boardForProject(this.config, Number(task.projectId))
+      : null
     return named ?? defaultBoard(this.config)
   }
 
@@ -453,7 +484,7 @@ export const descriptor: IntegrationDescriptor = {
    * Four tasks at a time during a sync.
    *
    * Safe because the worker's `mutationQueue` serialises every write by key:
-   * per task id for edits, moves, labels and deletes, and per project for
+   * per task id for edits, moves and deletes, and per project for
    * creates (which have no task id yet and share the project's `index`
    * counter). So the pool can only ever overlap writes that touch different
    * records — and it is worth having, because a push is up to three round

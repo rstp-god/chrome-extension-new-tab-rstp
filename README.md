@@ -352,7 +352,11 @@ Todo-виджет умеет двусторонне синхронизирова
 
 ### Фоновая синхронизация
 
-Service worker пуллит вью по `chrome.alarms` с периодом **1, 5 или 15 минут** (по умолчанию 5; переключается в сводке настроек, пункт «Фоновая синхронизация»). Изменения, сделанные в Vikunja, попадают в открытую вкладку в пределах этого интервала. Кнопка «Sync now» в футере виджета читает инстанс немедленно.
+Service worker пуллит по `chrome.alarms` с периодом **1, 5 или 15 минут** (по умолчанию 5; переключается в сводке настроек, пункт «Фоновая синхронизация»). Изменения, сделанные в Vikunja, попадают в открытую вкладку в пределах этого интервала. Кнопка «Sync now» в футере виджета читает инстанс немедленно.
+
+Alarm один на подключение, а не на доску: за один тик воркер читает **каждую размеченную доску** по очереди и в конце шлёт открытым вкладкам один броадкаст, а не по одному на доску. Поэтому период означает то, что написано, и не делится между досками.
+
+Если у какой-то доски **не закончен мастер маппинга**, фоновая синхронизация приостанавливается целиком — не только для этой доски. Класть пулл некуда: без маппинга бакетов задачи доски некуда разложить, а страница в таком состоянии всё равно держит пользователя на шаге маппинга. Как только мастер закончен, пулл возобновляется сам — сохранение конфига и есть то событие, которое пересобирает alarm.
 
 ### Конфликты
 
@@ -1068,7 +1072,11 @@ Skip the mapping ("Skip — flat mode") and only `Completed` syncs to Vikunja, w
 
 ### Background sync
 
-The service worker pulls the view on a `chrome.alarms` schedule every **1, 5 or 15 minutes** (default 5; switch it in the settings summary under "Background sync"). Changes made in Vikunja reach an open tab within that interval. The widget footer's "Sync now" reads the instance immediately.
+The service worker pulls on a `chrome.alarms` schedule every **1, 5 or 15 minutes** (default 5; switch it in the settings summary under "Background sync"). Changes made in Vikunja reach an open tab within that interval. The widget footer's "Sync now" reads the instance immediately.
+
+There is one alarm per connection, not per board: a single tick reads **every mapped board** in turn and then sends the open tabs one broadcast rather than one per board. The period therefore means what it says and is not divided between the boards.
+
+If any board's **mapping wizard is unfinished**, background sync pauses entirely — not just for that board. There is nowhere to put what a pull would return: without a bucket mapping that board's tasks cannot be placed, and the page keeps the user on the mapping step in that state anyway. Finishing the wizard resumes it on its own — saving the config is the very event that reconciles the alarm.
 
 ### Conflicts
 
