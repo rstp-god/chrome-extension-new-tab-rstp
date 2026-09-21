@@ -20,11 +20,34 @@ import { VikunjaMissingColumnsPanel } from './VikunjaMissingColumnsPanel.tsx'
 import type {
   IntegrationErrorKey,
   MappingStepProps,
+  RemoteContainer,
   StatusListMapping,
   TodoStatus,
 } from '@/widgets/Todo/integrations/types.ts'
 import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 import type { MissingColumn } from './VikunjaMissingColumnsPanel.tsx'
+
+/**
+ * What this step freezes and what it re-reads, because the difference is the
+ * whole of its state management:
+ *
+ * - **frozen at mount** — `plan`, the list of boards this run walks. It is
+ *   computed from "which boards are still unmapped", and every save changes
+ *   that answer: walking the live one would renumber the header mid-wizard
+ *   and skip the board the user is about to be shown.
+ * - **live** — `integration.config`, which is re-read on every render and is
+ *   what every write is built from. The boards inside `plan` are therefore
+ *   only identities (`projectId`), never a source of truth about their
+ *   contents.
+ * - **live, with a local override** — the buckets. A board carries the ones
+ *   the config knows; creating a column re-reads them from the instance and
+ *   keeps the answer in `freshLists` until the config write lands.
+ */
+interface MappingPlan {
+  boards: VikunjaBoard[]
+  /** The summary named a board this config no longer has. */
+  targetMissing: boolean
+}
 
 /**
  * The boards this run of the wizard is about, in order.
@@ -35,17 +58,20 @@ import type { MissingColumn } from './VikunjaMissingColumnsPanel.tsx'
  * — in which case the wizard is being re-opened for the board the settings UI
  * is showing.
  */
-function mappingQueue(config: VikunjaConfig, target: string | undefined): VikunjaBoard[] {
+function mappingPlan(config: VikunjaConfig, target: string | undefined): MappingPlan {
   if (target !== undefined) {
     const named = config.boards.filter((board) => String(board.projectId) === target)
-    if (named.length > 0) return named
+    // No fallback for a target that names nothing: "map this board" about a
+    // board that is gone is a question with no answer, and quietly mapping a
+    // different one would be the wrong answer to it.
+    return { boards: named, targetMissing: named.length === 0 }
   }
 
   const unmapped = config.boards.filter((board) => board.mapping === null)
-  if (unmapped.length > 0) return unmapped
+  if (unmapped.length > 0) return { boards: unmapped, targetMissing: false }
 
   const fallback = defaultBoard(config)
-  return fallback ? [fallback] : []
+  return { boards: fallback ? [fallback] : [], targetMissing: false }
 }
 
 /**
@@ -68,6 +94,7 @@ function mappingQueue(config: VikunjaConfig, target: string | undefined): Vikunj
  */
 export function VikunjaMappingStep({
   onBack,
+  onDone,
   integration,
   adapter,
   errorKey,
@@ -77,28 +104,26 @@ export function VikunjaMappingStep({
   const { t } = useTranslation('todoWidget')
 
   const config = integration.name === 'vikunja' ? integration.config : null
-  const queue = useMemo(() => (config ? mappingQueue(config, target) : []), [config, target])
 
-  /**
-   * Which board of the queue is on screen. An index rather than an id: the
-   * queue is computed from the config, and saving a board's mapping removes
-   * it from the "unmapped" queue — so the index is the only thing that keeps
-   * its meaning across that write (see `board` below, which reads the queue
-   * as it was when the step mounted).
-   */
+  /** Mount-time only — see the note at the top of the file. */
+  const [frozen] = useState<MappingPlan>(() =>
+    config ? mappingPlan(config, target) : { boards: [], targetMissing: false },
+  )
+
+  /** Which board of the queue is on screen. */
   const [position, setPosition] = useState(0)
-  /**
-   * The queue as it looked when the wizard started.
-   *
-   * Frozen on purpose: `mappingQueue` answers "what is still unmapped", which
-   * changes under the step's feet on every save. Walking the live answer
-   * would renumber the header mid-wizard ("Board 2 of 2" becoming "Board 1 of
-   * 1") and skip boards.
-   */
-  const [plan] = useState(queue)
-  const board = plan[position] ?? null
+  const planned = frozen.boards[position] ?? null
 
-  const lists = board?.containers ?? []
+  /**
+   * The board as the config has it *now*, matched by id — the planned entry
+   * is a mount-time snapshot, and the one thing it is trusted for is naming
+   * which board this is.
+   */
+  const board =
+    planned === null
+      ? null
+      : (config?.boards.find((entry) => entry.projectId === planned.projectId) ?? null)
+
   const wasFlat = board !== null && !board.kanbanMapping
 
   /**
@@ -109,7 +134,9 @@ export function VikunjaMappingStep({
    * which mode is actually in effect.
    */
   const [draft, setDraft] = useState<StatusListMapping>(() =>
-    !wasFlat && board?.mapping ? board.mapping : suggestMapping(lists),
+    board && board.kanbanMapping && board.mapping
+      ? board.mapping
+      : suggestMapping(board?.containers ?? []),
   )
   const [confirmCompleted, setConfirmCompleted] = useState(false)
   const [createdNote, setCreatedNote] = useState(false)
@@ -120,6 +147,8 @@ export function VikunjaMappingStep({
    * `errorKey` behind the actions' back.
    */
   const [createErrorKey, setCreateErrorKey] = useState<IntegrationErrorKey | null>(null)
+  /** The board on screen left the connection while the wizard was on it. */
+  const [boardGone, setBoardGone] = useState(false)
 
   /**
    * The buckets this step read for itself after creating columns.
@@ -128,8 +157,8 @@ export function VikunjaMappingStep({
    * necessarily the one on screen, so the step asks the adapter directly and
    * writes the answer onto the board it is mapping.
    */
-  const [freshLists, setFreshLists] = useState<Record<number, typeof lists>>({})
-  const buckets = board !== null ? (freshLists[board.projectId] ?? lists) : []
+  const [freshLists, setFreshLists] = useState<Record<number, RemoteContainer[]>>({})
+  const buckets = board === null ? [] : (freshLists[board.projectId] ?? board.containers)
 
   const problems = useMemo(() => validateMapping(draft, buckets), [draft, buckets])
 
@@ -148,12 +177,17 @@ export function VikunjaMappingStep({
 
   /**
    * A board whose mapping this one could be copied from: another board of the
-   * same connection that has been through the wizard already. The first one
-   * is enough — a menu of boards to copy from would be a second wizard.
+   * same connection that has been through the wizard *and* uses its buckets.
+   * A flat board's mapping is a placeholder pointing four statuses at one
+   * bucket — copying it would hand this board four conflicts. The first
+   * match is enough; a menu of boards to copy from would be a second wizard.
    */
   const source =
     config?.boards.find(
-      (candidate) => candidate.projectId !== board?.projectId && candidate.mapping !== null,
+      (candidate) =>
+        candidate.projectId !== board?.projectId &&
+        candidate.mapping !== null &&
+        candidate.kanbanMapping,
     ) ?? null
 
   // A local failure wins: it is the most recent thing that happened.
@@ -187,9 +221,19 @@ export function VikunjaMappingStep({
     }))
   }
 
-  /** Writes a patch onto the board on screen, never onto the default one. */
+  /**
+   * Writes a patch onto the board on screen, never onto the default one.
+   *
+   * Answers `false` when it wrote nothing — either the board has left the
+   * connection (another tab, or this dialog's own boards step) or the config
+   * did not validate. Both mean the caller must not move on as if it had.
+   */
   const patchBoard = (patch: Partial<VikunjaBoard>): boolean => {
     if (!config || !board) return false
+    if (!config.boards.some((entry) => entry.projectId === board.projectId)) {
+      setBoardGone(true)
+      return false
+    }
     return actions.updateIntegrationConfig(withBoardPatch(config, board.projectId, patch))
   }
 
@@ -206,7 +250,7 @@ export function VikunjaMappingStep({
    */
   const handleCreateColumns = async () => {
     const createContainer = adapter.createContainer
-    if (!createContainer || !board) return
+    if (!createContainer || !board || busy) return
 
     const scope = { projectId: board.projectId, viewId: board.viewId }
     setBusy(true)
@@ -228,7 +272,10 @@ export function VikunjaMappingStep({
         const reread = await adapter.listContainers(scope)
         if (reread.ok) {
           setFreshLists((current) => ({ ...current, [board.projectId]: reread.value }))
-          patchBoard({ containers: reread.value })
+          // A refused cache write is worth saying: the buckets exist on the
+          // instance, the draft below points at them, and the widget's own
+          // copy of the board is now behind.
+          if (!patchBoard({ containers: reread.value })) failure = failure ?? 'unknown'
         }
         setCreatedNote(failure === null)
         setDraft((current) => {
@@ -245,14 +292,23 @@ export function VikunjaMappingStep({
     }
   }
 
-  /** Moves to the next board, or hands the dialog back its own step machine. */
+  /**
+   * Moves to the next board, or — after the last — syncs and hands the dialog
+   * back its own step machine.
+   *
+   * The sync is this step's parting duty. Everything it wrote went through
+   * `updateIntegrationConfig`, which persists and nothing more; the
+   * connection has just become syncable and the widget behind the dialog
+   * would otherwise show a list nobody has read yet.
+   */
   const advance = () => {
     const next = position + 1
-    if (next >= plan.length) {
-      onBack()
+    if (next >= frozen.boards.length) {
+      void actions.syncNow()
+      onDone()
       return
     }
-    const upcoming = plan[next]
+    const upcoming = frozen.boards[next]
     setPosition(next)
     setConfirmCompleted(false)
     setCreatedNote(false)
@@ -266,19 +322,31 @@ export function VikunjaMappingStep({
 
   /** Accepts flat mode for this board: only "done" round-trips. */
   const handleSkipToFlat = () => {
-    if (!flat) return
-    // Both halves in one write: a flat mapping under a kanban flag would sync
-    // four statuses into one bucket, and the flag without the mapping would
-    // describe a mode the board is not in.
-    if (!patchBoard({ kanbanMapping: false, mapping: flat })) return
-    advance()
+    if (!flat || busy) return
+
+    setBusy(true)
+    try {
+      // Both halves in one write: a flat mapping under a kanban flag would
+      // sync four statuses into one bucket, and the flag without the mapping
+      // would describe a mode the board is not in.
+      if (!patchBoard({ kanbanMapping: false, mapping: flat })) return
+      advance()
+    } finally {
+      setBusy(false)
+    }
   }
 
   const handleSave = () => {
-    if (blocked) return
-    // Saving a real bucket mapping leaves flat mode behind.
-    if (!patchBoard({ kanbanMapping: true, mapping: draft })) return
-    advance()
+    if (blocked || busy) return
+
+    setBusy(true)
+    try {
+      // Saving a real bucket mapping leaves flat mode behind.
+      if (!patchBoard({ kanbanMapping: true, mapping: draft })) return
+      advance()
+    } finally {
+      setBusy(false)
+    }
   }
 
   /** "Same as <board>": the other board's mapping, translated by column name. */
@@ -288,15 +356,32 @@ export function VikunjaMappingStep({
     setDraft(copyMappingByNames(source, buckets).mapping)
   }
 
+  // The summary named a board this connection no longer has — nothing here
+  // could be about it, so the step says so and hands back.
+  if (frozen.targetMissing || (planned !== null && board === null)) {
+    return (
+      <div data-testid={TestId.TodoMappingStep} className="grid gap-4">
+        <p role="alert" className="text-sm text-destructive">
+          {t('integrations.vikunja.mapping.boardGone')}
+        </p>
+        <div>
+          <Button type="button" variant="outline" onClick={onDone}>
+            {t('integrations.actions.back')}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   if (!board) return null
 
   return (
     <div data-testid={TestId.TodoMappingStep} className="grid gap-4">
-      {(plan.length > 1 || target !== undefined) && (
+      {(frozen.boards.length > 1 || target !== undefined || (config?.boards.length ?? 0) > 1) && (
         <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {t('integrations.vikunja.mapping.boardHeader', {
             n: position + 1,
-            total: plan.length,
+            total: frozen.boards.length,
             name: board.name,
           })}
         </div>
@@ -318,6 +403,12 @@ export function VikunjaMappingStep({
           </Button>
         )}
       </div>
+
+      {boardGone && (
+        <p role="alert" className="text-sm text-destructive">
+          {t('integrations.vikunja.mapping.boardGone')}
+        </p>
+      )}
 
       {shownErrorKey && (
         <p

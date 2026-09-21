@@ -94,6 +94,17 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
   const SummaryExtras = descriptor?.SummaryExtras
 
   /**
+   * Whether the shared row of buttons still owns "configure this backend".
+   *
+   * A backend that brings its own scope step or its own summary section has
+   * its own way in — Vikunja's section offers "Columns" per board and
+   * "Change boards", which is the same two actions said precisely. Showing
+   * both would ask the user to pick between a button that names their board
+   * and one that names "the" board.
+   */
+  const showsGenericSetup = !descriptor?.ScopeStep && !SummaryExtras
+
+  /**
    * Offered only by a backend that does not sweep local tasks along on its
    * own (ADR §Р10). A descriptor that says nothing counts as "does not" —
    * the same default `selectPendingTasks` applies — so the action appears
@@ -222,12 +233,16 @@ export function TodoSettingsSummary({ onEditMapping, onPickScope }: Props) {
           <RefreshCwIcon className={loading || busy ? 'animate-spin' : undefined} />
           {t('actions.syncNow')}
         </Button>
-        <Button type="button" variant="outline" onClick={() => onEditMapping()}>
-          {t(`integrations.${integration.name}.mapping.title`)}
-        </Button>
-        <Button type="button" variant="outline" onClick={onPickScope}>
-          {t(summaryKey('rePickBoard'))}
-        </Button>
+        {showsGenericSetup && (
+          <>
+            <Button type="button" variant="outline" onClick={() => onEditMapping()}>
+              {t(`integrations.${integration.name}.mapping.title`)}
+            </Button>
+            <Button type="button" variant="outline" onClick={onPickScope}>
+              {t(summaryKey('rePickBoard'))}
+            </Button>
+          </>
+        )}
         <Button
           data-testid={TestId.TodoSummarySwitch}
           type="button"

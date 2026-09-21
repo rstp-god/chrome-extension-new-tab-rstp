@@ -35,10 +35,11 @@ interface BoardOption {
  *
  * Prop-driven, like every component a descriptor points at: it never imports
  * the store (see `ScopeStepProps`) — the tasks it counts for the removal
- * warning and the three actions it calls all arrive as props.
+ * warning and the actions it calls all arrive as props.
  */
 export function VikunjaBoardsStep({
   onBack,
+  onDone,
   integration,
   adapter,
   tasks,
@@ -60,7 +61,9 @@ export function VikunjaBoardsStep({
    * the store's `errorKey`, which belongs to the sync.
    */
   const [stepErrorKey, setStepErrorKey] = useState<IntegrationErrorKey | null>(null)
-  const [checked, setChecked] = useState<number[]>(() => boards.map((board) => board.projectId))
+  const [checked, setChecked] = useState<Set<number>>(
+    () => new Set(boards.map((board) => board.projectId)),
+  )
   const [defaultId, setDefaultId] = useState<number | null>(
     () => config?.defaultProjectId ?? boards[0]?.projectId ?? null,
   )
@@ -102,12 +105,15 @@ export function VikunjaBoardsStep({
     ]
   }, [options, boards])
 
-  const removed = boards.filter((board) => !checked.includes(board.projectId))
+  const removed = boards.filter((board) => !checked.has(board.projectId))
 
   const toggle = (projectId: number, next: boolean) => {
-    setChecked((current) =>
-      next ? [...current, projectId] : current.filter((id) => id !== projectId),
-    )
+    setChecked((current) => {
+      const updated = new Set(current)
+      if (next) updated.add(projectId)
+      else updated.delete(projectId)
+      return updated
+    })
     // Unchecking the default leaves the star nowhere; the commit re-points it
     // at the first surviving board, and until then the row simply loses it.
     if (!next && defaultId === projectId) setDefaultId(null)
@@ -123,14 +129,16 @@ export function VikunjaBoardsStep({
    * and the error says which request refused.
    */
   const commit = async () => {
-    if (!config) return
+    // The confirmation's accept and the Continue behind it can both reach
+    // here; one run is one answer.
+    if (!config || busy) return
 
     setBusy(true)
     setStepErrorKey(null)
     try {
       const added: VikunjaBoard[] = []
       for (const row of rows) {
-        if (!checked.includes(row.projectId)) continue
+        if (!checked.has(row.projectId)) continue
         if (boards.some((board) => board.projectId === row.projectId)) continue
 
         const out = await adapter.listContainers({
@@ -153,8 +161,7 @@ export function VikunjaBoardsStep({
         })
       }
 
-      const next = [...boards.filter((board) => checked.includes(board.projectId)), ...added]
-      if (next.length === 0) return
+      const next = [...boards.filter((board) => checked.has(board.projectId)), ...added]
 
       // The star must always point at a board that exists — the one the user
       // set, or the first one left.
@@ -162,10 +169,9 @@ export function VikunjaBoardsStep({
         ? defaultId
         : next[0].projectId
 
-      // Tasks first: once the config no longer names a board, nothing can
-      // find its tasks to drop them.
-      for (const board of removed) actions.dropTasksOfProject(String(board.projectId))
-
+      // The config goes first: it is the write that can still be refused, and
+      // dropping the tasks of a board that then stays in the list would take
+      // them for nothing.
       if (
         !actions.updateIntegrationConfig({
           ...config,
@@ -176,9 +182,14 @@ export function VikunjaBoardsStep({
         return
       }
 
+      // Now that no board answers for them, the tasks of the dropped ones
+      // have nothing left to sync against.
+      for (const board of removed) actions.dropTasksOfProject(String(board.projectId))
+
       // The projects the widget offers are its boards, so the cache behind
       // the pills and the add dialog is stale until this runs.
       await actions.refreshContainers()
+      onDone()
     } finally {
       setBusy(false)
       setConfirming(false)
@@ -225,7 +236,7 @@ export function VikunjaBoardsStep({
             <VikunjaBoardRow
               key={row.projectId}
               name={row.name}
-              checked={checked.includes(row.projectId)}
+              checked={checked.has(row.projectId)}
               isDefault={defaultId === row.projectId}
               disabled={busy}
               onToggle={(next) => toggle(row.projectId, next)}
@@ -235,12 +246,17 @@ export function VikunjaBoardsStep({
         </ul>
       )}
 
-      {checked.length === 0 && rows.length > 0 && (
+      {/* Only once there is something to keep: on a fresh connection an empty
+          list is where everyone starts, and "at least one has to stay" would
+          be scolding the user for not having begun. */}
+      {checked.size === 0 && boards.length > 0 && (
         <p className="text-sm text-muted-foreground">{t(boardsKey('keepOne'))}</p>
       )}
 
       {shownErrorKey && (
-        <p className="text-sm text-destructive">{t(`integrations.errors.${shownErrorKey}`)}</p>
+        <p role="alert" className="text-sm text-destructive">
+          {t(`integrations.errors.${shownErrorKey}`)}
+        </p>
       )}
 
       <div className="flex items-center justify-between gap-2">
@@ -250,7 +266,7 @@ export function VikunjaBoardsStep({
         <Button
           type="button"
           onClick={handleContinue}
-          disabled={busy || checked.length === 0 || loading}
+          disabled={busy || checked.size === 0 || loading}
         >
           {t(boardsKey('continue'))}
         </Button>
@@ -259,12 +275,13 @@ export function VikunjaBoardsStep({
       <TodoConfirmDialog
         open={confirming}
         onOpenChange={(open) => {
-          if (!open) setConfirming(false)
+          if (!open && !busy) setConfirming(false)
         }}
         title={t(boardsKey('removeTitle'))}
         description={describeBoardRemoval(boardRemovals(removed, tasks), t)}
         confirmLabel={t(boardsKey('continue'))}
         destructive
+        busy={busy}
         onConfirm={() => void commit()}
       />
     </div>

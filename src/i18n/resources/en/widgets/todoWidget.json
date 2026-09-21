@@ -216,6 +216,7 @@
         "suggestedHint": "Buckets are pre-matched by name — check the rows and fix anything that looks off.",
         "boardHeader": "Board {{n}} of {{total}} — {{name}}",
         "copyFrom": "Same as {{name}}",
+        "boardGone": "That board is no longer part of this connection — go back and pick it again.",
         "addBucket": "Add bucket",
         "emptyHint": "Pick at least one bucket",
         "conflict": "One bucket is mapped to two statuses. A task in it would have no single status — remove one of them.",

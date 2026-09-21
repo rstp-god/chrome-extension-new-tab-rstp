@@ -348,6 +348,32 @@ describe('TodoSettingsSummary — what the generic block shows', () => {
   })
 })
 
+describe('TodoSettingsSummary — who owns the setup buttons', () => {
+  it('keeps the shared ones for a backend that brings no UI of its own', () => {
+    mount(TRELLO)
+
+    expect(screen.getByRole('button', { name: 'integrations.trello.mapping.title' })).toBeTruthy()
+    expect(
+      screen.getByRole('button', { name: 'integrations.trello.summary.rePickBoard' }),
+    ).toBeTruthy()
+  })
+
+  it('leaves them to the backend’s own section when it has one', () => {
+    mount(VIKUNJA)
+
+    // Vikunja's section offers the same two actions per board ("Columns")
+    // and for the list ("Change boards"); showing both would ask the user to
+    // choose between a button naming their board and one naming "the" board.
+    expect(screen.queryByRole('button', { name: 'integrations.vikunja.mapping.title' })).toBeNull()
+    expect(
+      screen.queryByRole('button', { name: 'integrations.vikunja.summary.rePickBoard' }),
+    ).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'integrations.vikunja.summary.editBoards' }),
+    ).toBeTruthy()
+  })
+})
+
 describe('TodoSettingsSummary — flat mode', () => {
   it('names the statuses that never leave the extension', () => {
     mount({ ...VIKUNJA, config: withDefaultBoardPatch(VIKUNJA.config, { kanbanMapping: false }) })

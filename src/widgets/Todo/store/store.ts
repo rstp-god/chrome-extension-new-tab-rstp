@@ -5,6 +5,7 @@ import {
   getIntegrationDescriptor,
   getProjectPolicy,
   isReadyToSync,
+  taskBelongsToBoard,
   TODO_STATUSES,
   type BoardStatePatch,
   type IntegrationDescriptor,
@@ -296,20 +297,6 @@ function withBoardState(
   const descriptor = getIntegrationDescriptor(integration.name)
   if (!descriptor?.withBoardState) return { ...integration, config, ...mirror }
   return { ...integration, config: descriptor.withBoardState(config, patch), ...DEAD_MIRROR }
-}
-
-/**
- * The project a ref was written against, as a string, or `null` for a ref
- * that names none.
- *
- * Deliberately structural rather than a `isVikunjaRef` branch: "which project
- * does this record live in" is a question about the ref's own shape, and the
- * store has no business knowing which backend answers it. A ref without the
- * field (Trello's) answers `null` and can never match.
- */
-function refProjectId(ref: RemoteTaskRef): string | null {
-  const raw = (ref as { projectId?: unknown }).projectId
-  return typeof raw === 'number' || typeof raw === 'string' ? String(raw) : null
 }
 
 function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): TodoTask[] {
@@ -939,18 +926,12 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
       dropTasksOfProject: (projectId) => {
         const descriptor = getIntegrationDescriptor(get().integration?.name)
+        // The same predicate the settings step counted with, so the number in
+        // the confirmation is the number that goes.
+        const ownsRef = descriptor?.ownsRef ?? (() => false)
         const doomed = new Set(
           get()
-            .tasks.filter(
-              (task) =>
-                task.projectId === projectId ||
-                // A foreign ref is not this backend's to interpret: its
-                // `projectId` (if it has one) belongs to another instance's
-                // numbering, so only a ref the descriptor claims can match.
-                (task.remoteRef !== null &&
-                  descriptor?.ownsRef(task.remoteRef) === true &&
-                  refProjectId(task.remoteRef) === projectId),
-            )
+            .tasks.filter((task) => taskBelongsToBoard(task, projectId, ownsRef))
             .map((task) => task.id),
         )
         if (doomed.size === 0) return

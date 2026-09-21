@@ -50,7 +50,9 @@ let listContainers: Mock<(scope: unknown) => Promise<IntegrationOutcome<RemoteCo
 let updateIntegrationConfig: Mock<(config: unknown) => boolean>
 let refreshContainers: Mock<() => Promise<boolean>>
 let dropTasksOfProject: Mock<(projectId: string) => void>
+let syncNow: Mock<() => Promise<void>>
 let onBack: Mock<() => void>
+let onDone: Mock<() => void>
 
 function board(overrides: Partial<VikunjaBoard> = {}): VikunjaBoard {
   return {
@@ -99,14 +101,13 @@ function integrationState(boards: VikunjaBoard[]): Extract<IntegrationState, { n
   }
 }
 
-async function setup(boards: VikunjaBoard[], tasks: TodoTask[] = []) {
-  const adapter = { listScopes, listContainers } as unknown as TodoIntegration
-
+function renderStep(boards: VikunjaBoard[], tasks: TodoTask[] = []) {
   render(
     <VikunjaBoardsStep
       onBack={onBack}
+      onDone={onDone}
       integration={integrationState(boards)}
-      adapter={adapter}
+      adapter={{ listScopes, listContainers } as unknown as TodoIntegration}
       tasks={tasks}
       errorKey={null}
       actions={{
@@ -114,9 +115,14 @@ async function setup(boards: VikunjaBoard[], tasks: TodoTask[] = []) {
         updateIntegrationConfig,
         refreshContainers,
         dropTasksOfProject,
+        syncNow,
       }}
     />,
   )
+}
+
+async function setup(boards: VikunjaBoard[], tasks: TodoTask[] = []) {
+  renderStep(boards, tasks)
   // Every assertion is about the list, which only exists once the account has
   // answered.
   await screen.findByRole('checkbox', { name: 'Work' })
@@ -141,7 +147,9 @@ beforeEach(() => {
   updateIntegrationConfig = vi.fn<(config: unknown) => boolean>(() => true)
   refreshContainers = vi.fn<() => Promise<boolean>>(async () => true)
   dropTasksOfProject = vi.fn<(projectId: string) => void>()
+  syncNow = vi.fn<() => Promise<void>>(async () => {})
   onBack = vi.fn<() => void>()
+  onDone = vi.fn<() => void>()
 })
 
 afterEach(() => {
@@ -161,42 +169,14 @@ describe('VikunjaBoardsStep — the list', () => {
 
   it('states the account has nothing to offer', async () => {
     listScopes = vi.fn(async () => ({ ok: true as const, value: [] }))
-    render(
-      <VikunjaBoardsStep
-        onBack={onBack}
-        integration={integrationState([])}
-        adapter={{ listScopes, listContainers } as unknown as TodoIntegration}
-        tasks={[]}
-        errorKey={null}
-        actions={{
-          setMapping: vi.fn(async () => {}),
-          updateIntegrationConfig,
-          refreshContainers,
-          dropTasksOfProject,
-        }}
-      />,
-    )
+    renderStep([])
 
     expect(await screen.findByText(`${PREFIX}.empty`)).toBeTruthy()
   })
 
   it('shows the account’s refusal rather than an empty list', async () => {
     listScopes = vi.fn(async () => ({ ok: false as const, errorKey: 'authInvalid' as const }))
-    render(
-      <VikunjaBoardsStep
-        onBack={onBack}
-        integration={integrationState([])}
-        adapter={{ listScopes, listContainers } as unknown as TodoIntegration}
-        tasks={[]}
-        errorKey={null}
-        actions={{
-          setMapping: vi.fn(async () => {}),
-          updateIntegrationConfig,
-          refreshContainers,
-          dropTasksOfProject,
-        }}
-      />,
-    )
+    renderStep([])
 
     expect(await screen.findByText('integrations.errors.authInvalid')).toBeTruthy()
   })
@@ -232,6 +212,9 @@ describe('VikunjaBoardsStep — adding a board', () => {
 
     // The widget's projects *are* its boards, so the cache is refreshed.
     await waitFor(() => expect(refreshContainers).toHaveBeenCalledTimes(1))
+    // Written and settled: the dialog is handed back its own step machine,
+    // which lands on the wizard for the board just added.
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
   })
 
   it('writes nothing when the new board’s buckets cannot be read', async () => {
@@ -243,6 +226,21 @@ describe('VikunjaBoardsStep — adding a board', () => {
 
     expect(await screen.findByText('integrations.errors.network')).toBeTruthy()
     expect(updateIntegrationConfig).not.toHaveBeenCalled()
+    // Nothing was persisted, so the user stays here to try again.
+    expect(onDone).not.toHaveBeenCalled()
+  })
+
+  it('still finishes when the projects cache could not be refreshed', async () => {
+    refreshContainers.mockResolvedValue(false)
+    await setup([board()])
+
+    await userEvent.click(checkbox('Home'))
+    await userEvent.click(continueButton())
+
+    await waitFor(() => expect(updateIntegrationConfig).toHaveBeenCalledTimes(1))
+    // The boards are persisted; a stale pill cache is the store's own error
+    // to report and no reason to keep the user on this screen.
+    await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1))
   })
 
   it('moves the default board to the starred one', async () => {
@@ -276,15 +274,40 @@ describe('VikunjaBoardsStep — dropping a board', () => {
 
     expect(screen.getByTestId('todo-confirm-dialog')).toBeTruthy()
     expect(screen.getByText(`${PREFIX}.removeTitle`)).toBeTruthy()
-    // Two tasks of that board, one of them with a change that never landed.
-    expect(
-      screen.getByText(
-        `${PREFIX}.removeBody {"name":"Home","count":2} ${PREFIX}.removeDirty {"count":1}`,
-      ),
-    ).toBeTruthy()
+    // Two tasks of that board, one of them with a change that never landed —
+    // one line each rather than a run-on paragraph.
+    expect(screen.getByText(`${PREFIX}.removeBody {"name":"Home","count":2}`)).toBeTruthy()
+    expect(screen.getByText(`${PREFIX}.removeDirty {"count":1}`)).toBeTruthy()
     // Nothing has happened yet.
     expect(dropTasksOfProject).not.toHaveBeenCalled()
     expect(updateIntegrationConfig).not.toHaveBeenCalled()
+  })
+
+  it('counts a task that only its own ref places on the board', async () => {
+    // No `projectId` of its own — the pull wrote the ref, and that is the
+    // only thing tying it to this board. The store drops it by the same
+    // predicate, so the count here is the count that goes.
+    await setup(
+      [board(), home],
+      [
+        makeTask({
+          id: 'linked',
+          projectId: null,
+          remoteRef: {
+            taskId: 7,
+            projectId: 9,
+            identifier: '#7',
+            bucketId: null,
+            updated: '2024-01-01T00:00:00.000Z',
+          },
+        }),
+      ],
+    )
+
+    await userEvent.click(checkbox('Home'))
+    await userEvent.click(continueButton())
+
+    expect(screen.getByText(`${PREFIX}.removeBody {"name":"Home","count":1}`)).toBeTruthy()
   })
 
   it('says nothing about unsent changes when there are none', async () => {
@@ -296,7 +319,7 @@ describe('VikunjaBoardsStep — dropping a board', () => {
     expect(screen.getByText(`${PREFIX}.removeBody {"name":"Home","count":1}`)).toBeTruthy()
   })
 
-  it('drops the board’s tasks before the config that would hide them', async () => {
+  it('writes the config first and drops the tasks only once it landed', async () => {
     await setup([board(), home], tasksOfHome)
 
     await userEvent.click(checkbox('Home'))
@@ -305,10 +328,28 @@ describe('VikunjaBoardsStep — dropping a board', () => {
 
     await waitFor(() => expect(updateIntegrationConfig).toHaveBeenCalledTimes(1))
     expect(dropTasksOfProject).toHaveBeenCalledWith('9')
-    expect(dropTasksOfProject.mock.invocationCallOrder[0]).toBeLessThan(
-      updateIntegrationConfig.mock.invocationCallOrder[0],
+    // The order matters: the config write is the one that can be refused,
+    // and tasks dropped for a board that then stayed would be gone for
+    // nothing.
+    expect(updateIntegrationConfig.mock.invocationCallOrder[0]).toBeLessThan(
+      dropTasksOfProject.mock.invocationCallOrder[0],
     )
     expect(written().boards.map((entry) => entry.projectId)).toEqual([8])
+  })
+
+  it('keeps the tasks when the config write is refused', async () => {
+    updateIntegrationConfig.mockReturnValue(false)
+    await setup([board(), home], tasksOfHome)
+
+    await userEvent.click(checkbox('Home'))
+    await userEvent.click(continueButton())
+    await userEvent.click(screen.getByTestId('todo-confirm-accept'))
+
+    await waitFor(() => expect(updateIntegrationConfig).toHaveBeenCalledTimes(1))
+    // The board is still in the config, so its tasks still have a board.
+    expect(dropTasksOfProject).not.toHaveBeenCalled()
+    expect(refreshContainers).not.toHaveBeenCalled()
+    expect(onDone).not.toHaveBeenCalled()
   })
 
   it('re-points the default board when the starred one is the one dropped', async () => {

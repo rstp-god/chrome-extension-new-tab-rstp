@@ -27,18 +27,24 @@ interface Props {
  * Five-step state machine for the Todo settings dialog.
  *
  * The current step is computed from the persisted integration slice plus
- * two transient pieces of UI state:
+ * three transient pieces of UI state:
  *
  *   - `pickedIntegrationName` — set when the user clicks an integration in
  *     the picker but hasn't finished the connect form yet.
- *   - `stepOverride` — set when the user clicks "Re-pick board" or "Edit
- *     mapping" from the summary view; lets us show an earlier step without
- *     wiping the persisted state immediately.
+ *   - `stepOverride` — set when the user asks for an earlier step from the
+ *     summary ("Change boards", "Columns"); lets us show it without wiping
+ *     the persisted state.
+ *   - `mappingTarget` — which scope that mapping override is about.
  *
- * Both transient values are reset to `null` either when the dialog closes
- * or when the natural computed step catches up to them. A single
- * `useEffect` handles all of that cleanup so the body of the component
- * stays a thin wrapper around the dialog shell.
+ * **An override ends when the step says it is done**, not when the store
+ * moves. A step that writes several times before it is finished — the bucket
+ * wizard creating the missing columns, then saving the mapping, then walking
+ * to the next board — would otherwise be torn down mid-way by the very write
+ * it made: the integration's reference changes, the computed step answers
+ * something else, and the user is ejected to a screen they did not ask for.
+ * So the only things that retire an override are `onStepDone`, the
+ * integration disappearing (or being replaced by another backend), and the
+ * dialog closing.
  */
 export function TodoSettingsDialog({ open, onOpenChange }: Props) {
   const { t } = useTranslation('todoWidget')
@@ -56,7 +62,17 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
    * subject with it.
    */
   const [mappingTarget, setMappingTarget] = useState<string | null>(null)
-  const previousIntegration = useRef(integration)
+  /**
+   * Which connection the transient state belongs to. The *name*, not the
+   * slice: a config write replaces the object on every edit, and an override
+   * that could not survive that would not survive the step that set it.
+   */
+  const previousIntegrationName = useRef(integration?.name ?? null)
+
+  const clearIntent = () => {
+    setStepOverride(null)
+    setMappingTarget(null)
+  }
 
   const computedStep: DialogStep = useMemo(() => {
     if (!integration) {
@@ -68,31 +84,26 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
     return getSetupStep(getIntegrationDescriptor(integration.name), integration)
   }, [integration, pickedIntegrationName])
 
-  // One effect for all transient cleanup: dialog close, picked-name that
-  // outlived its purpose, and a stale step override.
+  // One effect for all transient cleanup: dialog close, a picked-name that
+  // outlived its purpose, and an override whose connection is gone.
   useEffect(() => {
     if (!open) {
       setPickedIntegrationName(null)
-      setStepOverride(null)
-      setMappingTarget(null)
+      clearIntent()
       return
     }
     if (integration && pickedIntegrationName) {
       setPickedIntegrationName(null)
     }
-    // An override also outlives its purpose the moment the user's action
-    // lands in the store: re-picking a scope from the summary overrides to
-    // 'board', but the computed step then jumps straight to 'mapping' and
-    // would never match the override — leaving the user stuck on the picker.
-    if (
-      stepOverride &&
-      (stepOverride === computedStep || previousIntegration.current !== integration)
-    ) {
-      setStepOverride(null)
-      setMappingTarget(null)
+    // Only a connection that is no longer the same connection: disconnected,
+    // or replaced by another backend. Anything finer would fire on the
+    // step's own writes — see the note above the component.
+    const name = integration?.name ?? null
+    if (previousIntegrationName.current !== name) {
+      clearIntent()
+      previousIntegrationName.current = name
     }
-    previousIntegration.current = integration
-  }, [open, integration, pickedIntegrationName, stepOverride, computedStep])
+  }, [open, integration, pickedIntegrationName])
 
   const step: DialogStep = stepOverride ?? computedStep
 
@@ -121,15 +132,12 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
             onCancelConnect={() => setPickedIntegrationName(null)}
             onLeaveScopePicker={() => {
               // "Back" means "undo the step I took to get here", and there are
-              // two ways in. From the summary's "Change board / project" the
-              // integration already has a scope and a settled state to return
-              // to, so back is cancel — dropping the whole connection there
-              // would be a destructive answer to a button labelled "Back".
-              // `computedStep` is the step the *state* is on, whatever the
-              // override shows — so anything but `board` means there is a
-              // scope (and a settled state) to go back to.
-              if (stepOverride === 'board' && computedStep !== 'board') {
-                setStepOverride(null)
+              // two ways in. From the summary's "Change boards" there is an
+              // override to drop and a settled state to return to, so back is
+              // cancel — dropping the whole connection there would be a
+              // destructive answer to a button labelled "Back".
+              if (stepOverride === 'board') {
+                clearIntent()
                 return
               }
               // Reached by connecting: there is no earlier step inside this
@@ -139,20 +147,14 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
               // dialog shows follows from the state, which is already set.
               void useTodoStore.getState().clearIntegration()
             }}
+            // Back from the mapping step is the user's own choice of where to
+            // go, not a guess from the state: the step behind it is the list
+            // of scopes, whether or not everything happens to be mapped.
             onLeaveMapping={() => {
               setMappingTarget(null)
-              // Same rule as the scope picker's "Back": it undoes the step
-              // that led here. Opened from the summary for one board — or
-              // reached by a wizard that has just mapped the last board — the
-              // state is settled, so back is out of the override and onto the
-              // summary the computed step now answers. Otherwise a board is
-              // still unmapped and the step behind this one is the board list.
-              if (computedStep === 'summary') {
-                setStepOverride(null)
-                return
-              }
               setStepOverride('board')
             }}
+            onStepDone={clearIntent}
             mappingTarget={mappingTarget}
             onEditMapping={(target) => {
               setStepOverride('mapping')

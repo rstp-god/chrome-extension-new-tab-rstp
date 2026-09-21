@@ -125,6 +125,42 @@ export function isVikunjaRef(ref: RemoteTaskRef): ref is VikunjaRemoteRef {
   return 'taskId' in ref
 }
 
+/**
+ * The project a ref was written against, as a string, or `null` for a ref
+ * that names none.
+ *
+ * Structural rather than a per-backend branch: "which project does this
+ * record live in" is a question about the ref's own shape. A ref without the
+ * field (Trello's) answers `null`.
+ */
+function refProjectId(ref: RemoteTaskRef): string | null {
+  const raw = (ref as { projectId?: unknown }).projectId
+  return typeof raw === 'number' || typeof raw === 'string' ? String(raw) : null
+}
+
+/**
+ * Does this task live on the board `projectId` names?
+ *
+ * The one answer two callers have to agree on: the settings step that counts
+ * what dropping a board would cost, and the store action that then drops it.
+ * Two copies of the rule would mean a confirmation promising one number and
+ * a store removing another.
+ *
+ * Both sides of the same fact are matched — the project the task names and
+ * the one its own ref was written against — and `ownsRef` is what keeps a
+ * foreign ref out of it: another backend's `projectId` belongs to another
+ * instance's numbering, so it can never mean this board.
+ */
+export function taskBelongsToBoard(
+  task: TodoTask,
+  projectId: string,
+  ownsRef: (ref: RemoteTaskRef) => boolean,
+): boolean {
+  if (task.projectId === projectId) return true
+  if (task.remoteRef === null || !ownsRef(task.remoteRef)) return false
+  return refProjectId(task.remoteRef) === projectId
+}
+
 export type IntegrationPushOp =
   | { kind: 'create' }
   | { kind: 'update' } // title/description edit
@@ -345,6 +381,17 @@ export interface SettingsStepActions {
    * with no request behind it.
    */
   dropTasksOfProject: (projectId: string) => void
+  /**
+   * Reads the backend and pushes whatever is pending.
+   *
+   * A step needs it at the end of the configuration it owns: a wizard that
+   * has just written the last mapping has made the connection syncable, and
+   * the widget behind the dialog would otherwise show yesterday's list until
+   * something else happened to ask. Steps that write through `setMapping`
+   * get the sync for free (it syncs on its own); one that writes the config
+   * directly — a backend with a mapping per scope — does not.
+   */
+  syncNow: () => Promise<void>
 }
 
 /**
@@ -360,7 +407,18 @@ export interface SettingsStepActions {
  * read, and it has all of this at hand already.
  */
 export interface MappingStepProps {
+  /** The user pressed Back: undo the step that led here, change nothing. */
   onBack: () => void
+  /**
+   * The step has finished what it was opened for and persisted it.
+   *
+   * Separate from `onBack` because the settings layer answers them
+   * differently — Back returns to the step behind this one, done hands the
+   * dialog back to the step its own state implies — and because only the
+   * step knows which one happened: a wizard walking several scopes is not
+   * finished until the last of them is written.
+   */
+  onDone: () => void
   /** The active integration slice, for its containers, mapping and config. */
   integration: IntegrationState
   /** Adapter built from that slice by the settings layer. */
@@ -397,7 +455,10 @@ export interface MappingStepProps {
  * the loop `store → registry → descriptor → component → store`.
  */
 export interface ScopeStepProps {
+  /** The user pressed Back: undo the step that led here, change nothing. */
   onBack: () => void
+  /** The step persisted the scopes it was opened for — see `MappingStepProps`. */
+  onDone: () => void
   /** The active integration slice, for its config and its cached state. */
   integration: IntegrationState
   /** Adapter built from that slice by the settings layer. */

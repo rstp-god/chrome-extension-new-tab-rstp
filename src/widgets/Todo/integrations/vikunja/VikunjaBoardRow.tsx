@@ -1,4 +1,5 @@
 import { StarIcon } from 'lucide-react'
+import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button.tsx'
@@ -23,7 +24,8 @@ interface Props {
  * `components/ui`: there is no shadcn checkbox in this project, and the two
  * things one would buy (a Radix primitive and a dependency) are not worth it
  * for a list of names — the native control is already the right role, the
- * right keyboard behaviour and the right label association.
+ * right keyboard behaviour and the right label association. The name is a
+ * real `<label>`, so the whole row's text is a click target.
  *
  * The star is a button rather than a radio: the row's checkbox already owns
  * the row's main click target, and a radio inside a checked list reads as a
@@ -39,20 +41,23 @@ export function VikunjaBoardRow({
 }: Props) {
   const { t } = useTranslation('todoWidget')
   const boardsKey = (leaf: string) => `integrations.vikunja.boards.${leaf}`
+  const inputId = useId()
 
   return (
     <li className="flex items-center gap-3 rounded-2xl px-3 py-2 hover:bg-muted/40">
       <input
+        id={inputId}
         type="checkbox"
         className="size-4 shrink-0 accent-primary"
         checked={checked}
         disabled={disabled}
-        aria-label={name}
         onChange={(event) => onToggle(event.target.checked)}
       />
 
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-medium">{name}</div>
+        <label htmlFor={inputId} className="block truncate text-sm font-medium">
+          {name}
+        </label>
         {isDefault && (
           <div className="text-xs text-muted-foreground">{t(boardsKey('defaultHint'))}</div>
         )}

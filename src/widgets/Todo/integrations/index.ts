@@ -52,4 +52,4 @@ export type {
   VikunjaRemoteRef,
 } from './types.ts'
 
-export { isTrelloRef, isVikunjaRef, TODO_STATUSES } from './types.ts'
+export { isTrelloRef, isVikunjaRef, taskBelongsToBoard, TODO_STATUSES } from './types.ts'

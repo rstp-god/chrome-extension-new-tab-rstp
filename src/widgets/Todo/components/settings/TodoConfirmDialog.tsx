@@ -14,11 +14,22 @@ interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
-  description: string
+  /**
+   * The question's body. An array is rendered as one line per entry, for a
+   * confirmation that has something to say about several things at once —
+   * a board's worth of tasks each, which joined into one paragraph would be
+   * a wall the user skims.
+   */
+  description: string | string[]
   /** Label of the accepting button — the action's own words, not "OK". */
   confirmLabel: string
   /** Paints the accepting button as destructive (disconnecting is). */
   destructive?: boolean
+  /**
+   * The answer is being carried out: both buttons are disabled, so a second
+   * click cannot start the same irreversible action twice.
+   */
+  busy?: boolean
   onConfirm: () => void
 }
 
@@ -40,26 +51,43 @@ export function TodoConfirmDialog({
   description,
   confirmLabel,
   destructive,
+  busy,
   onConfirm,
 }: Props) {
   const { t } = useTranslation('todoWidget')
+  // `span`s rather than list markup: the description lives inside Radix's
+  // `<p>` (which aria-describedby points at), where a `<ul>` would be
+  // invalid HTML.
+  const lines = Array.isArray(description) ? description : [description]
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent data-testid={TestId.TodoConfirmDialog} className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogDescription>
+            {lines.map((line, index) => (
+              <span key={index} className="block">
+                {line}
+              </span>
+            ))}
+          </DialogDescription>
         </DialogHeader>
 
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={busy}
+            onClick={() => onOpenChange(false)}
+          >
             {t('integrations.actions.cancel')}
           </Button>
           <Button
             data-testid={TestId.TodoConfirmAccept}
             type="button"
             variant={destructive ? 'destructive' : 'default'}
+            disabled={busy}
             onClick={onConfirm}
           >
             {confirmLabel}

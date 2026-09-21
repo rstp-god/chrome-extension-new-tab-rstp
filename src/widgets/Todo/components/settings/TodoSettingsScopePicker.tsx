@@ -38,7 +38,7 @@ function scopeKey(scope: RemoteScope): string {
  * wording: Trello picks a *board*, Vikunja a *project*. The step itself stays
  * backend-agnostic — only the i18n namespace it reads changes.
  */
-export function TodoSettingsScopePicker({ adapter, integration, onBack }: ScopeStepProps) {
+export function TodoSettingsScopePicker({ adapter, integration, onBack, onDone }: ScopeStepProps) {
   const { t } = useTranslation('todoWidget')
   const pickScope = useTodoStore((state) => state.pickScope)
   const boardKey = (leaf: string) => `integrations.${integration.name}.board.${leaf}`
@@ -86,6 +86,9 @@ export function TodoSettingsScopePicker({ adapter, integration, onBack }: ScopeS
     // again once the pick has landed, and the button stays busy until it has.
     await pickScope(option.scope, option.name, containersOut.value, projectsOut.value)
     setBusy(false)
+    // The scope is persisted, so whatever the dialog shows next follows from
+    // the state rather than from the intent that opened this step.
+    onDone()
   }
 
   return (

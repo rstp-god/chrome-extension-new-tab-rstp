@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { act, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { VikunjaMappingStep } from '@/widgets/Todo/integrations/vikunja/VikunjaMappingStep.tsx'
@@ -11,7 +12,7 @@ import type {
   StatusListMapping,
   TodoIntegration,
 } from '@/widgets/Todo/integrations/types.ts'
-import type { IntegrationState, VikunjaBoard } from '@/widgets/Todo/store/store.ts'
+import type { IntegrationState, VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 import type { Mock } from 'vitest'
 
 /** Keys, not prose — `tests/contracts/i18nKeys.test.ts` guards the copy. */
@@ -46,11 +47,16 @@ let setMapping: Mock<(mapping: StatusListMapping) => Promise<void>>
 let updateIntegrationConfig: Mock<(config: unknown) => boolean>
 let refreshContainers: Mock<() => Promise<boolean>>
 let dropTasksOfProject: Mock<(projectId: string) => void>
+let syncNow: Mock<() => Promise<void>>
 let createContainer: Mock<
   (scope: unknown, title: string) => Promise<IntegrationOutcome<RemoteContainer>>
 >
 let listContainers: Mock<(scope: unknown) => Promise<IntegrationOutcome<RemoteContainer[]>>>
 let onBack: Mock<() => void>
+let onDone: Mock<() => void>
+
+/** Every config the step tried to persist, oldest first. */
+let writes: VikunjaConfig[]
 
 /**
  * What the step reads: the board's own buckets, mapping and mode. The slice
@@ -68,20 +74,24 @@ const BOARD: VikunjaBoard = {
   kanbanMapping: true,
 }
 
-function integrationState(board: BoardOverrides = {}): VikunjaSlice {
+function slice(config: VikunjaConfig): VikunjaSlice {
   return {
     name: 'vikunja',
-    config: {
-      baseUrl: 'https://vikunja.example',
-      token: 'tk_super-secret-value',
-      boards: [{ ...BOARD, ...board }],
-      defaultProjectId: 1,
-    },
+    config,
     boardName: null,
     lists: [],
     projects: [],
     mapping: null,
     lastSyncAt: null,
+  }
+}
+
+function makeConfig(boards: VikunjaBoard[]): VikunjaConfig {
+  return {
+    baseUrl: 'https://vikunja.example',
+    token: 'tk_super-secret-value',
+    boards,
+    defaultProjectId: boards[0]?.projectId ?? null,
   }
 }
 
@@ -94,44 +104,62 @@ function creates(ids: Partial<Record<string, number | 'fail'>>) {
   })
 }
 
-/** The whole slice, for the tests that need more than one board. */
-function setupBoards(boards: VikunjaBoard[], target?: string, withCreate = true) {
-  const integration: VikunjaSlice = {
-    ...integrationState(),
-    config: {
-      baseUrl: 'https://vikunja.example',
-      token: 'tk_super-secret-value',
-      boards,
-      defaultProjectId: boards[0]?.projectId ?? null,
-    },
-  }
+/**
+ * Stands in for the settings layer: it holds the config, hands it to the
+ * step, and replaces it when a write lands — which is what makes the
+ * wizard's second board see the first board's saved mapping instead of the
+ * config it mounted with.
+ */
+function Harness({
+  initial,
+  target,
+  withCreate,
+}: {
+  initial: VikunjaConfig
+  target?: string
+  withCreate: boolean
+}) {
+  const [config, setConfig] = useState(initial)
+  publish = setConfig
+
   const adapter = {
     listContainers,
     ...(withCreate ? { createContainer } : {}),
   } as unknown as TodoIntegration
 
-  render(
+  return (
     <VikunjaMappingStep
       onBack={onBack}
-      integration={integration}
+      onDone={onDone}
+      integration={slice(config)}
       adapter={adapter}
       scope={SCOPE}
       errorKey={null}
       target={target}
-      actions={{ setMapping, updateIntegrationConfig, refreshContainers, dropTasksOfProject }}
-    />,
+      actions={{
+        setMapping,
+        updateIntegrationConfig,
+        refreshContainers,
+        dropTasksOfProject,
+        syncNow,
+      }}
+    />
   )
+}
+
+let publish: ((config: VikunjaConfig) => void) | null = null
+
+function setupBoards(boards: VikunjaBoard[], target?: string, withCreate = true) {
+  render(<Harness initial={makeConfig(boards)} target={target} withCreate={withCreate} />)
 }
 
 function setup(board: BoardOverrides = {}, withCreate = true) {
   setupBoards([{ ...BOARD, ...board }], undefined, withCreate)
 }
 
-/** The mapping the step wrote onto the board with that id, if any. */
-function savedBoard(projectId: number): Partial<VikunjaBoard> | undefined {
-  const calls = updateIntegrationConfig.mock.calls
-  const last = calls[calls.length - 1]?.[0] as { boards?: VikunjaBoard[] } | undefined
-  return last?.boards?.find((board) => board.projectId === projectId)
+/** The board as the last accepted write left it. */
+function savedBoard(projectId: number): VikunjaBoard | undefined {
+  return writes[writes.length - 1]?.boards.find((board) => board.projectId === projectId)
 }
 
 const saveButton = () => screen.getByRole('button', { name: 'integrations.mapping.save' })
@@ -140,12 +168,22 @@ const skipButton = () => screen.getByRole('button', { name: `${PREFIX}.skipFlat`
 
 beforeEach(() => {
   vi.clearAllMocks()
+  writes = []
+  publish = null
   setMapping = vi.fn<(mapping: StatusListMapping) => Promise<void>>(async () => {})
-  updateIntegrationConfig = vi.fn<(config: unknown) => boolean>(() => true)
+  // Accepts the write and hands it back through the harness, exactly as the
+  // store's `set` reaches the settings layer.
+  updateIntegrationConfig = vi.fn<(config: unknown) => boolean>((config) => {
+    writes.push(config as VikunjaConfig)
+    publish?.(config as VikunjaConfig)
+    return true
+  })
   refreshContainers = vi.fn<() => Promise<boolean>>(async () => true)
   dropTasksOfProject = vi.fn<(projectId: string) => void>()
+  syncNow = vi.fn<() => Promise<void>>(async () => {})
   createContainer = vi.fn()
   onBack = vi.fn<() => void>()
+  onDone = vi.fn<() => void>()
   // What the step re-reads for itself after creating a column: the default
   // board's `refreshContainers` cannot answer for the board on screen.
   listContainers = vi.fn(async () => ({
@@ -196,6 +234,10 @@ describe('VikunjaMappingStep — a three-column board', () => {
       `${PREFIX}.columnTrash`,
     ])
     expect(createContainer.mock.calls[0][0]).toEqual(SCOPE)
+    // The new buckets are cached on the board they belong to…
+    expect(savedBoard(1)?.containers).toEqual([...THREE_COLUMNS, ...CREATED_COLUMNS])
+    // …and that write is not the end of the step: the user is still here.
+    expect(onDone).not.toHaveBeenCalled()
 
     // The panel is gone and the mapping is now savable.
     expect(screen.queryByText(`${PREFIX}.createMissingTitle`)).toBeNull()
@@ -273,8 +315,10 @@ describe('VikunjaMappingStep — a three-column board', () => {
     await userEvent.click(skipButton())
 
     await waitFor(() => expect(updateIntegrationConfig).toHaveBeenCalled())
-    // Nothing was persisted, so the wizard has no business moving on.
-    expect(onBack).not.toHaveBeenCalled()
+    // Nothing was persisted, so the wizard has no business moving on — and
+    // nothing to sync either.
+    expect(onDone).not.toHaveBeenCalled()
+    expect(syncNow).not.toHaveBeenCalled()
   })
 })
 
@@ -289,15 +333,18 @@ describe('VikunjaMappingStep — validation', () => {
 
   const fullBoard = [...THREE_COLUMNS, ...CREATED_COLUMNS]
 
-  it('saves a complete, conflict-free mapping', async () => {
+  it('saves a complete, conflict-free mapping, then syncs and hands back', async () => {
     setup({ containers: fullBoard, mapping: complete })
 
     expect(screen.queryByText(`${PREFIX}.conflict`)).toBeNull()
     await userEvent.click(saveButton())
 
     expect(savedBoard(1)).toMatchObject({ kanbanMapping: true, mapping: complete })
-    // One board, nothing left in the queue: the dialog recomputes its step.
-    expect(onBack).toHaveBeenCalledTimes(1)
+    // Nothing left in the queue: the connection is syncable now, and the
+    // dialog is handed back its own step machine.
+    expect(syncNow).toHaveBeenCalledTimes(1)
+    expect(onDone).toHaveBeenCalledTimes(1)
+    expect(onBack).not.toHaveBeenCalled()
   })
 
   it('blocks the save on a conflict', () => {
@@ -392,7 +439,7 @@ describe('VikunjaMappingStep — coming back from flat mode', () => {
     await userEvent.click(saveButton())
 
     await waitFor(() => expect(updateIntegrationConfig).toHaveBeenCalled())
-    expect(onBack).not.toHaveBeenCalled()
+    expect(onDone).not.toHaveBeenCalled()
   })
 })
 
@@ -423,7 +470,7 @@ describe('VikunjaMappingStep — several boards', () => {
   const header = (n: number, total: number, name: string) =>
     `${PREFIX}.boardHeader {"n":${n},"total":${total},"name":"${name}"}`
 
-  it('walks the unmapped boards in order and hands back after the last', async () => {
+  it('walks the unmapped boards in order, syncing once at the end', async () => {
     setupBoards([
       board({ projectId: 1, name: 'Work', containers: FULL_BOARD }),
       board({ projectId: 2, viewId: 5, name: 'Home', containers: SECOND_COLUMNS }),
@@ -434,14 +481,19 @@ describe('VikunjaMappingStep — several boards', () => {
 
     // The first board's answer is written on the first board…
     expect(savedBoard(1)?.mapping).toMatchObject({ input: ['1'], completed: ['3'] })
-    expect(onBack).not.toHaveBeenCalled()
+    expect(onDone).not.toHaveBeenCalled()
+    // …and nothing is synced until the whole queue is behind us.
+    expect(syncNow).not.toHaveBeenCalled()
 
     // …and the wizard moves on rather than asking one question for both.
     expect(screen.getByText(header(2, 2, 'Home'))).toBeTruthy()
     await userEvent.click(saveButton())
 
     expect(savedBoard(2)?.mapping).toMatchObject({ input: ['11'], completed: ['13'] })
-    expect(onBack).toHaveBeenCalledTimes(1)
+    // The second write is built on the first: both boards are mapped now.
+    expect(savedBoard(1)?.mapping).toMatchObject({ input: ['1'] })
+    expect(syncNow).toHaveBeenCalledTimes(1)
+    expect(onDone).toHaveBeenCalledTimes(1)
   })
 
   it('shows only the board the summary named', async () => {
@@ -459,13 +511,25 @@ describe('VikunjaMappingStep — several boards', () => {
 
     expect(savedBoard(1)?.mapping).toEqual(complete)
     expect(savedBoard(2)?.mapping).toMatchObject({ input: ['11'] })
-    expect(onBack).toHaveBeenCalledTimes(1)
+    expect(syncNow).toHaveBeenCalledTimes(1)
+    expect(onDone).toHaveBeenCalledTimes(1)
   })
 
   it('says nothing about boards when there is one and nobody named it', () => {
     setup({ containers: FULL_BOARD, mapping: complete })
 
     expect(screen.queryByText(header(1, 1, 'Inbox'))).toBeNull()
+  })
+
+  it('names the board even for a lone unmapped one, when the connection has several', () => {
+    setupBoards([
+      board({ projectId: 1, name: 'Work', containers: FULL_BOARD, mapping: complete }),
+      board({ projectId: 2, viewId: 5, name: 'Home', containers: SECOND_COLUMNS }),
+    ])
+
+    // One board in the queue, two in the connection: without the name the
+    // user could not tell which of their boards this table is about.
+    expect(screen.getByText(header(1, 1, 'Home'))).toBeTruthy()
   })
 
   it('copies the other board’s mapping by column name', async () => {
@@ -513,6 +577,29 @@ describe('VikunjaMappingStep — several boards', () => {
     expect(screen.queryByRole('button', { name: `${PREFIX}.copyFrom {"name":"Home"}` })).toBeNull()
   })
 
+  it('offers no copy from a flat board — its mapping is a placeholder', () => {
+    setupBoards([
+      board({
+        projectId: 1,
+        name: 'Work',
+        containers: FULL_BOARD,
+        mapping: {
+          input: ['1'],
+          inprogress: ['1'],
+          struggle: ['1'],
+          completed: ['3'],
+          deleted: ['1'],
+        },
+        kanbanMapping: false,
+      }),
+      board({ projectId: 2, viewId: 5, name: 'Home', containers: SECOND_COLUMNS }),
+    ])
+
+    // Copying four statuses pointed at one bucket would hand this board four
+    // conflicts to undo.
+    expect(screen.queryByRole('button', { name: `${PREFIX}.copyFrom {"name":"Work"}` })).toBeNull()
+  })
+
   it('takes one board into flat mode and leaves the other alone', async () => {
     setupBoards([
       board({ projectId: 1, name: 'Work', containers: FULL_BOARD }),
@@ -527,7 +614,46 @@ describe('VikunjaMappingStep — several boards', () => {
     await userEvent.click(skipButton())
 
     expect(savedBoard(2)).toMatchObject({ kanbanMapping: false })
+    // Read off the same (latest) write: board 1 kept its buckets.
     expect(savedBoard(1)).toMatchObject({ kanbanMapping: true })
-    expect(onBack).toHaveBeenCalledTimes(1)
+    expect(savedBoard(1)?.mapping).toMatchObject({ input: ['1'] })
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('VikunjaMappingStep — a board that is no longer there', () => {
+  it('says so instead of mapping something else, when the target is gone', async () => {
+    setupBoards([{ ...BOARD, projectId: 1, name: 'Work' }], '99')
+
+    expect(screen.getByText(`${PREFIX}.boardGone`)).toBeTruthy()
+    // Nothing to map here, so there is no save at all.
+    expect(screen.queryByRole('button', { name: 'integrations.mapping.save' })).toBeNull()
+
+    await userEvent.click(screen.getByRole('button', { name: 'integrations.actions.back' }))
+    expect(onDone).toHaveBeenCalledTimes(1)
+  })
+
+  it('says so when the board left the connection mid-wizard', async () => {
+    const full = [...THREE_COLUMNS, ...CREATED_COLUMNS]
+    setupBoards([
+      { ...BOARD, projectId: 1, name: 'Work', containers: full },
+      { ...BOARD, projectId: 2, viewId: 5, name: 'Home', containers: full },
+    ])
+
+    // Another tab (or this dialog's own boards step) drops board 2 while the
+    // wizard is still on board 1.
+    await act(async () => {
+      publish?.(makeConfig([{ ...BOARD, projectId: 1, name: 'Work', containers: full }]))
+    })
+
+    await userEvent.click(saveButton())
+    // Board 1 was saved, and its write did not resurrect board 2.
+    expect(savedBoard(1)?.mapping).toMatchObject({ input: ['1'] })
+    expect(writes[writes.length - 1].boards.map((board) => board.projectId)).toEqual([1])
+
+    // The queue then walks onto a board that is no longer there, and says so
+    // rather than mapping something else.
+    expect(screen.getByText(`${PREFIX}.boardGone`)).toBeTruthy()
+    expect(onDone).not.toHaveBeenCalled()
   })
 })
