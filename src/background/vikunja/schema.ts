@@ -10,14 +10,27 @@
 
 import { z } from 'zod'
 
-/**
- * Go's zero `time.Time` as Vikunja serialises it. Any timestamp in year 1 is
- * "unset", whatever offset it carries.
- */
+/** Fast path for Go's zero `time.Time` exactly as Vikunja serialises it. */
 const ZERO_DATE_RE = /^0001-01-01T/
 
 /**
- * An optional timestamp: the zero date and a missing key both collapse to
+ * Anything older than this is a sentinel, not a date a user typed. Vikunja
+ * writes year 1 today, but Go's zero value renders differently once a
+ * timezone or a marshaller changes, and a due date in 1754 is not a case we
+ * need to support.
+ */
+const EARLIEST_REAL_DATE_MS = Date.UTC(1900, 0, 1)
+
+function isUnsetDate(value: string): boolean {
+  if (ZERO_DATE_RE.test(value)) return true
+  const parsed = Date.parse(value)
+  // An unparseable string is left alone: it is a schema problem, not an
+  // "unset" marker, and `z.string()` below keeps it visible.
+  return Number.isFinite(parsed) && parsed < EARLIEST_REAL_DATE_MS
+}
+
+/**
+ * An optional timestamp: a sentinel date and a missing key both collapse to
  * `null`, so callers get one "no value" instead of three.
  *
  * Not used for `created` / `updated`, which are always real and where
@@ -25,7 +38,7 @@ const ZERO_DATE_RE = /^0001-01-01T/
  */
 export const vikunjaDateSchema = z.preprocess((value) => {
   if (value === undefined) return null
-  if (typeof value === 'string' && ZERO_DATE_RE.test(value)) return null
+  if (typeof value === 'string' && isUnsetDate(value)) return null
   return value
 }, z.string().nullable())
 
@@ -44,15 +57,12 @@ function nullableArray<T extends z.ZodType>(item: T) {
 /**
  * `GET /info`. Only the fields we act on: `version` is shown on the connect
  * screen and gates the "tested with 2.6" warning, `max_items_per_page` sizes
- * the paged pull (task 5), `task_comments_enabled` decides where hidden
- * metadata can live if the web editor eats HTML comments (recon Q20).
- * The last two are optional — an older instance may not report them, and a
- * missing field must not cost the user a connection.
+ * the paged pull (task 5). The latter is optional — an older instance may not
+ * report it, and a missing field must not cost the user a connection.
  */
 export const vikunjaInfoSchema = z.object({
   version: z.string(),
   max_items_per_page: z.number().optional(),
-  task_comments_enabled: z.boolean().optional(),
 })
 
 /**
@@ -120,7 +130,7 @@ export const vikunjaBucketSchema = z.object({
  * `related_tasks` is `null` or an object keyed by relation kind (recon Q21);
  * we never read inside it, only carry it, so it stays `unknown`.
  */
-export const vikunjaTaskSchema = z.looseObject({
+const vikunjaTaskShape = z.looseObject({
   id: z.number(),
   identifier: z.string(),
   index: z.number(),
@@ -147,10 +157,30 @@ export const vikunjaTaskSchema = z.looseObject({
   hex_color: z.string(),
   position: z.number(),
   is_favorite: z.boolean(),
-  related_tasks: z.unknown().nullable(),
+  related_tasks: z.unknown(),
   attachments: nullableArray(z.unknown()),
   cover_image_attachment_id: z.number(),
 })
+
+/**
+ * Prototype-pollution guard for the loose schema above. A passthrough object
+ * copies whatever keys the instance sent, and `JSON.parse` happily produces an
+ * *own* `__proto__` property — which, once spread into another object literal
+ * (exactly what the read-modify-write of task 6 does), stops being data and
+ * starts being an assignment to the prototype. The payload is attacker-shaped
+ * from our side of the trust boundary: a shared Vikunja project is enough to
+ * put a task there.
+ */
+export const vikunjaTaskSchema = z.preprocess((value) => {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
+
+  const safe: Record<string, unknown> = {}
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
+    safe[key] = nested
+  }
+  return safe
+}, vikunjaTaskShape)
 
 /**
  * One entry of `GET /projects/:pid/views/:vid/tasks` on a kanban view: the

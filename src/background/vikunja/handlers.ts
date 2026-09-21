@@ -9,13 +9,14 @@
  * can be compromised.
  */
 
+import { z } from 'zod'
+
 import { VikunjaClient } from '@/background/vikunja/client.ts'
 import {
   normalizeVikunjaBaseUrl,
   vikunjaHostPattern,
   VIKUNJA_UNKNOWN_FAILURE,
 } from '@/background/vikunja/messages.ts'
-import { z } from 'zod'
 
 import type {
   VikunjaConnectInfo,
@@ -29,10 +30,10 @@ import type {
  * page is the untrusted side of the bridge — this is the check that counts,
  * and it runs before a single byte reaches the network.
  *
- * https-only (the token travels on every request) via the shared normaliser,
- * so a config the form wrote and a config the worker accepts can never
- * disagree. The 4096-char ceiling keeps a pathological "token" out of a
- * header.
+ * https-only (the token travels on every request) and literal-host-only via
+ * the shared normaliser, so a config the form wrote and a config the worker
+ * accepts can never disagree. The 4096-char ceiling keeps a pathological
+ * "token" out of a header.
  */
 export const vikunjaWireSchema = z.object({
   baseUrl: z
@@ -47,8 +48,8 @@ export const vikunjaWireSchema = z.object({
 
 /**
  * `chrome.permissions` is read through `globalThis` rather than the ambient
- * `chrome` so the handler is testable without a global mock and degrades to
- * "not granted" wherever the API is absent.
+ * `chrome` binding so a missing API degrades to "not granted" instead of
+ * throwing a ReferenceError wherever `chrome` is absent.
  */
 async function hasHostPermission(pattern: string): Promise<boolean> {
   const permissions = (globalThis as { chrome?: typeof chrome }).chrome?.permissions
@@ -56,25 +57,34 @@ async function hasHostPermission(pattern: string): Promise<boolean> {
   try {
     return await permissions.contains({ origins: [pattern] })
   } catch {
-    // An unrepresentable pattern (an IPv6 literal, say) throws here.
+    // A pattern Chrome cannot represent throws rather than answering false.
     return false
   }
 }
 
 /**
- * Validates credentials against a live instance.
+ * The gate every networked op goes through: validate the config, derive the
+ * host pattern, confirm the user actually granted that host, and only then
+ * hand a ready client to `run`.
  *
- * Order matters: a malformed config and a missing host permission both answer
- * without touching the network, so a compromised renderer cannot use the
- * worker as an open proxy to hosts the user never approved.
+ * It exists as a wrapper rather than as a preamble each handler copies so the
+ * ops arriving in tasks 5–7 cannot skip a step. Order matters: a malformed
+ * config and a missing host permission both answer without touching the
+ * network, so a compromised renderer cannot use the worker as an open proxy
+ * to hosts the user never approved.
  *
- * `chrome.permissions.request` is deliberately NOT called here — it needs a
- * user gesture, which only a page has. The worker may check, never ask.
+ * The permission is re-checked on every operation, not once at connect time:
+ * the user can revoke an optional host at any moment from `chrome://settings`,
+ * and a worker that cached the answer would keep sending the token.
+ *
+ * `chrome.permissions.request` is deliberately never called from here — it
+ * needs a user gesture, which only a page has. The worker may check, never ask.
  */
-export async function handleConnect(
-  req: Extract<VikunjaRequest, { op: 'connect' }>,
-): Promise<VikunjaResponse<VikunjaConnectInfo>> {
-  const parsed = vikunjaWireSchema.safeParse(req.cfg)
+export async function withVikunjaClient<T>(
+  cfg: unknown,
+  run: (client: VikunjaClient) => Promise<VikunjaResponse<T>>,
+): Promise<VikunjaResponse<T>> {
+  const parsed = vikunjaWireSchema.safeParse(cfg)
   if (!parsed.success) return VIKUNJA_UNKNOWN_FAILURE
 
   const { baseUrl, token } = parsed.data
@@ -85,17 +95,24 @@ export async function handleConnect(
     return { ok: false, errorKey: 'permissionMissing' }
   }
 
-  const client = new VikunjaClient(baseUrl, token)
+  return run(new VikunjaClient(baseUrl, token))
+}
 
-  // `/info` first: it is the cheap, usually unauthenticated probe that tells
-  // "this is a Vikunja instance" apart from "this token is wrong".
-  const info = await client.getInfo()
-  if (!info.ok) return info
+/** Validates credentials against a live instance. */
+export function handleConnect(
+  req: Extract<VikunjaRequest, { op: 'connect' }>,
+): Promise<VikunjaResponse<VikunjaConnectInfo>> {
+  return withVikunjaClient(req.cfg, async (client) => {
+    // `/info` first: it is the cheap, usually unauthenticated probe that tells
+    // "this is a Vikunja instance" apart from "this token is wrong".
+    const info = await client.getInfo()
+    if (!info.ok) return info
 
-  const user = await client.getCurrentUser()
-  if (!user.ok) return user
+    const user = await client.getCurrentUser()
+    if (!user.ok) return user
 
-  return { ok: true, value: { userHandle: user.value.username, version: info.value.version } }
+    return { ok: true, value: { userHandle: user.value.username, version: info.value.version } }
+  })
 }
 
 /**

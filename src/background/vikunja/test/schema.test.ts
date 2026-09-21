@@ -84,6 +84,16 @@ describe('vikunjaTaskSchema dates', () => {
     expect(parseTask({ due_date: '0001-01-01T00:00:00+03:00' }).due_date).toBeNull()
   })
 
+  it('treats any sentinel older than 1900 as unset, not just year 1', () => {
+    expect(parseTask({ due_date: '1754-08-30T00:00:00Z' }).due_date).toBeNull()
+    expect(parseTask({ due_date: '1899-12-31T23:59:59Z' }).due_date).toBeNull()
+    expect(parseTask({ due_date: '1900-01-01T00:00:00Z' }).due_date).toBe('1900-01-01T00:00:00Z')
+  })
+
+  it('leaves an unparseable string visible rather than calling it unset', () => {
+    expect(parseTask({ due_date: 'not a date' }).due_date).toBe('not a date')
+  })
+
   it('leaves created/updated as plain strings — updated is the etag', () => {
     const task = parseTask({ updated: '2026-09-20T17:58:54.988820952+03:00' })
 
@@ -163,6 +173,44 @@ describe('vikunjaTaskSchema passthrough', () => {
   })
 })
 
+describe('vikunjaTaskSchema prototype safety', () => {
+  /**
+   * A passthrough schema copies whatever the instance sent, and task 6
+   * spreads the parsed record into a new object. An own `__proto__` key
+   * surviving that far would stop being data.
+   */
+  it('drops __proto__, constructor and prototype keys', () => {
+    // `JSON.parse` is the only way to get an *own* `__proto__` data property;
+    // an object literal would assign the prototype instead.
+    const hostile = JSON.parse(
+      JSON.stringify({ ...RAW_TASK, constructor: 'nope', prototype: 'nope' }).replace(
+        '{',
+        '{"__proto__":{"polluted":true},',
+      ),
+    ) as Record<string, unknown>
+
+    // Guards the guard: without this the assertions below pass vacuously.
+    expect(Object.hasOwn(hostile, '__proto__')).toBe(true)
+
+    const parsed = vikunjaTaskSchema.safeParse(hostile)
+
+    expect(parsed.success).toBe(true)
+    if (!parsed.success) return
+    const data = parsed.data as Record<string, unknown>
+    expect(Object.hasOwn(data, '__proto__')).toBe(false)
+    expect(data.constructor).not.toBe('nope')
+    expect(data.prototype).toBeUndefined()
+    expect({ ...data }).not.toHaveProperty('polluted')
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+
+  it('leaves the rest of the passthrough payload alone', () => {
+    const parsed = parseTask({ reactions: null }) as Record<string, unknown>
+
+    expect(Object.hasOwn(parsed, 'reactions')).toBe(true)
+  })
+})
+
 describe('vikunjaBucketWithTasksSchema', () => {
   /** Empty bucket, before any task existed — no `tasks` key at all (recon Q2). */
   const EMPTY_BUCKET = {
@@ -200,7 +248,7 @@ describe('vikunjaBucketWithTasksSchema', () => {
 })
 
 describe('the remaining wire shapes', () => {
-  it('parses GET /info and keeps the optional fields optional', () => {
+  it('parses GET /info down to the two fields we act on', () => {
     expect(
       vikunjaInfoSchema.parse({
         version: 'v2.6.0',
@@ -209,7 +257,7 @@ describe('the remaining wire shapes', () => {
         task_comments_enabled: true,
         webhooks_enabled: true,
       }),
-    ).toEqual({ version: 'v2.6.0', max_items_per_page: 50, task_comments_enabled: true })
+    ).toEqual({ version: 'v2.6.0', max_items_per_page: 50 })
 
     expect(vikunjaInfoSchema.safeParse({ version: 'v2.5.1' }).success).toBe(true)
     expect(vikunjaInfoSchema.safeParse({}).success).toBe(false)

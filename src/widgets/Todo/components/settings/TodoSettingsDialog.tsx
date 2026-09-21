@@ -82,14 +82,17 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
 
   const step: DialogStep = stepOverride ?? computedStep
 
+  // Which integration the wording belongs to: the persisted one once it
+  // exists, otherwise the one being connected right now. `null` only on the
+  // picker step.
+  const integrationName = integration?.name ?? pickedIntegrationName
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{getDialogTitle(step, t, pickedIntegrationName)}</DialogTitle>
-          <DialogDescription>
-            {getDialogDescription(step, t, pickedIntegrationName)}
-          </DialogDescription>
+          <DialogTitle>{getDialogTitle(step, t, integrationName)}</DialogTitle>
+          <DialogDescription>{getDialogDescription(step, t, integrationName)}</DialogDescription>
         </DialogHeader>
 
         {showcase ? (

@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { VikunjaClient } from '@/background/vikunja/client.ts'
-import { VIKUNJA_BACKOFF_MS, VIKUNJA_REQUEST_TIMEOUT_MS } from '@/background/vikunja/constants.ts'
+import {
+  VIKUNJA_BACKOFF_MS,
+  VIKUNJA_OP_DEADLINE_MS,
+  VIKUNJA_REQUEST_TIMEOUT_MS,
+} from '@/background/vikunja/constants.ts'
 
 const BASE_URL = 'https://vikunja.example'
 const TOKEN = 'tk_super-secret-value'
 const INFO_URL = 'https://vikunja.example/api/v1/info'
 
-const INFO_BODY = { version: 'v2.6.0', max_items_per_page: 50, task_comments_enabled: true }
+const INFO_BODY = { version: 'v2.6.0', max_items_per_page: 50 }
 const USER_BODY = { id: 1, username: 'probe', name: '' }
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -152,6 +156,28 @@ describe('status mapping', () => {
 })
 
 describe('timeout', () => {
+  it('reports network when the abort lands while the body is being read', async () => {
+    // Headers arrive, then the body stalls and the timeout fires into the
+    // middle of `res.json()`. That is a transport failure, not a malformed
+    // payload.
+    const fetchMock = stubFetch(
+      async (_url, init) =>
+        ({
+          status: 200,
+          json: () =>
+            new Promise((_resolve, reject) => {
+              init.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+            }),
+        }) as unknown as Response,
+    )
+
+    const pending = client().getInfo()
+    await vi.advanceTimersByTimeAsync(VIKUNJA_REQUEST_TIMEOUT_MS)
+
+    await expect(pending).resolves.toEqual({ ok: false, errorKey: 'network' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('aborts a hanging request and reports network', async () => {
     const fetchMock = stubFetch(
       (_url, init) =>
@@ -211,6 +237,37 @@ describe('5xx backoff', () => {
 
     await expect(pending).resolves.toEqual({ ok: true, value: INFO_BODY })
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('abandons the remaining retries once the operation budget is spent', async () => {
+    // Each attempt answers 500 after 15 s — slow, but under the 20 s
+    // per-request timeout, so it retries rather than aborting. Three such
+    // attempts plus their waits cross the 45 s budget, and the fourth attempt
+    // the backoff table would allow is never made.
+    const ATTEMPT_MS = 15_000
+    const fetchMock = stubFetch(
+      () =>
+        new Promise<Response>((resolve) => {
+          setTimeout(() => resolve(jsonResponse(500, { message: 'boom' })), ATTEMPT_MS)
+        }),
+    )
+
+    const pending = client().getInfo()
+    await vi.advanceTimersByTimeAsync(VIKUNJA_OP_DEADLINE_MS * 2)
+
+    await expect(pending).resolves.toEqual({ ok: false, errorKey: 'network' })
+    // Stopped one short of `1 + VIKUNJA_BACKOFF_MS.length`.
+    expect(fetchMock).toHaveBeenCalledTimes(VIKUNJA_BACKOFF_MS.length)
+  })
+
+  it('keeps the full retry budget when the attempts themselves are fast', async () => {
+    const fetchMock = stubStatus(500, { message: 'boom' })
+
+    const pending = client().getInfo()
+    await vi.advanceTimersByTimeAsync(VIKUNJA_OP_DEADLINE_MS)
+
+    await expect(pending).resolves.toEqual({ ok: false, errorKey: 'network' })
+    expect(fetchMock).toHaveBeenCalledTimes(VIKUNJA_BACKOFF_MS.length + 1)
   })
 
   it('logs only the path template and the status — never the token or the host', async () => {

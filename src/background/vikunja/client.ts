@@ -14,6 +14,7 @@
 import {
   VIKUNJA_API_PREFIX,
   VIKUNJA_BACKOFF_MS,
+  VIKUNJA_OP_DEADLINE_MS,
   VIKUNJA_REQUEST_TIMEOUT_MS,
 } from '@/background/vikunja/constants.ts'
 import { vikunjaInfoSchema, vikunjaUserSchema } from '@/background/vikunja/schema.ts'
@@ -100,10 +101,18 @@ export class VikunjaClient {
     schema: S,
     body?: unknown,
   ): Promise<VikunjaResponse<z.infer<S>>> {
+    const startedAt = Date.now()
+
     for (let attempt = 0; ; attempt += 1) {
       const outcome = await this.attempt(method, path, schema, body)
       if (!outcome.retry) return outcome.response
       if (attempt >= VIKUNJA_BACKOFF_MS.length) return NETWORK_FAILURE
+
+      // Slow attempts eat the budget too, so the decision is made on the
+      // clock rather than on the retry count alone: a wait that would push
+      // the operation past its deadline is not worth starting.
+      const wait = VIKUNJA_BACKOFF_MS[attempt]
+      if (Date.now() - startedAt + wait > VIKUNJA_OP_DEADLINE_MS) return NETWORK_FAILURE
 
       // Path template + status only: the base URL identifies the user's
       // private instance and the body may echo task contents.
@@ -112,7 +121,7 @@ export class VikunjaClient {
         status: outcome.status,
         attempt: attempt + 1,
       })
-      await delay(VIKUNJA_BACKOFF_MS[attempt])
+      await delay(wait)
     }
   }
 
@@ -169,7 +178,10 @@ export class VikunjaClient {
     try {
       json = await res.json()
     } catch {
-      return { retry: false, response: UNKNOWN_FAILURE }
+      // The body can hang after the headers land, and the timeout fires into
+      // the middle of this read. That is a transport failure, not a malformed
+      // payload, so it must not be reported as `unknown`.
+      return { retry: false, response: signal.aborted ? NETWORK_FAILURE : UNKNOWN_FAILURE }
     }
 
     const parsed = schema.safeParse(json)

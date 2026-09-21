@@ -1,4 +1,9 @@
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
+
+import { sendVikunjaMessage } from './bridge.ts'
+import { vikunjaConnectInfoSchema } from './schema.ts'
+import { VikunjaConnectForm } from './VikunjaConnectForm.tsx'
+
 import type {
   IntegrationDescriptor,
   IntegrationOutcome,
@@ -11,10 +16,6 @@ import type {
 } from '@/widgets/Todo/integrations/types.ts'
 import type { VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 
-import { sendVikunjaMessage } from './bridge.ts'
-import { vikunjaConnectInfoSchema } from './schema.ts'
-import { VikunjaConnectForm } from './VikunjaConnectForm.tsx'
-
 /** Every op that tasks 5 and 6 still owe. */
 const NOT_IMPLEMENTED: IntegrationOutcome<never> = { ok: false, errorKey: 'unknown' }
 
@@ -25,10 +26,12 @@ const NOT_IMPLEMENTED: IntegrationOutcome<never> = { ok: false, errorKey: 'unkno
  * persisted config.
  */
 function scopeNumber(raw: unknown): number | null {
-  if (typeof raw === 'number') return Number.isFinite(raw) ? raw : null
-  if (typeof raw !== 'string' || raw.trim() === '') return null
-  const parsed = Number(raw)
-  return Number.isFinite(parsed) ? parsed : null
+  const parsed = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw.trim()) : NaN
+  // Vikunja ids start at 1, so a zero, a negative or a fractional value is a
+  // corrupt scope rather than an unusual one — and `Number('')` is 0, which
+  // would otherwise sail through as a valid id.
+  if (!Number.isInteger(parsed) || parsed <= 0) return null
+  return parsed
 }
 
 /**

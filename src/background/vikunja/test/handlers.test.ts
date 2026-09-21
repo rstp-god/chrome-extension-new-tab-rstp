@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { handleVikunjaRequest, vikunjaWireSchema } from '@/background/vikunja/handlers.ts'
+import {
+  handleVikunjaRequest,
+  vikunjaWireSchema,
+  withVikunjaClient,
+} from '@/background/vikunja/handlers.ts'
 
 import type { VikunjaConnectInfo } from '@/background/vikunja/messages.ts'
 
@@ -77,6 +81,12 @@ describe('vikunjaWireSchema', () => {
     ['https://vikunja.example/#frag'],
     ['vikunja.example'],
     [''],
+    // Wildcard hosts: accepted by `new URL`, read as "every host" by a
+    // Chrome match pattern.
+    ['https://*'],
+    ['https://%2A'],
+    ['https://*.example.com'],
+    ['https://[::1]'],
   ])('rejects %s', (input) => {
     expect(vikunjaWireSchema.safeParse({ baseUrl: input, token: TOKEN }).success).toBe(false)
   })
@@ -101,6 +111,13 @@ describe('connect: refusals that cost no network', () => {
     ['a query string', 'https://vikunja.example/?a=1', TOKEN],
     ['an empty token', 'https://vikunja.example', ''],
     ['a non-URL', 'not a url at all', TOKEN],
+    // The critical ones: a wildcard host must not even reach the permission
+    // gate, or `permissions.contains({origins:['https://*/*']})` would answer
+    // true for any grant the user ever made.
+    ['a bare wildcard host', 'https://*', TOKEN],
+    ['a percent-encoded wildcard host', 'https://%2A', TOKEN],
+    ['a wildcard subdomain', 'https://*.example.com', TOKEN],
+    ['a bracketed IPv6 host', 'https://[::1]', TOKEN],
   ])('answers unknown for %s and never fetches', async (_label, baseUrl, token) => {
     const fetchMock = stubFetch()
     const contains = stubPermissions(true)
@@ -206,5 +223,56 @@ describe('connect: the happy path', () => {
       errorKey: 'notFound',
     })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('withVikunjaClient', () => {
+  it('never runs the body for a config that does not validate', async () => {
+    const contains = stubPermissions(true)
+    const run = vi.fn(async () => ({ ok: true as const, value: 1 }))
+
+    await expect(withVikunjaClient({ baseUrl: 'https://*', token: TOKEN }, run)).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+
+    expect(run).not.toHaveBeenCalled()
+    expect(contains).not.toHaveBeenCalled()
+  })
+
+  it('never runs the body without the host permission', async () => {
+    stubPermissions(false)
+    const run = vi.fn(async () => ({ ok: true as const, value: 1 }))
+
+    await expect(
+      withVikunjaClient({ baseUrl: 'https://vikunja.example', token: TOKEN }, run),
+    ).resolves.toEqual({ ok: false, errorKey: 'permissionMissing' })
+
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it('hands a client built from the normalised base url to the body', async () => {
+    stubPermissions(true)
+    const fetchMock = stubFetch()
+
+    const result = await withVikunjaClient(
+      { baseUrl: 'https://vikunja.example/api/v1/', token: TOKEN },
+      (client) => client.getInfo(),
+    )
+
+    expect(result).toEqual({ ok: true, value: INFO_BODY })
+    expect(fetchMock.mock.calls[0][0]).toBe('https://vikunja.example/api/v1/info')
+  })
+
+  it('re-checks the permission on every call, never caching the answer', async () => {
+    const contains = stubPermissions(true)
+    stubFetch()
+    const run = vi.fn(async () => ({ ok: true as const, value: 1 }))
+    const cfg = { baseUrl: 'https://vikunja.example', token: TOKEN }
+
+    await withVikunjaClient(cfg, run)
+    await withVikunjaClient(cfg, run)
+
+    expect(contains).toHaveBeenCalledTimes(2)
   })
 })

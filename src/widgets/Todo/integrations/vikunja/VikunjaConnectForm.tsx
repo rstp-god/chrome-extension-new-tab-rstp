@@ -1,18 +1,21 @@
+import { ExternalLinkIcon } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+
 import { normalizeVikunjaBaseUrl, vikunjaHostPattern } from '@/background/vikunja/messages.ts'
-import type { VikunjaConnectInfo } from '@/background/vikunja/messages.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Field, FieldLabel } from '@/components/ui/field.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { getChromeObject } from '@/services/chrome/runtime.ts'
-import type { ConnectFormProps, IntegrationErrorKey } from '@/widgets/Todo/integrations/types.ts'
-import type { VikunjaConfig } from '@/widgets/Todo/store/store.ts'
-import { ExternalLinkIcon } from 'lucide-react'
-import { useMemo, useState, type FormEvent } from 'react'
-import { useTranslation } from 'react-i18next'
 
 import { sendVikunjaMessage } from './bridge.ts'
-import { VIKUNJA_SUPPORTED_VERSION_PREFIX, VIKUNJA_TOKEN_SETTINGS_PATH } from './constants.ts'
+import { isTestedVikunjaVersion, VIKUNJA_TOKEN_SETTINGS_PATH } from './constants.ts'
 import { vikunjaConnectInfoSchema } from './schema.ts'
+
+import type { VikunjaConnectInfo } from '@/background/vikunja/messages.ts'
+import type { ConnectFormProps, IntegrationErrorKey } from '@/widgets/Todo/integrations/types.ts'
+import type { VikunjaConfig } from '@/widgets/Todo/store/store.ts'
+import type { FormEvent } from 'react'
 
 /** Inline messages this form owns, under `integrations.vikunja.connect.*`. */
 type LocalMessageKey = 'invalidUrl' | 'httpsOnly' | 'permissionDenied'
@@ -21,11 +24,16 @@ type UrlCheck =
   | { ok: true; baseUrl: string; pattern: string }
   | { ok: false; key: Exclude<LocalMessageKey, 'permissionDenied'> }
 
+/** Ties the message to both inputs for screen readers. */
+const MESSAGE_ID = 'vikunja-connect-message'
+
 /**
  * Splits "not a URL at all" from "a URL, but not https" so the user gets the
  * message that actually tells them what to change. The canonical form and the
  * match pattern both come from the bridge's shared helpers, so what this form
- * persists is byte-identical to what the worker will accept.
+ * persists is byte-identical to what the worker will accept — and a wildcard
+ * host (`https://*`, `https://*.example.com`) is refused here rather than
+ * becoming a permission request for every site the user has.
  */
 function checkInstanceUrl(raw: string): UrlCheck {
   let url: URL
@@ -44,14 +52,20 @@ function checkInstanceUrl(raw: string): UrlCheck {
 }
 
 /**
- * Connect step for a self-hosted Vikunja.
+ * Connect step for a self-hosted Vikunja, in two stages.
  *
- * The host the extension will talk to is unknown at build time, so the
- * manifest only declares `optional_host_permissions`. Chrome grants an
- * optional origin exclusively from inside a user gesture, which is why
- * `chrome.permissions.request` is fired **synchronously** in the submit
- * handler — before any `await`. Every asynchronous step (the bridge call,
- * the store write) happens afterwards, on the promise that call returned.
+ * **Stage 1 — probe.** The host the extension will talk to is unknown at build
+ * time, so the manifest only declares `optional_host_permissions`. Chrome
+ * grants an optional origin exclusively from inside a user gesture, which is
+ * why `chrome.permissions.request` is fired **synchronously** in the submit
+ * handler, before any `await`. Everything asynchronous (the bridge call)
+ * happens afterwards, on the promise that call returned.
+ *
+ * **Stage 2 — confirm.** The probe's answer is shown here rather than handed
+ * straight to the store, because `onConnect` persists the integration and the
+ * dialog immediately advances to the scope step: a "Connected as …" line
+ * rendered at that moment would never be read. The user presses Continue once
+ * they have seen who they connected as.
  */
 export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormProps) {
   const { t } = useTranslation('todoWidget')
@@ -59,11 +73,25 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
   const [token, setToken] = useState('')
   const [localKey, setLocalKey] = useState<LocalMessageKey | null>(null)
   const [bridgeErrorKey, setBridgeErrorKey] = useState<IntegrationErrorKey | null>(null)
-  const [connected, setConnected] = useState<VikunjaConnectInfo | null>(null)
+  const [probe, setProbe] = useState<VikunjaConnectInfo | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const disabled = busy || submitting
   const canSubmit = url.trim().length > 0 && token.trim().length > 0 && !disabled
+
+  /**
+   * One slot, one message. Local validation wins over a worker error, which
+   * wins over whatever the store is still showing from a previous attempt —
+   * otherwise three stacked paragraphs would compete to explain the same
+   * failure.
+   */
+  const message = localKey
+    ? t(`integrations.vikunja.connect.${localKey}`)
+    : bridgeErrorKey
+      ? t(`integrations.errors.${bridgeErrorKey}`)
+      : errorKey
+        ? t(`integrations.errors.${errorKey}`)
+        : null
 
   // The help link points at the user's own instance; until the URL parses
   // there is nowhere to point, so the form falls back to prose.
@@ -74,11 +102,18 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
     return base === null ? null : `${base}${VIKUNJA_TOKEN_SETTINGS_PATH}`
   }, [url])
 
-  const finish = async (grant: Promise<boolean>, baseUrl: string, apiToken: string) => {
+  /** Editing the credentials invalidates the probe they produced. */
+  const resetProbe = () => {
+    setProbe(null)
+    setLocalKey(null)
+    setBridgeErrorKey(null)
+  }
+
+  const runProbe = async (grant: Promise<boolean>, baseUrl: string, apiToken: string) => {
     setSubmitting(true)
     try {
-      // A rejected request (an unrepresentable pattern, a closed prompt)
-      // reads the same as a refusal: nothing was granted.
+      // A rejected request (a prompt the user dismissed, a pattern Chrome
+      // cannot represent) reads the same as a refusal: nothing was granted.
       const granted = await grant.catch(() => false)
       if (!granted) {
         setLocalKey('permissionDenied')
@@ -101,11 +136,19 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
         return
       }
 
-      setConnected(info.data)
-      // The store's `connectIntegration` runs `connect` once more through the
-      // adapter. That is a second round trip to `/info` + `/user` and we
-      // accept it: it keeps the store the single owner of persistence, and
-      // both calls are cheap next to the permission prompt the user just saw.
+      setProbe(info.data)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleContinue = async (baseUrl: string, apiToken: string) => {
+    setSubmitting(true)
+    try {
+      // No second probe from here. The store's `connectIntegration` runs
+      // `connect` once more through the adapter — one extra round trip to
+      // `/info` + `/user` that we accept, because it keeps the store the
+      // single owner of persistence.
       await onConnect({
         baseUrl,
         token: apiToken,
@@ -122,15 +165,21 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
     event.preventDefault()
     if (!canSubmit) return
 
-    setLocalKey(null)
-    setBridgeErrorKey(null)
-    setConnected(null)
-
     const check = checkInstanceUrl(url.trim())
     if (!check.ok) {
+      setProbe(null)
+      setBridgeErrorKey(null)
       setLocalKey(check.key)
       return
     }
+
+    if (probe) {
+      void handleContinue(check.baseUrl, token.trim())
+      return
+    }
+
+    setLocalKey(null)
+    setBridgeErrorKey(null)
 
     const permissions = getChromeObject()?.permissions
     if (!permissions?.request) {
@@ -148,11 +197,14 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
       return
     }
 
-    void finish(grant, check.baseUrl, token.trim())
+    void runProbe(grant, check.baseUrl, token.trim())
   }
 
-  const outdated =
-    connected !== null && !connected.version.startsWith(VIKUNJA_SUPPORTED_VERSION_PREFIX)
+  // The button follows the probe; the confirmation line additionally yields
+  // to any message, so a success and a failure never share the screen.
+  const probed = probe !== null
+  const showConnected = probe !== null && message === null
+  const outdated = showConnected && probe !== null && !isTestedVikunjaVersion(probe.version)
 
   return (
     <form className="grid gap-4" onSubmit={handleSubmit}>
@@ -167,9 +219,14 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
           inputMode="url"
           autoComplete="off"
           spellCheck={false}
+          disabled={disabled}
+          aria-describedby={message ? MESSAGE_ID : undefined}
           placeholder={t('integrations.vikunja.connect.urlPlaceholder')}
           value={url}
-          onChange={(event) => setUrl(event.target.value)}
+          onChange={(event) => {
+            setUrl(event.target.value)
+            resetProbe()
+          }}
         />
       </Field>
 
@@ -182,8 +239,13 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
           type="password"
           autoComplete="off"
           spellCheck={false}
+          disabled={disabled}
+          aria-describedby={message ? MESSAGE_ID : undefined}
           value={token}
-          onChange={(event) => setToken(event.target.value)}
+          onChange={(event) => {
+            setToken(event.target.value)
+            resetProbe()
+          }}
         />
       </Field>
 
@@ -203,23 +265,17 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
         </p>
       )}
 
-      {localKey && (
-        <p className="text-sm text-destructive">{t(`integrations.vikunja.connect.${localKey}`)}</p>
+      {message && (
+        <p id={MESSAGE_ID} role="alert" className="text-sm text-destructive">
+          {message}
+        </p>
       )}
 
-      {bridgeErrorKey && (
-        <p className="text-sm text-destructive">{t(`integrations.errors.${bridgeErrorKey}`)}</p>
-      )}
-
-      {errorKey && (
-        <p className="text-sm text-destructive">{t(`integrations.errors.${errorKey}`)}</p>
-      )}
-
-      {connected && (
+      {showConnected && probe && (
         <p className="text-sm text-muted-foreground">
           {t('integrations.vikunja.connect.connectedAs', {
-            user: connected.userHandle,
-            version: connected.version,
+            user: probe.userHandle,
+            version: probe.version,
           })}
         </p>
       )}
@@ -231,7 +287,9 @@ export function VikunjaConnectForm({ busy, errorKey, onConnect }: ConnectFormPro
       )}
 
       <Button type="submit" disabled={!canSubmit}>
-        {t('integrations.vikunja.connect.submit')}
+        {t(
+          probed ? 'integrations.vikunja.connect.continue' : 'integrations.vikunja.connect.submit',
+        )}
       </Button>
     </form>
   )

@@ -12,9 +12,21 @@
 export const VIKUNJA_TOKEN_SETTINGS_PATH = '/user/settings/api-tokens'
 
 /**
- * The line the integration was built and verified against (see
- * `docs/vikunja-recon.md`). A mismatch is a warning, never a block: the API
- * is stable enough that refusing to connect would be worse than syncing with
- * a caveat.
+ * The 2.6 line the integration was built and verified against (see
+ * `docs/vikunja-recon.md`), with or without the `v` prefix and with an
+ * optional patch component.
+ *
+ * Anchored on purpose: a prefix test would accept `v2.60`, a future minor
+ * release that shares no promises with 2.6 at all.
  */
-export const VIKUNJA_SUPPORTED_VERSION_PREFIX = 'v2.6'
+const TESTED_VERSION_RE = /^v?2\.6(?:\.\d+)?$/
+
+/**
+ * Is this instance on the version the integration was verified against?
+ *
+ * A mismatch is a warning, never a block: the API is stable enough that
+ * refusing to connect would be worse than syncing with a caveat.
+ */
+export function isTestedVikunjaVersion(version: string): boolean {
+  return TESTED_VERSION_RE.test(version.trim())
+}

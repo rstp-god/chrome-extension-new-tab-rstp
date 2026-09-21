@@ -6,8 +6,9 @@
  * before reading a field out of it.
  */
 
-import type { VikunjaConnectInfo } from '@/background/vikunja/messages.ts'
 import { z } from 'zod'
+
+import type { VikunjaConnectInfo } from '@/background/vikunja/messages.ts'
 
 /**
  * Annotated with the shared interface rather than inferring a second type

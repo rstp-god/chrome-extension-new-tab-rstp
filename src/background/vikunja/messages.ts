@@ -166,20 +166,65 @@ export function isVikunjaRequest(msg: unknown): msg is VikunjaRequest {
   return (VIKUNJA_OPS as readonly string[]).includes(candidate.op)
 }
 
-const VIKUNJA_API_SUFFIX = '/api/v1'
+/**
+ * Is this a literal host we may put into a Chrome match pattern?
+ *
+ * **Security-critical.** `new URL()` accepts hosts a match pattern reads as a
+ * wildcard: `https://*`, `https://%2A` (percent-decoded to `*`) and
+ * `https://*.example.com` all parse, and interpolating one of them would turn
+ * the connect form's request into the maximal grant — every https host —
+ * while the worker's `permissions.contains` gate would then pass for all of
+ * them too.
+ *
+ * So only literal hosts are allowed: dot-separated labels of `a-z`, `0-9` and
+ * `-` (which also covers an IPv4 literal). No `*`, and no bracketed IPv6
+ * literal — Chrome cannot express one in a match pattern anyway, so a `[::1]`
+ * instance is refused up front instead of failing later inside
+ * `permissions.request`.
+ *
+ * `new URL` has already lower-cased and punycoded the host by the time this
+ * runs, so an IDN instance arrives as ASCII and passes.
+ */
+const LITERAL_HOSTNAME_RE =
+  /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/
+
+function isLiteralHostname(hostname: string): boolean {
+  return LITERAL_HOSTNAME_RE.test(hostname)
+}
+
+/**
+ * Drops trailing slashes and a trailing `/api/v1` (case-insensitively, and
+ * repeatedly, so the result is a fixed point). Repetition is what makes
+ * `normalizeVikunjaBaseUrl` idempotent: without it `/api/v1/api/v1` would
+ * normalise to `/api/v1`, which a second pass would shorten again — and the
+ * config the form persisted would stop matching the config the worker
+ * derives.
+ */
+function stripApiSuffix(pathname: string): string {
+  let path = pathname
+  for (;;) {
+    const next = path.replace(/\/+$/, '').replace(/\/api\/v1$/i, '')
+    if (next === path) return next
+    path = next
+  }
+}
 
 /**
  * Canonical form of the instance root, shared by both sides of the bridge:
  * the connect form stores what this returns, the worker re-derives it from
  * whatever it is handed. One function, so a config written by the page and a
  * config validated by the worker can never disagree about what "the same
- * instance" means.
+ * instance" means — which also means it must be idempotent, and there is a
+ * test pinning that.
  *
- * Strips what users habitually paste around the root — a trailing slash and
- * the `/api/v1` copied out of the API docs — and returns `null` for anything
- * the client must not be pointed at:
+ * The result is rebuilt from the *parsed* URL (`origin` + cleaned pathname),
+ * never by cutting the raw string: `https://api/v1` is a host called `api`
+ * with a `/v1` path, not an API root, and only the parser knows that.
+ *
+ * Returns `null` for anything the client must not be pointed at:
  *
  * - a non-https scheme: the token rides on every request;
+ * - a host that is not literal (see `isLiteralHostname`);
  * - credentials in the URL: they would be persisted next to the token;
  * - a query or a fragment: paths are concatenated onto this string, so
  *   anything after them would be swallowed or would reorder the final URL.
@@ -187,24 +232,19 @@ const VIKUNJA_API_SUFFIX = '/api/v1'
  * A sub-path install (`https://host/vikunja/api/v1`) keeps its sub-path.
  */
 export function normalizeVikunjaBaseUrl(raw: string): string | null {
-  const trimmed = raw.trim()
-
   let url: URL
   try {
-    url = new URL(trimmed)
+    url = new URL(raw.trim())
   } catch {
     return null
   }
   if (url.protocol !== 'https:') return null
   if (url.username || url.password) return null
   if (url.search || url.hash) return null
-  if (!url.hostname) return null
+  if (!isLiteralHostname(url.hostname)) return null
 
-  let value = trimmed
-  while (value.endsWith('/')) value = value.slice(0, -1)
-  if (value.endsWith(VIKUNJA_API_SUFFIX)) value = value.slice(0, -VIKUNJA_API_SUFFIX.length)
-  while (value.endsWith('/')) value = value.slice(0, -1)
-  return value
+  // `origin` carries the lower-cased host and the port when it is not 443.
+  return `${url.origin}${stripApiSuffix(url.pathname)}`
 }
 
 /**
@@ -217,11 +257,12 @@ export function normalizeVikunjaBaseUrl(raw: string): string | null {
  * Deliberately built from `hostname`, not `origin`: Chrome match patterns may
  * not carry a port, so `https://tasks.example:8443` has to be requested as
  * `https://tasks.example/*` or the call throws "Invalid value for origins".
- * The grant is therefore per-host rather than per-port — which is all Chrome's
- * permission model can express anyway.
+ * The grant is therefore per-host and covers every port of that host — which
+ * is all Chrome's permission model can express.
  *
- * Returns `null` for anything unparseable or not https, so a caller can never
- * turn a junk baseUrl into a broad pattern.
+ * Returns `null` unless the URL is https with a literal host, so no caller —
+ * not even one skipping `normalizeVikunjaBaseUrl` — can turn a wildcard host
+ * into a wildcard grant.
  */
 export function vikunjaHostPattern(baseUrl: string): string | null {
   let url: URL
@@ -231,6 +272,6 @@ export function vikunjaHostPattern(baseUrl: string): string | null {
     return null
   }
   if (url.protocol !== 'https:') return null
-  if (!url.hostname) return null
+  if (!isLiteralHostname(url.hostname)) return null
   return `https://${url.hostname}/*`
 }

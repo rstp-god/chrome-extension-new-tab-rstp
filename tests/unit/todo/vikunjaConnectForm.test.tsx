@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import enTodo from '@/i18n/resources/en/widgets/todoWidget.json'
 import { sendVikunjaMessage } from '@/widgets/Todo/integrations/vikunja/bridge.ts'
+import { isTestedVikunjaVersion } from '@/widgets/Todo/integrations/vikunja/constants.ts'
 import { VikunjaConnectForm } from '@/widgets/Todo/integrations/vikunja/VikunjaConnectForm.tsx'
 
 import type { VikunjaConfig } from '@/widgets/Todo/store/store.ts'
@@ -53,11 +54,26 @@ function renderForm(onConnect = vi.fn(async () => {})) {
   return onConnect
 }
 
-async function fillAndSubmit(url = URL_VALUE, token = TOKEN_VALUE) {
+const urlInput = () => screen.getByLabelText(`${CONNECT_PREFIX}.urlLabel`)
+const tokenInput = () => screen.getByLabelText(`${CONNECT_PREFIX}.tokenLabel`)
+const submitButton = () => screen.getByRole('button', { name: `${CONNECT_PREFIX}.submit` })
+const continueButton = () => screen.getByRole('button', { name: `${CONNECT_PREFIX}.continue` })
+
+/**
+ * `userEvent.type` reads `[` and `{` as the start of a key descriptor, so a
+ * bracketed IPv6 host has to be escaped by doubling them.
+ */
+function literal(text: string): string {
+  return text.replace(/[[{]/g, '$&$&')
+}
+
+/** Stage 1: fill the credentials and press Connect. */
+async function probe(url = URL_VALUE, token = TOKEN_VALUE) {
   const user = userEvent.setup()
-  await user.type(screen.getByLabelText(`${CONNECT_PREFIX}.urlLabel`), url)
-  await user.type(screen.getByLabelText(`${CONNECT_PREFIX}.tokenLabel`), token)
-  await user.click(screen.getByRole('button', { name: `${CONNECT_PREFIX}.submit` }))
+  await user.type(urlInput(), literal(url))
+  await user.type(tokenInput(), literal(token))
+  await user.click(submitButton())
+  return user
 }
 
 beforeEach(() => {
@@ -68,6 +84,19 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   Object.defineProperty(globalThis, 'chrome', { value: undefined, configurable: true })
+})
+
+describe('isTestedVikunjaVersion', () => {
+  it.each(['v2.6.0', '2.6.0', 'v2.6', '2.6', 'v2.6.12', ' v2.6.0 '])('accepts %s', (version) => {
+    expect(isTestedVikunjaVersion(version)).toBe(true)
+  })
+
+  it.each(['v2.60', 'v2.60.0', 'v2.5.1', 'v2.7.0', 'v12.6.0', 'v2.6.0-rc1', '', 'unstable'])(
+    'rejects %s',
+    (version) => {
+      expect(isTestedVikunjaVersion(version)).toBe(false)
+    },
+  )
 })
 
 describe('i18n keys the form relies on', () => {
@@ -83,6 +112,7 @@ describe('i18n keys the form relies on', () => {
       'helpLinkLabel',
       'helpText',
       'submit',
+      'continue',
       'invalidUrl',
       'httpsOnly',
       'permissionDenied',
@@ -98,9 +128,9 @@ describe('URL validation', () => {
   it('refuses plain http inline and never asks for a permission', async () => {
     const onConnect = renderForm()
 
-    await fillAndSubmit('http://vikunja.example')
+    await probe('http://vikunja.example')
 
-    expect(screen.getByText(`${CONNECT_PREFIX}.httpsOnly`)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(`${CONNECT_PREFIX}.httpsOnly`)
     expect(permissionRequest).not.toHaveBeenCalled()
     expect(bridge).not.toHaveBeenCalled()
     expect(onConnect).not.toHaveBeenCalled()
@@ -109,21 +139,39 @@ describe('URL validation', () => {
   it('refuses something that is not a URL at all', async () => {
     const onConnect = renderForm()
 
-    await fillAndSubmit('vikunja.example')
+    await probe('vikunja.example')
 
-    expect(screen.getByText(`${CONNECT_PREFIX}.invalidUrl`)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(`${CONNECT_PREFIX}.invalidUrl`)
     expect(permissionRequest).not.toHaveBeenCalled()
     expect(onConnect).not.toHaveBeenCalled()
   })
 
-  it('refuses a URL carrying credentials or a query', async () => {
+  it('refuses a URL carrying credentials', async () => {
     renderForm()
 
-    await fillAndSubmit('https://user:pass@vikunja.example')
+    await probe('https://user:pass@vikunja.example')
 
-    expect(screen.getByText(`${CONNECT_PREFIX}.invalidUrl`)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(`${CONNECT_PREFIX}.invalidUrl`)
     expect(permissionRequest).not.toHaveBeenCalled()
   })
+
+  /**
+   * The critical case: `new URL('https://*')` parses, and interpolating that
+   * host would turn the request into a grant for every https site.
+   */
+  it.each(['https://*', 'https://%2A', 'https://*.example.com', 'https://[::1]'])(
+    'refuses the wildcard/IPv6 host %s without asking for a permission',
+    async (value) => {
+      const onConnect = renderForm()
+
+      await probe(value)
+
+      expect(screen.getByRole('alert')).toHaveTextContent(`${CONNECT_PREFIX}.invalidUrl`)
+      expect(permissionRequest).not.toHaveBeenCalled()
+      expect(bridge).not.toHaveBeenCalled()
+      expect(onConnect).not.toHaveBeenCalled()
+    },
+  )
 
   it('turns the help text into a link to the instance once the URL parses', async () => {
     renderForm()
@@ -131,7 +179,7 @@ describe('URL validation', () => {
 
     expect(screen.getByText(`${CONNECT_PREFIX}.helpText`)).toBeInTheDocument()
 
-    await user.type(screen.getByLabelText(`${CONNECT_PREFIX}.urlLabel`), `${URL_VALUE}/api/v1`)
+    await user.type(urlInput(), `${URL_VALUE}/api/v1`)
 
     const link = screen.getByRole('link', { name: `${CONNECT_PREFIX}.helpLinkLabel` })
     // The `/api/v1` the user pasted is stripped before the link is built.
@@ -144,7 +192,7 @@ describe('host permission', () => {
     renderForm()
     bridge.mockResolvedValue({ ok: true, value: { userHandle: 'probe', version: 'v2.6.0' } })
 
-    await fillAndSubmit('https://vikunja.example:8443')
+    await probe('https://vikunja.example:8443')
 
     expect(permissionRequest).toHaveBeenCalledWith({ origins: ['https://vikunja.example/*'] })
   })
@@ -153,23 +201,24 @@ describe('host permission', () => {
     installChrome(false)
     const onConnect = renderForm()
 
-    await fillAndSubmit()
+    await probe()
 
     await waitFor(() => {
-      expect(screen.getByText(`${CONNECT_PREFIX}.permissionDenied`)).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent(`${CONNECT_PREFIX}.permissionDenied`)
     })
     expect(bridge).not.toHaveBeenCalled()
     expect(onConnect).not.toHaveBeenCalled()
+    expect(submitButton()).toBeInTheDocument()
   })
 
   it('treats a throwing request the same as a refusal', async () => {
     installChrome(new Error('Invalid value for origins'))
     const onConnect = renderForm()
 
-    await fillAndSubmit()
+    await probe()
 
     await waitFor(() => {
-      expect(screen.getByText(`${CONNECT_PREFIX}.permissionDenied`)).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent(`${CONNECT_PREFIX}.permissionDenied`)
     })
     expect(onConnect).not.toHaveBeenCalled()
   })
@@ -178,29 +227,38 @@ describe('host permission', () => {
     Object.defineProperty(globalThis, 'chrome', { value: {}, configurable: true })
     const onConnect = renderForm()
 
-    await fillAndSubmit()
+    await probe()
 
-    expect(screen.getByText('integrations.errors.permissionMissing')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('integrations.errors.permissionMissing')
     expect(bridge).not.toHaveBeenCalled()
     expect(onConnect).not.toHaveBeenCalled()
   })
 })
 
-describe('connecting', () => {
-  it('reports who it connected as and hands the exact config to the store', async () => {
+describe('the two-step flow', () => {
+  it('shows who it connected as and only saves on Continue', async () => {
     bridge.mockResolvedValue({ ok: true, value: { userHandle: 'probe', version: 'v2.6.0' } })
     const onConnect = renderForm()
 
-    await fillAndSubmit(`${URL_VALUE}/`)
+    const user = await probe(`${URL_VALUE}/`)
 
-    await waitFor(() => {
-      expect(onConnect).toHaveBeenCalledTimes(1)
-    })
-
+    // Stage 1 answered; nothing is persisted yet.
+    const connected = await screen.findByText(new RegExp(`${CONNECT_PREFIX}\\.connectedAs`))
+    expect(connected.textContent).toContain('probe')
+    expect(connected.textContent).toContain('v2.6.0')
+    expect(onConnect).not.toHaveBeenCalled()
     expect(bridge).toHaveBeenCalledWith({
       type: 'vikunja',
       op: 'connect',
       cfg: { baseUrl: URL_VALUE, token: TOKEN_VALUE },
+    })
+    expect(screen.queryByText(`${CONNECT_PREFIX}.versionWarning`)).not.toBeInTheDocument()
+
+    // Stage 2.
+    await user.click(continueButton())
+
+    await waitFor(() => {
+      expect(onConnect).toHaveBeenCalledTimes(1)
     })
     expect(onConnect).toHaveBeenCalledWith({
       baseUrl: URL_VALUE,
@@ -209,46 +267,98 @@ describe('connecting', () => {
       viewId: null,
       kanbanMapping: true,
     } satisfies VikunjaConfig)
-
-    const connected = screen.getByText(new RegExp(`${CONNECT_PREFIX}\\.connectedAs`))
-    expect(connected.textContent).toContain('probe')
-    expect(connected.textContent).toContain('v2.6.0')
-    expect(screen.queryByText(`${CONNECT_PREFIX}.versionWarning`)).not.toBeInTheDocument()
+    // Continue must not re-probe: the store runs `connect` through the adapter.
+    expect(bridge).toHaveBeenCalledTimes(1)
   })
 
-  it('warns about an untested version but still connects', async () => {
-    bridge.mockResolvedValue({ ok: true, value: { userHandle: 'probe', version: 'v2.4.1' } })
-    const onConnect = renderForm()
+  it('warns about an untested version but still offers Continue', async () => {
+    bridge.mockResolvedValue({ ok: true, value: { userHandle: 'probe', version: 'v2.60' } })
+    renderForm()
 
-    await fillAndSubmit()
+    await probe()
 
     await waitFor(() => {
       expect(screen.getByText(`${CONNECT_PREFIX}.versionWarning`)).toBeInTheDocument()
     })
-    expect(onConnect).toHaveBeenCalledTimes(1)
+    expect(continueButton()).toBeInTheDocument()
+  })
+
+  it('falls back to the first step when the credentials are edited', async () => {
+    bridge.mockResolvedValue({ ok: true, value: { userHandle: 'probe', version: 'v2.6.0' } })
+    const onConnect = renderForm()
+
+    const user = await probe()
+    await screen.findByText(new RegExp(`${CONNECT_PREFIX}\\.connectedAs`))
+
+    await user.type(tokenInput(), '-rotated')
+
+    expect(submitButton()).toBeInTheDocument()
+    expect(
+      screen.queryByText(new RegExp(`${CONNECT_PREFIX}\\.connectedAs`)),
+    ).not.toBeInTheDocument()
+    expect(onConnect).not.toHaveBeenCalled()
   })
 
   it('shows the worker error and saves nothing when the token is rejected', async () => {
     bridge.mockResolvedValue({ ok: false, errorKey: 'authInvalid' })
     const onConnect = renderForm()
 
-    await fillAndSubmit()
+    await probe()
 
     await waitFor(() => {
-      expect(screen.getByText('integrations.errors.authInvalid')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent('integrations.errors.authInvalid')
     })
     expect(onConnect).not.toHaveBeenCalled()
+    expect(
+      screen.queryByText(new RegExp(`${CONNECT_PREFIX}\\.connectedAs`)),
+    ).not.toBeInTheDocument()
   })
 
   it('rejects a payload that does not match the connect schema', async () => {
     bridge.mockResolvedValue({ ok: true, value: { nope: true } })
     const onConnect = renderForm()
 
-    await fillAndSubmit()
+    await probe()
 
     await waitFor(() => {
-      expect(screen.getByText('integrations.errors.unknown')).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent('integrations.errors.unknown')
     })
     expect(onConnect).not.toHaveBeenCalled()
+  })
+})
+
+describe('accessibility and busy state', () => {
+  it('announces the message and links it to both inputs', async () => {
+    renderForm()
+
+    await probe('http://vikunja.example')
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveAttribute('id')
+    const id = alert.getAttribute('id')
+    expect(urlInput()).toHaveAttribute('aria-describedby', id)
+    expect(tokenInput()).toHaveAttribute('aria-describedby', id)
+  })
+
+  it('renders exactly one message even when the store is also reporting one', async () => {
+    render(<VikunjaConnectForm busy={false} errorKey="network" onConnect={vi.fn(async () => {})} />)
+    const user = userEvent.setup()
+
+    await user.type(urlInput(), 'http://vikunja.example')
+    await user.type(tokenInput(), TOKEN_VALUE)
+    await user.click(submitButton())
+
+    const alerts = screen.getAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    // Local validation outranks the store's leftover error.
+    expect(alerts[0]).toHaveTextContent(`${CONNECT_PREFIX}.httpsOnly`)
+  })
+
+  it('disables the inputs while the store is busy', () => {
+    render(<VikunjaConnectForm busy errorKey={null} onConnect={vi.fn(async () => {})} />)
+
+    expect(urlInput()).toBeDisabled()
+    expect(tokenInput()).toBeDisabled()
+    expect(submitButton()).toBeDisabled()
   })
 })

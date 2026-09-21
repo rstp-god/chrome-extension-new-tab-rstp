@@ -8,54 +8,46 @@ export type DialogStep = 'picker' | 'connect' | 'board' | 'mapping' | 'summary'
 type Translator = (key: string) => string
 
 /**
- * Fallback for the connect step when no integration is picked yet. That
- * combination is unreachable through the dialog (the step exists only once a
- * name is chosen), so the default merely keeps the old single-integration
- * behaviour for any caller that omits the argument.
+ * Every step but `picker` belongs to exactly one integration, and each one
+ * names its own things differently — Trello picks a *board*, Vikunja picks a
+ * *project* and maps *buckets*. So the keys are scoped by the integration's
+ * machine name rather than hardcoded.
+ *
+ * `integrationName` is `null` only on the picker step (nothing is chosen
+ * yet). Should a later step somehow be reached without a name, the picker
+ * wording is the honest fallback — better than interpolating `null` into a
+ * key and rendering it raw.
  */
-const DEFAULT_INTEGRATION_NAME = 'trello'
+function integrationKey(
+  integrationName: string | null,
+  step: DialogStep,
+  leaf: 'title' | 'description',
+): string {
+  if (integrationName === null) return `integrations.picker.${leaf}`
+  return `integrations.${integrationName}.${step}.${leaf}`
+}
 
 /**
  * i18n key for the dialog title at each step. Kept here so adding a new step
  * is a one-line edit and the dialog component stays presentational.
- *
- * Only the connect step varies by integration: the later steps keep the
- * Trello keys until tasks 5–7 give Vikunja its own scope/mapping wording.
  */
-export function getDialogTitleKey(step: DialogStep, integrationName?: string | null): string {
-  switch (step) {
-    case 'picker':
-      return 'integrations.picker.title'
-    case 'connect':
-      return `integrations.${integrationName ?? DEFAULT_INTEGRATION_NAME}.connect.title`
-    case 'board':
-      return 'integrations.trello.board.title'
-    case 'mapping':
-      return 'integrations.trello.mapping.title'
-    case 'summary':
-      return 'integrations.trello.summary.title'
-  }
+export function getDialogTitleKey(step: DialogStep, integrationName: string | null): string {
+  if (step === 'picker') return 'integrations.picker.title'
+  return integrationKey(integrationName, step, 'title')
 }
 
-export function getDialogDescriptionKey(step: DialogStep, integrationName?: string | null): string {
-  switch (step) {
-    case 'picker':
-      return 'integrations.picker.description'
-    case 'connect':
-      return `integrations.${integrationName ?? DEFAULT_INTEGRATION_NAME}.connect.description`
-    case 'board':
-      return 'integrations.trello.board.description'
-    case 'mapping':
-      return 'integrations.trello.mapping.description'
-    case 'summary':
-      return 'settings.description'
-  }
+export function getDialogDescriptionKey(step: DialogStep, integrationName: string | null): string {
+  if (step === 'picker') return 'integrations.picker.description'
+  // The summary step describes the widget's settings, not the backend's, so
+  // it keeps the shared wording every integration can use unchanged.
+  if (step === 'summary') return 'settings.description'
+  return integrationKey(integrationName, step, 'description')
 }
 
 export function getDialogTitle(
   step: DialogStep,
   t: Translator,
-  integrationName?: string | null,
+  integrationName: string | null,
 ): string {
   return t(getDialogTitleKey(step, integrationName))
 }
@@ -63,7 +55,7 @@ export function getDialogTitle(
 export function getDialogDescription(
   step: DialogStep,
   t: Translator,
-  integrationName?: string | null,
+  integrationName: string | null,
 ): string {
   return t(getDialogDescriptionKey(step, integrationName))
 }

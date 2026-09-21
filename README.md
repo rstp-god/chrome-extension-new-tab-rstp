@@ -502,7 +502,9 @@ export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormP
 Хосты:
 
 - `host_permissions: https://api.trello.com/*` — выдаётся при установке; интеграция Todo с Trello ходит на фиксированный адрес API, известный на этапе сборки.
-- `optional_host_permissions: https://*/*` — **при установке не запрашивается ничего**. Vikunja разворачивается на своём сервере, его адрес на этапе сборки неизвестен, поэтому широкий паттерн объявлен как опциональный. Конкретный origin запрашивается в рантайме через `chrome.permissions.request` — только в момент, когда пользователь нажимает «Подключить» в форме Vikunja, и только для того хоста, который он сам ввёл. Воркер перед каждым запросом проверяет грант через `chrome.permissions.contains` и без него не делает ни одного сетевого вызова.
+- `optional_host_permissions: https://*/*` — **при установке не запрашивается ничего**. Vikunja разворачивается на своём сервере, его адрес на этапе сборки неизвестен, поэтому широкий паттерн объявлен как опциональный. Конкретный origin запрашивается в рантайме через `chrome.permissions.request` — только в момент, когда пользователь нажимает «Подключить» в форме Vikunja, и только для того хоста, который он сам ввёл. Wildcard-хосты (`https://*`, `https://%2A`, `https://*.example.com`) и IPv6-литералы отклоняются до запроса: иначе один такой адрес превратил бы запрос в доступ ко всем сайтам.
+
+  Грант проверяется **на каждой операции**, а не один раз при подключении: `withVikunjaClient` в воркере вызывает `chrome.permissions.contains` перед любым сетевым вызовом, поэтому отзыв доступа в `chrome://settings` мгновенно останавливает синхронизацию. Match pattern в Chrome не может содержать порт, поэтому грант выдаётся **на хост целиком** и покрывает все его порты.
 
 ### Правила для разработки новых виджетов
 
@@ -1036,7 +1038,9 @@ Current manifest permissions include:
 Hosts:
 
 - `host_permissions: https://api.trello.com/*` — granted at install time; the Trello Todo integration talks to one fixed API address that is known at build time.
-- `optional_host_permissions: https://*/*` — **nothing is requested at install**. Vikunja is self-hosted and its address is unknown at build time, so the broad pattern is declared as optional only. The concrete origin is requested at runtime via `chrome.permissions.request`, exclusively when the user submits the Vikunja connect form, and exclusively for the host they typed. The service worker re-checks the grant with `chrome.permissions.contains` before every request and makes no network call without it.
+- `optional_host_permissions: https://*/*` — **nothing is requested at install**. Vikunja is self-hosted and its address is unknown at build time, so the broad pattern is declared as optional only. The concrete origin is requested at runtime via `chrome.permissions.request`, exclusively when the user submits the Vikunja connect form, and exclusively for the host they typed. Wildcard hosts (`https://*`, `https://%2A`, `https://*.example.com`) and IPv6 literals are rejected before the request — one of those would otherwise turn it into access to every site.
+
+  The grant is re-checked **on every operation**, not once at connect time: `withVikunjaClient` in the service worker calls `chrome.permissions.contains` before any network call, so revoking the host in `chrome://settings` stops syncing immediately. A Chrome match pattern cannot carry a port, so the grant is **per host** and covers all of its ports.
 
 ### Permission rules for new widgets
 

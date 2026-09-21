@@ -17,6 +17,16 @@ export const VIKUNJA_API_PREFIX = '/api/v1'
 export const VIKUNJA_REQUEST_TIMEOUT_MS = 20_000
 
 /**
+ * Wall-clock ceiling for one logical operation, retries and backoff waits
+ * included. `VIKUNJA_REQUEST_TIMEOUT_MS` bounds a single round trip, which is
+ * not the same thing: four slow-but-not-hung attempts plus 17 s of backoff
+ * could otherwise keep a `syncNow` spinning for over a minute, long enough for
+ * MV3 to unload the worker mid-flight. A retry that would cross this line is
+ * skipped and the op reports `network`.
+ */
+export const VIKUNJA_OP_DEADLINE_MS = 45_000
+
+/**
  * Delays before retry #1, #2 and #3 of a 5xx. A self-hosted instance
  * restarting behind a reverse proxy answers 502 for a few seconds, so the
  * first retry is deliberately quick and the last one long enough to outlive

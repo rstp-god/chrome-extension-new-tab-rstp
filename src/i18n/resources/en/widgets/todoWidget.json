@@ -152,11 +152,23 @@
         "helpLinkLabel": "Where do I get a token?",
         "helpText": "In Vikunja: Settings → API tokens. Enter your instance URL above and this turns into a direct link.",
         "submit": "Connect",
+        "continue": "Continue",
         "invalidUrl": "That doesn't look like a valid address. Include the scheme, e.g. https://tasks.example.com.",
         "httpsOnly": "Only https is supported — the token is sent with every request.",
         "permissionDenied": "Chrome must be allowed to reach this host before the widget can sync. Nothing was saved; press Connect again and accept the prompt.",
         "connectedAs": "Connected as {{user}} · Vikunja {{version}}",
         "versionWarning": "Tested with Vikunja 2.6; other versions may behave differently."
+      },
+      "board": {
+        "title": "Pick a project",
+        "description": "Choose the project whose kanban view this widget will sync with."
+      },
+      "mapping": {
+        "title": "Map buckets to statuses",
+        "description": "Each status can pull from multiple buckets. The first bucket in each row is where new tasks land."
+      },
+      "summary": {
+        "title": "Vikunja"
       }
     }
   }
