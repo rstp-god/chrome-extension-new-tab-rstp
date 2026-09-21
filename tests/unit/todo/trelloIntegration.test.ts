@@ -72,6 +72,9 @@ const pullCtx: PullContext = {
   scope: scopeFixture,
   mapping: listMappingFixture,
   knownRefs: {},
+  // Trello's lists carry the status, so the adapter ignores this — it is
+  // here because the contract requires it.
+  knownStatuses: {},
 }
 
 const pushCtx: PushContext = {

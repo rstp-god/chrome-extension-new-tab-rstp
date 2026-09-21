@@ -62,7 +62,10 @@ test('the new tab page reaches the vikunja bridge in the service worker', async 
     expect(pong).toMatchObject({ ok: true, value: { pong: true } })
     expect(typeof pong.value.at).toBe('number')
 
-    const unimplemented = await page.evaluate(() =>
+    // A networked op against a host the user never granted must be refused
+    // by the worker's permission gate — not attempted. This is the end-to-end
+    // proof that `withVikunjaClient` really runs inside the packed extension.
+    const ungranted = await page.evaluate(() =>
       chrome.runtime.sendMessage({
         type: 'vikunja',
         op: 'listProjects',
@@ -70,7 +73,7 @@ test('the new tab page reaches the vikunja bridge in the service worker', async 
       }),
     )
 
-    expect(unimplemented).toEqual({ ok: false, errorKey: 'unknown' })
+    expect(ungranted).toEqual({ ok: false, errorKey: 'permissionMissing' })
 
     const status = await page.evaluate(() => chrome.runtime.sendMessage({ type: 'GET_STATUS' }))
 

@@ -122,6 +122,16 @@ export interface PullContext {
   mapping: StatusListMapping
   /** Existing local refs keyed by local task id, used by `reconcile`. */
   knownRefs: Record<string, RemoteTaskRef>
+  /**
+   * Current local status of every task, keyed by local task id.
+   *
+   * For a backend whose containers carry the status (Trello lists, Vikunja
+   * buckets) this is redundant and ignored. It exists for the ones that do
+   * not: Vikunja in flat mode knows only `done` / not done, so `inprogress`
+   * and `struggle` live nowhere but the local store and a pull would
+   * otherwise reset every task to `input` on every sync.
+   */
+  knownStatuses: Record<string, TodoStatus>
 }
 
 export interface PushContext {

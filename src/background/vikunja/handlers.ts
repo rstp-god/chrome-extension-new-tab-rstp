@@ -14,16 +14,28 @@ import { z } from 'zod'
 import { VikunjaClient } from '@/background/vikunja/client.ts'
 import {
   normalizeVikunjaBaseUrl,
+  normalizeVikunjaTimestamp,
   vikunjaHostPattern,
   VIKUNJA_UNKNOWN_FAILURE,
 } from '@/background/vikunja/messages.ts'
 
 import type {
+  VikunjaBucketSummary,
   VikunjaConnectInfo,
+  VikunjaLabelSummary,
   VikunjaPing,
+  VikunjaProjectSummary,
+  VikunjaPullResult,
+  VikunjaPulledTask,
   VikunjaRequest,
   VikunjaResponse,
 } from '@/background/vikunja/messages.ts'
+import type {
+  VikunjaBucket,
+  VikunjaLabel,
+  VikunjaProject,
+  VikunjaTask,
+} from '@/background/vikunja/schema.ts'
 
 /**
  * The worker's own view of the credentials. The page validates too, but the
@@ -98,6 +110,169 @@ export async function withVikunjaClient<T>(
   return run(new VikunjaClient(baseUrl, token))
 }
 
+/**
+ * Ids as they arrive from the renderer. The message union types them as
+ * `number`, but a type is not a check: these values end up interpolated into
+ * a request path, so a fractional, negative or NaN id is refused here rather
+ * than being pasted into a URL.
+ */
+const vikunjaScopeSchema = z.object({
+  projectId: z.number().int().positive(),
+  viewId: z.number().int().positive(),
+})
+
+/**
+ * A column title the wizard asks us to create. Bounded because it travels
+ * into a request body, and non-empty after trimming because Vikunja would
+ * otherwise create an unnamed column the user cannot tell apart.
+ */
+const vikunjaBucketTitleSchema = z
+  .string()
+  .max(250)
+  .transform((raw) => raw.trim())
+  .refine((title) => title.length > 0)
+
+/** Vikunja's `0` means "unset" for a bucket id (recon Q5), never bucket zero. */
+function bucketIdOrNull(raw: number | undefined): number | null {
+  return raw === undefined || raw === 0 ? null : raw
+}
+
+function toProjectSummary(project: VikunjaProject): VikunjaProjectSummary {
+  // The first kanban view wins. A project can hold several, but they share
+  // the same tasks — picking one deterministically beats asking the user to
+  // choose between "Kanban" and "Kanban (copy)".
+  const kanban = project.views.find((view) => view.view_kind === 'kanban')
+  return {
+    id: project.id,
+    title: project.title,
+    kanbanViewId: kanban?.id ?? null,
+    doneBucketId: bucketIdOrNull(kanban?.done_bucket_id),
+    defaultBucketId: bucketIdOrNull(kanban?.default_bucket_id),
+    isArchived: project.is_archived,
+  }
+}
+
+function toBucketSummary(bucket: VikunjaBucket, doneBucketId: number): VikunjaBucketSummary {
+  return { id: bucket.id, title: bucket.title, isDone: bucket.id === doneBucketId }
+}
+
+function toLabelSummary(label: VikunjaLabel): VikunjaLabelSummary {
+  // `hex_color` is `""` rather than null when the user never picked one.
+  return { id: label.id, title: label.title, hexColor: label.hex_color || null }
+}
+
+/**
+ * `bucketId` comes from the bucket the task was found in, not from
+ * `task.bucket_id`: the latter is only correct inside a view response and is
+ * `0` everywhere else (recon Q3), so trusting the field instead of the
+ * position would silently unmap every task.
+ */
+function toPulledTask(task: VikunjaTask, bucketId: number): VikunjaPulledTask {
+  return {
+    id: task.id,
+    identifier: task.identifier,
+    title: task.title,
+    description: task.description,
+    done: task.done,
+    doneAt: task.done_at,
+    bucketId,
+    created: task.created,
+    // Normalised here, at the single point every pulled task passes through,
+    // so no consumer can forget and compare nanoseconds with seconds.
+    updated: normalizeVikunjaTimestamp(task.updated),
+    labelIds: task.labels.map((label) => label.id),
+  }
+}
+
+/** Every project the token can see, trimmed to what the scope picker needs. */
+export function handleListProjects(
+  req: Extract<VikunjaRequest, { op: 'listProjects' }>,
+): Promise<VikunjaResponse<VikunjaProjectSummary[]>> {
+  return withVikunjaClient(req.cfg, async (client) => {
+    const out = await client.getProjects()
+    if (!out.ok) return out
+    return { ok: true, value: out.value.map(toProjectSummary) }
+  })
+}
+
+/**
+ * The buckets of one view, each flagged with whether it is the view's done
+ * bucket. Two requests: `GET /views/:id` carries `done_bucket_id`, the bucket
+ * list does not repeat it.
+ */
+export function handleListBuckets(
+  req: Extract<VikunjaRequest, { op: 'listBuckets' }>,
+): Promise<VikunjaResponse<VikunjaBucketSummary[]>> {
+  const scope = vikunjaScopeSchema.safeParse(req)
+  if (!scope.success) return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+  const { projectId, viewId } = scope.data
+
+  return withVikunjaClient(req.cfg, async (client) => {
+    const view = await client.getView(projectId, viewId)
+    if (!view.ok) return view
+
+    const buckets = await client.getBuckets(projectId, viewId)
+    if (!buckets.ok) return buckets
+
+    return {
+      ok: true,
+      value: buckets.value.map((bucket) => toBucketSummary(bucket, view.value.done_bucket_id)),
+    }
+  })
+}
+
+/** Labels are instance-wide, so this op carries no scope. */
+export function handleListLabels(
+  req: Extract<VikunjaRequest, { op: 'listLabels' }>,
+): Promise<VikunjaResponse<VikunjaLabelSummary[]>> {
+  return withVikunjaClient(req.cfg, async (client) => {
+    const out = await client.getLabels()
+    if (!out.ok) return out
+    return { ok: true, value: out.value.map(toLabelSummary) }
+  })
+}
+
+/** Creates one kanban column, for the wizard's "build the missing ones" step. */
+export function handleCreateBucket(
+  req: Extract<VikunjaRequest, { op: 'createBucket' }>,
+): Promise<VikunjaResponse<VikunjaBucketSummary>> {
+  const scope = vikunjaScopeSchema.safeParse(req)
+  const title = vikunjaBucketTitleSchema.safeParse(req.title)
+  if (!scope.success || !title.success) return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+  const { projectId, viewId } = scope.data
+
+  return withVikunjaClient(req.cfg, async (client) => {
+    const out = await client.createBucket(projectId, viewId, title.data)
+    if (!out.ok) return out
+    // A freshly created bucket is never the done bucket: the view's
+    // `done_bucket_id` still points at whatever it pointed at before.
+    return { ok: true, value: { id: out.value.id, title: out.value.title, isDone: false } }
+  })
+}
+
+/**
+ * The full pull: every bucket of the view with every task in it, flattened
+ * into one list. Done tasks come along for free (recon Q6) — the done bucket
+ * is just another bucket in the response.
+ */
+export function handlePull(
+  req: Extract<VikunjaRequest, { op: 'pull' }>,
+): Promise<VikunjaResponse<VikunjaPullResult>> {
+  const scope = vikunjaScopeSchema.safeParse(req)
+  if (!scope.success) return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+  const { projectId, viewId } = scope.data
+
+  return withVikunjaClient(req.cfg, async (client) => {
+    const out = await client.getViewTasks(projectId, viewId)
+    if (!out.ok) return out
+
+    const tasks = out.value.flatMap((bucket) =>
+      (bucket.tasks ?? []).map((task) => toPulledTask(task, bucket.id)),
+    )
+    return { ok: true, value: { tasks, pulledAt: Date.now() } }
+  })
+}
+
 /** Validates credentials against a live instance. */
 export function handleConnect(
   req: Extract<VikunjaRequest, { op: 'connect' }>,
@@ -116,8 +291,9 @@ export function handleConnect(
 }
 
 /**
- * Dispatcher. `ping` and `connect` are wired up; the remaining ops answer
- * `unknown` until tasks 5–7 implement them, rather than pretending to work.
+ * Dispatcher. Everything the read path needs is wired up; the write ops
+ * (`create` / `update` / `moveToBucket` / `delete` / `setLabels`) answer
+ * `unknown` until task 6 implements them, rather than pretending to work.
  */
 export async function handleVikunjaRequest(req: VikunjaRequest): Promise<VikunjaResponse<unknown>> {
   switch (req.op) {
@@ -128,6 +304,21 @@ export async function handleVikunjaRequest(req: VikunjaRequest): Promise<Vikunja
 
     case 'connect':
       return handleConnect(req)
+
+    case 'listProjects':
+      return handleListProjects(req)
+
+    case 'listBuckets':
+      return handleListBuckets(req)
+
+    case 'listLabels':
+      return handleListLabels(req)
+
+    case 'createBucket':
+      return handleCreateBucket(req)
+
+    case 'pull':
+      return handlePull(req)
 
     default:
       return VIKUNJA_UNKNOWN_FAILURE

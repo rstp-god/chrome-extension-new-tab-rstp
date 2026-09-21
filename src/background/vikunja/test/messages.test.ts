@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { normalizeVikunjaBaseUrl, vikunjaHostPattern } from '@/background/vikunja/messages.ts'
+import {
+  normalizeVikunjaBaseUrl,
+  normalizeVikunjaTimestamp,
+  vikunjaHostPattern,
+} from '@/background/vikunja/messages.ts'
 
 /**
  * These two functions decide which host the extension may be granted and
@@ -114,5 +118,31 @@ describe('vikunjaHostPattern', () => {
       if (pattern === null) continue
       expect(pattern.slice('https://'.length, -'/*'.length)).not.toContain('*')
     }
+  })
+})
+
+describe('normalizeVikunjaTimestamp', () => {
+  it('drops the sub-second part of a mutation response so it can match a GET', () => {
+    // Recon Q16: create/move answer with nanoseconds, the next GET with
+    // seconds. Both sides have to land on the same string or every other
+    // edit reports a phantom conflict.
+    expect(normalizeVikunjaTimestamp('2026-09-20T17:58:54.988820952+03:00')).toBe(
+      normalizeVikunjaTimestamp('2026-09-20T17:58:54+03:00'),
+    )
+  })
+
+  it('answers a UTC ISO string with whole seconds', () => {
+    expect(normalizeVikunjaTimestamp('2026-09-20T17:58:54.988820952+03:00')).toBe(
+      '2026-09-20T14:58:54.000Z',
+    )
+  })
+
+  it('is idempotent', () => {
+    const once = normalizeVikunjaTimestamp('2026-09-20T17:58:54.988820952+03:00')
+    expect(normalizeVikunjaTimestamp(once)).toBe(once)
+  })
+
+  it('leaves a string it cannot parse alone rather than inventing the epoch', () => {
+    expect(normalizeVikunjaTimestamp('not a date')).toBe('not a date')
   })
 })

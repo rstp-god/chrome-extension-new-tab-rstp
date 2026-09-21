@@ -366,6 +366,21 @@ export interface TodoIntegration {
 
 `RemoteScope` — это `Record<string, string | number>`, непрозрачный для стора адрес вашего списка задач: у Trello `{ boardId }`, у Vikunja `{ projectId, viewId }`. `listScopes` возвращает `RemoteScopeOption[]` (`{ scope, name }`) для шага выбора, `listContainers` — `RemoteContainer[]` (`{ id, name, isTerminal? }`), колонки/корзины внутри scope; `isTerminal` помечает собственную «готово»-колонку сервиса (у Trello такой нет — флаг не ставится). Выбранный scope приезжает в адаптер в `PullContext.scope` / `PushContext.scope`.
 
+`PullContext` — это то, что стор знает о задачах на момент пулла:
+
+```ts
+export interface PullContext {
+  scope: RemoteScope
+  mapping: StatusListMapping
+  /** Уже известные remoteRef, ключ — локальный id задачи. */
+  knownRefs: Record<string, RemoteTaskRef>
+  /** Текущий локальный статус каждой задачи, ключ — локальный id. */
+  knownStatuses: Record<string, TodoStatus>
+}
+```
+
+`knownStatuses` нужен только бэкендам, которые физически не умеют хранить все пять статусов (Vikunja в плоском режиме знает лишь `done` / не `done`): адаптер сохраняет локальный промежуточный статус вместо того, чтобы сбрасывать задачу в `input` на каждом пулле. Если ваши колонки сами несут статус — поле можно игнорировать, как это делает Trello.
+
 Все методы возвращают `IntegrationOutcome<T>` — дискриминированный union `{ ok: true, value }` либо `{ ok: false, errorKey }`. Бросать исключения не нужно — клиент должен ловить сетевые ошибки и переводить их в `IntegrationErrorKey` (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `conflict`, `permissionMissing`, `unknown`).
 
 Класс-имплементация (Trello как образец):
@@ -901,6 +916,21 @@ export interface TodoIntegration {
 ```
 
 `RemoteScope` is a `Record<string, string | number>` — an address for your task list that the store treats as opaque: `{ boardId }` for Trello, `{ projectId, viewId }` for Vikunja. `listScopes` returns `RemoteScopeOption[]` (`{ scope, name }`) for the picker step, `listContainers` returns `RemoteContainer[]` (`{ id, name, isTerminal? }`) — the columns/buckets inside a scope, where `isTerminal` marks the backend's own "done" column (Trello has none, so it never sets the flag). The chosen scope reaches the adapter as `PullContext.scope` / `PushContext.scope`.
+
+`PullContext` is what the store knows about its tasks at pull time:
+
+```ts
+export interface PullContext {
+  scope: RemoteScope
+  mapping: StatusListMapping
+  /** Existing remote refs, keyed by local task id. */
+  knownRefs: Record<string, RemoteTaskRef>
+  /** Current local status of each task, keyed by local task id. */
+  knownStatuses: Record<string, TodoStatus>
+}
+```
+
+`knownStatuses` only matters for backends that cannot store all five statuses remotely (Vikunja in flat mode knows `done` / not done and nothing else): the adapter keeps the local intermediate status instead of resetting the task to `input` on every pull. If your columns carry the status themselves, ignore the field — Trello does.
 
 Every method returns `IntegrationOutcome<T>` — a discriminated union of `{ ok: true, value }` or `{ ok: false, errorKey }`. Don't throw — your client should catch network failures and translate them to one of the `IntegrationErrorKey` literals (`authInvalid`, `network`, `rateLimited`, `notFound`, `mappingIncomplete`, `pushFailed`, `pullFailed`, `conflict`, `permissionMissing`, `unknown`).
 

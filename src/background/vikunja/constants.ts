@@ -38,3 +38,23 @@ export const VIKUNJA_OP_DEADLINE_MS = 45_000
  * fetch is usually DNS or a dead tunnel — neither gets better by waiting.
  */
 export const VIKUNJA_BACKOFF_MS = [1000, 4000, 12_000] as const
+
+/**
+ * `GET /info` reports `max_items_per_page: 50` (recon Q15), and asking for
+ * more is silently clamped to it — so 50 is both the ceiling and the only
+ * page size worth sending.
+ */
+export const VIKUNJA_PAGE_SIZE = 50
+
+/**
+ * Hard ceiling on how many pages one paged read may fetch.
+ *
+ * The kanban view endpoint paginates **per bucket** and its
+ * `x-pagination-total-pages` header counts buckets rather than tasks (recon
+ * Q15), so the only honest stop condition is "no bucket returned a full
+ * page". That condition depends on the instance answering consistently; a
+ * server that keeps handing back 50 tasks per bucket forever would otherwise
+ * spin the worker until MV3 unloads it. 40 pages is 2000 tasks per bucket —
+ * far past any real board, and still a bounded number of round trips.
+ */
+export const VIKUNJA_MAX_PULL_PAGES = 40

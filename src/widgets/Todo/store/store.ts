@@ -471,14 +471,19 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
         // Phase 2: pull authoritative state and reconcile.
         const knownRefs: Record<string, RemoteTaskRef> = {}
+        // Statuses go along for backends that cannot store every status
+        // remotely (Vikunja in flat mode) — see `PullContext.knownStatuses`.
+        const knownStatuses: Record<string, TodoStatus> = {}
         for (const task of get().tasks) {
           if (task.remoteRef) knownRefs[task.id] = task.remoteRef
+          knownStatuses[task.id] = task.status
         }
 
         const pull = await adapter.pullTasks({
           scope,
           mapping: integration.mapping,
           knownRefs,
+          knownStatuses,
         })
         if (!pull.ok) {
           set({ loading: false, errorKey: pull.errorKey })

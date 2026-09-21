@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VikunjaClient } from '@/background/vikunja/client.ts'
 import {
   VIKUNJA_BACKOFF_MS,
+  VIKUNJA_MAX_PULL_PAGES,
   VIKUNJA_OP_DEADLINE_MS,
   VIKUNJA_REQUEST_TIMEOUT_MS,
 } from '@/background/vikunja/constants.ts'
@@ -284,5 +285,255 @@ describe('5xx backoff', () => {
     expect(logged).toContain('500')
     expect(logged).not.toContain(TOKEN)
     expect(logged).not.toContain('vikunja.example')
+  })
+})
+
+// ---------- read path (task 5) ----------
+
+const VIEW_BASE = 'https://vikunja.example/api/v1/projects/1/views/4'
+
+function kanbanView(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 4,
+    title: 'Kanban',
+    view_kind: 'kanban',
+    done_bucket_id: 3,
+    default_bucket_id: 1,
+    ...overrides,
+  }
+}
+
+function project(id: number, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    title: `Project ${id}`,
+    identifier: '',
+    is_archived: false,
+    views: [kanbanView()],
+    ...overrides,
+  }
+}
+
+function bucket(id: number, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    title: `Bucket ${id}`,
+    project_view_id: 4,
+    position: id * 100,
+    limit: 0,
+    ...overrides,
+  }
+}
+
+function task(id: number, overrides: Record<string, unknown> = {}) {
+  return {
+    id,
+    identifier: `#${id}`,
+    index: id,
+    project_id: 1,
+    bucket_id: 1,
+    title: `Task ${id}`,
+    description: '',
+    done: false,
+    done_at: '0001-01-01T00:00:00Z',
+    due_date: '0001-01-01T00:00:00Z',
+    start_date: '0001-01-01T00:00:00Z',
+    end_date: '0001-01-01T00:00:00Z',
+    priority: 0,
+    percent_done: 0,
+    created: '2026-09-20T17:00:00+03:00',
+    updated: '2026-09-20T17:00:00+03:00',
+    labels: null,
+    assignees: null,
+    reminders: null,
+    repeat_after: 0,
+    repeat_mode: 0,
+    hex_color: '',
+    position: id * 100,
+    is_favorite: false,
+    related_tasks: null,
+    attachments: null,
+    cover_image_attachment_id: 0,
+    ...overrides,
+  }
+}
+
+/** A page of buckets with tasks, as the kanban view endpoint answers. */
+function pagedResponse(body: unknown, totalPages?: number): Response {
+  const headers: Record<string, string> = { 'content-type': 'application/json' }
+  if (totalPages !== undefined) headers['x-pagination-total-pages'] = String(totalPages)
+  return new Response(JSON.stringify(body), { status: 200, headers })
+}
+
+describe('paged collections', () => {
+  it('follows x-pagination-total-pages across every page of /projects', async () => {
+    const fetchMock = stubFetch(async (url) =>
+      url.includes('page=2') ? pagedResponse([project(2)], 2) : pagedResponse([project(1)], 2),
+    )
+
+    const out = await client().getProjects()
+
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value.map((p) => p.id)).toEqual([1, 2])
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'https://vikunja.example/api/v1/projects?per_page=50&page=1',
+      'https://vikunja.example/api/v1/projects?per_page=50&page=2',
+    ])
+  })
+
+  it('stops after one page when the header says there is only one', async () => {
+    const fetchMock = stubFetch(async () => pagedResponse([project(1)], 1))
+
+    await expect(client().getProjects()).resolves.toMatchObject({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('falls back to "stop on a short page" when the header is missing', async () => {
+    const fetchMock = stubFetch(async () => pagedResponse([project(1)]))
+
+    await expect(client().getProjects()).resolves.toMatchObject({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('pages /labels the same way', async () => {
+    const label = { id: 1, title: 'energy:1', hex_color: 'efbdeb' }
+    const fetchMock = stubFetch(async () => pagedResponse([label], 1))
+
+    await expect(client().getLabels()).resolves.toEqual({ ok: true, value: [label] })
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'https://vikunja.example/api/v1/labels?per_page=50&page=1',
+    )
+  })
+
+  it('propagates a failure from any page and stops paging', async () => {
+    const fetchMock = stubFetch(async (url) =>
+      url.includes('page=2') ? jsonResponse(401, { code: 11 }) : pagedResponse([project(1)], 3),
+    )
+
+    await expect(client().getProjects()).resolves.toEqual({ ok: false, errorKey: 'authInvalid' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('never exceeds the page cap', async () => {
+    // A server that always claims one more page than it delivered.
+    const fetchMock = stubFetch(async () => pagedResponse([project(1)], 9999))
+
+    await expect(client().getProjects()).resolves.toMatchObject({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(VIKUNJA_MAX_PULL_PAGES)
+  })
+})
+
+describe('view endpoints', () => {
+  it('reads one view', async () => {
+    const fetchMock = stubStatus(200, kanbanView())
+
+    await expect(client().getView(1, 4)).resolves.toEqual({ ok: true, value: kanbanView() })
+    expect(fetchMock.mock.calls[0][0]).toBe(VIEW_BASE)
+  })
+
+  it('reads the buckets of a view', async () => {
+    const fetchMock = stubStatus(200, [bucket(1), bucket(3)])
+
+    const out = await client().getBuckets(1, 4)
+
+    expect(out).toMatchObject({ ok: true })
+    expect(fetchMock.mock.calls[0][0]).toBe(`${VIEW_BASE}/buckets`)
+  })
+
+  it('creates a bucket with PUT and a JSON body', async () => {
+    const fetchMock = stubStatus(201, bucket(25, { title: '__probe__' }))
+
+    await expect(client().createBucket(1, 4, '__probe__')).resolves.toMatchObject({
+      ok: true,
+      value: { id: 25, title: '__probe__' },
+    })
+
+    expect(fetchMock.mock.calls[0][0]).toBe(`${VIEW_BASE}/buckets`)
+    const init = initOf(fetchMock)
+    expect(init.method).toBe('PUT')
+    expect(init.body).toBe(JSON.stringify({ title: '__probe__' }))
+    expect(init.headers).toEqual({
+      Authorization: `Bearer ${TOKEN}`,
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    })
+    // The security options are not per-verb.
+    expect(init.redirect).toBe('error')
+    expect(init.credentials).toBe('omit')
+  })
+})
+
+describe('getViewTasks', () => {
+  it('returns every bucket with its tasks filled, empty ones included', async () => {
+    const fetchMock = stubFetch(async () =>
+      pagedResponse([{ ...bucket(1), tasks: [task(4)] }, bucket(3)], 2),
+    )
+
+    const out = await client().getViewTasks(1, 4)
+
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value.map((b) => [b.id, b.tasks?.length])).toEqual([
+      [1, 1],
+      [3, 0],
+    ])
+    // `x-pagination-total-pages: 2` counts buckets, not pages — a second
+    // request would be wrong here (recon Q15).
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toBe(`${VIEW_BASE}/tasks?per_page=50&page=1`)
+  })
+
+  it('keeps paging while any bucket returned a full page, and merges per bucket', async () => {
+    const firstPage = Array.from({ length: 50 }, (_unused, index) => task(index + 1))
+    const fetchMock = stubFetch(async (url) =>
+      url.includes('page=2')
+        ? pagedResponse([{ ...bucket(1), tasks: [task(51)] }, bucket(3)])
+        : pagedResponse([{ ...bucket(1), tasks: firstPage }, bucket(3)]),
+    )
+
+    const out = await client().getViewTasks(1, 4)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value[0].tasks).toHaveLength(51)
+    expect(out.value[0].tasks?.at(-1)?.id).toBe(51)
+  })
+
+  it('never lets a repeated task through twice', async () => {
+    const firstPage = Array.from({ length: 50 }, (_unused, index) => task(index + 1))
+    const fetchMock = stubFetch(async (url) =>
+      url.includes('page=2')
+        ? pagedResponse([{ ...bucket(1), tasks: [task(50), task(51)] }])
+        : pagedResponse([{ ...bucket(1), tasks: firstPage }]),
+    )
+
+    const out = await client().getViewTasks(1, 4)
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value[0].tasks?.map((t) => t.id)).toHaveLength(51)
+  })
+
+  it('stops at the page cap when the instance keeps answering full pages', async () => {
+    const fullPage = Array.from({ length: 50 }, (_unused, index) => task(index + 1))
+    const fetchMock = stubFetch(async () => pagedResponse([{ ...bucket(1), tasks: fullPage }]))
+
+    await expect(client().getViewTasks(1, 4)).resolves.toMatchObject({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(VIKUNJA_MAX_PULL_PAGES)
+  })
+
+  it('propagates a failure mid-pull', async () => {
+    const fullPage = Array.from({ length: 50 }, (_unused, index) => task(index + 1))
+    const fetchMock = stubFetch(async (url) =>
+      url.includes('page=2')
+        ? jsonResponse(404, { message: 'gone' })
+        : pagedResponse([{ ...bucket(1), tasks: fullPage }]),
+    )
+
+    await expect(client().getViewTasks(1, 4)).resolves.toEqual({ ok: false, errorKey: 'notFound' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 })

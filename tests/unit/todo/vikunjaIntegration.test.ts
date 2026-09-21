@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { sendVikunjaMessage } from '@/widgets/Todo/integrations/vikunja/bridge.ts'
 import { descriptor, VikunjaIntegration } from '@/widgets/Todo/integrations/vikunja/index.ts'
 
-import type { TodoIntegration } from '@/widgets/Todo/integrations/types.ts'
+import type { VikunjaProjectSummary, VikunjaPulledTask } from '@/background/vikunja/messages.ts'
+import type { StatusListMapping, TodoIntegration } from '@/widgets/Todo/integrations/types.ts'
 import type { VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 
 vi.mock('@/widgets/Todo/integrations/vikunja/bridge.ts', () => ({
@@ -18,6 +19,44 @@ const CONFIG: VikunjaConfig = {
   projectId: null,
   viewId: null,
   kanbanMapping: true,
+}
+
+const SCOPE = { projectId: 1, viewId: 4 }
+
+const MAPPING: StatusListMapping = {
+  input: ['1'],
+  inprogress: ['2'],
+  struggle: ['5'],
+  completed: ['3'],
+  deleted: ['6'],
+}
+
+function summaryProject(overrides: Partial<VikunjaProjectSummary> = {}): VikunjaProjectSummary {
+  return {
+    id: 1,
+    title: 'Inbox',
+    kanbanViewId: 4,
+    doneBucketId: 3,
+    defaultBucketId: 1,
+    isArchived: false,
+    ...overrides,
+  }
+}
+
+function pulledTask(overrides: Partial<VikunjaPulledTask> = {}): VikunjaPulledTask {
+  return {
+    id: 4,
+    identifier: '#3',
+    title: 'Probe',
+    description: '',
+    done: false,
+    doneAt: null,
+    bucketId: 1,
+    created: '2026-09-20T17:00:00+03:00',
+    updated: '2026-09-20T17:30:00+03:00',
+    labelIds: [],
+    ...overrides,
+  }
 }
 
 beforeEach(() => {
@@ -68,39 +107,250 @@ describe('VikunjaIntegration.connect', () => {
   })
 })
 
-describe('VikunjaIntegration stubs (tasks 5–6)', () => {
-  // Typed as the interface on purpose: the stubs declare no parameters, and
-  // this is what proves the store can still call them with the full argument
-  // list the contract specifies.
+describe('VikunjaIntegration.pushTask (task 6)', () => {
   const integration: TodoIntegration = new VikunjaIntegration(CONFIG)
-  const scope = { projectId: 1, viewId: 4 }
 
-  it('answers unknown for every op that is not implemented yet', async () => {
-    const results = await Promise.all([
-      integration.listScopes(),
-      integration.listContainers(scope),
-      integration.listProjects(scope),
-      integration.pullTasks({ scope, mapping: {} as never, knownRefs: {} }),
+  it('is still a stub and never reaches the bridge', async () => {
+    await expect(
       integration.pushTask(
         {} as never,
         { kind: 'create' },
         {
-          scope,
-          mapping: {} as never,
+          scope: SCOPE,
+          mapping: MAPPING,
           knownRef: null,
         },
       ),
-    ])
-
-    for (const result of results) {
-      expect(result).toEqual({ ok: false, errorKey: 'unknown' })
-    }
+    ).resolves.toEqual({ ok: false, errorKey: 'unknown' })
     expect(bridge).not.toHaveBeenCalled()
   })
 
   it('disconnects without touching the bridge', () => {
     expect(() => integration.disconnect()).not.toThrow()
     expect(bridge).not.toHaveBeenCalled()
+  })
+})
+
+describe('VikunjaIntegration.listScopes', () => {
+  it('offers only projects that have a kanban view and are not archived', async () => {
+    bridge.mockResolvedValue({
+      ok: true,
+      value: [
+        summaryProject({ id: 1, title: 'Inbox' }),
+        summaryProject({ id: 2, title: 'Archived', isArchived: true }),
+        summaryProject({ id: 3, title: 'List only', kanbanViewId: null }),
+      ],
+    })
+
+    await expect(new VikunjaIntegration(CONFIG).listScopes()).resolves.toEqual({
+      ok: true,
+      value: [{ scope: { projectId: 1, viewId: 4 }, name: 'Inbox' }],
+    })
+    expect(bridge).toHaveBeenCalledWith({
+      type: 'vikunja',
+      op: 'listProjects',
+      cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
+    })
+  })
+
+  it('rejects a payload that is not a project list', async () => {
+    bridge.mockResolvedValue({ ok: true, value: [{ id: 1 }] })
+
+    await expect(new VikunjaIntegration(CONFIG).listScopes()).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+  })
+
+  it('passes a bridge failure through', async () => {
+    bridge.mockResolvedValue({ ok: false, errorKey: 'permissionMissing' })
+
+    await expect(new VikunjaIntegration(CONFIG).listScopes()).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+  })
+})
+
+describe('VikunjaIntegration.listContainers', () => {
+  it('marks the done bucket as terminal and leaves the flag off the others', async () => {
+    bridge.mockResolvedValue({
+      ok: true,
+      value: [
+        { id: 1, title: 'To-Do', isDone: false },
+        { id: 3, title: 'Done', isDone: true },
+      ],
+    })
+
+    const out = await new VikunjaIntegration(CONFIG).listContainers(SCOPE)
+
+    expect(out).toEqual({
+      ok: true,
+      value: [
+        { id: '1', name: 'To-Do' },
+        { id: '3', name: 'Done', isTerminal: true },
+      ],
+    })
+    // Absent, not `false`: the persisted shape has to stay identical to what
+    // the Trello-only build wrote.
+    if (!out.ok) return
+    expect('isTerminal' in out.value[0]).toBe(false)
+    expect(bridge).toHaveBeenCalledWith({
+      type: 'vikunja',
+      op: 'listBuckets',
+      cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
+      projectId: 1,
+      viewId: 4,
+    })
+  })
+
+  it.each([
+    ['a half scope', { projectId: 1 }],
+    ['an unparseable half', { projectId: 1, viewId: 'kanban' }],
+  ])('answers notFound for %s without asking the bridge', async (_label, scope) => {
+    await expect(new VikunjaIntegration(CONFIG).listContainers(scope)).resolves.toEqual({
+      ok: false,
+      errorKey: 'notFound',
+    })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+})
+
+describe('VikunjaIntegration.listProjects', () => {
+  it('drops the reserved labels and paints the rest', async () => {
+    bridge.mockResolvedValue({
+      ok: true,
+      value: [
+        { id: 1, title: 'energy:1', hexColor: 'efbdeb' },
+        { id: 2, title: 'mood:low', hexColor: 'efbdeb' },
+        { id: 3, title: 'work', hexColor: '0ead69' },
+      ],
+    })
+
+    // Through the interface: labels are instance-wide, so the adapter
+    // declares no scope parameter, but the store still passes one.
+    const adapter: TodoIntegration = new VikunjaIntegration(CONFIG)
+    const out = await adapter.listProjects(SCOPE)
+
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value).toEqual([
+      { id: '3', name: 'work', pillClassName: expect.stringContaining('emerald') },
+    ])
+  })
+})
+
+describe('VikunjaIntegration.pullTasks', () => {
+  const ctx = {
+    scope: SCOPE,
+    mapping: MAPPING,
+    knownRefs: {},
+    knownStatuses: {},
+  }
+
+  /** Answers `listLabels` first, then `pull` — the order the adapter asks in. */
+  function stubPull(
+    tasks: unknown[],
+    labels: unknown[] = [{ id: 3, title: 'work', hexColor: null }],
+  ) {
+    bridge.mockImplementation(async (req) =>
+      req.op === 'listLabels'
+        ? { ok: true, value: labels }
+        : { ok: true, value: { tasks, pulledAt: 1 } },
+    )
+  }
+
+  it('maps every task and reports its ref', async () => {
+    stubPull([pulledTask({ bucketId: 2, labelIds: [1, 3] })])
+
+    const out = await new VikunjaIntegration(CONFIG).pullTasks(ctx)
+
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value.tasks).toHaveLength(1)
+    expect(out.value.tasks[0]).toMatchObject({
+      id: 'vikunja:4',
+      title: 'Probe',
+      status: 'inprogress',
+      // Label 1 is reserved, so the project is the non-reserved one.
+      projectId: '3',
+    })
+    expect(out.value.refs['vikunja:4']).toMatchObject({ taskId: 4 })
+  })
+
+  it('keeps a locally-known intermediate status in flat mode', async () => {
+    stubPull([pulledTask({ bucketId: 1 })])
+
+    const out = await new VikunjaIntegration({ ...CONFIG, kanbanMapping: false }).pullTasks({
+      ...ctx,
+      knownStatuses: { 'vikunja:4': 'struggle' },
+    })
+
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value.tasks[0].status).toBe('struggle')
+  })
+
+  it('refuses to guess the projects when the labels cannot be read', async () => {
+    // Defaulting to "every label is a project" would stamp a reserved
+    // `energy:` label onto tasks — the one thing the reserved list prevents.
+    bridge.mockImplementation(async (req) =>
+      req.op === 'listLabels'
+        ? { ok: false, errorKey: 'rateLimited' }
+        : { ok: true, value: { tasks: [], pulledAt: 1 } },
+    )
+
+    await expect(new VikunjaIntegration(CONFIG).pullTasks(ctx)).resolves.toEqual({
+      ok: false,
+      errorKey: 'rateLimited',
+    })
+    expect(bridge).not.toHaveBeenCalledWith(expect.objectContaining({ op: 'pull' }))
+  })
+
+  it('rejects a pull payload that does not match the schema', async () => {
+    bridge.mockImplementation(async (req) =>
+      req.op === 'listLabels' ? { ok: true, value: [] } : { ok: true, value: { tasks: [{}] } },
+    )
+
+    await expect(new VikunjaIntegration(CONFIG).pullTasks(ctx)).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+  })
+
+  it('answers notFound for a scope that addresses nothing', async () => {
+    await expect(
+      new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, scope: { projectId: 1 } }),
+    ).resolves.toEqual({ ok: false, errorKey: 'notFound' })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+})
+
+describe('VikunjaIntegration.createContainer', () => {
+  it('creates a bucket and returns it as a non-terminal container', async () => {
+    bridge.mockResolvedValue({ ok: true, value: { id: 25, title: 'Struggle', isDone: false } })
+
+    await expect(
+      new VikunjaIntegration(CONFIG).createContainer(SCOPE, 'Struggle'),
+    ).resolves.toEqual({ ok: true, value: { id: '25', name: 'Struggle' } })
+
+    expect(bridge).toHaveBeenCalledWith({
+      type: 'vikunja',
+      op: 'createBucket',
+      cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
+      projectId: 1,
+      viewId: 4,
+      title: 'Struggle',
+    })
+  })
+
+  it('passes a failure through', async () => {
+    bridge.mockResolvedValue({ ok: false, errorKey: 'authInvalid' })
+
+    await expect(new VikunjaIntegration(CONFIG).createContainer(SCOPE, 'Trash')).resolves.toEqual({
+      ok: false,
+      errorKey: 'authInvalid',
+    })
   })
 })
 

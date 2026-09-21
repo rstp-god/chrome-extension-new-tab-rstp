@@ -134,6 +134,96 @@ export interface VikunjaConnectInfo {
 }
 
 /**
+ * A project the credentials can reach, trimmed to what the scope picker
+ * needs. Deliberately not the raw `GET /projects` record: the bridge is a
+ * `structuredClone` boundary, and shipping the full object across it would
+ * hand the widget every field of the user's instance to re-validate.
+ *
+ * `kanbanViewId` is `null` when the project has no kanban view — such a
+ * project cannot be mapped to buckets and the adapter skips it. The two
+ * bucket ids come from that same view (recon Q5/§2.7: `views[]` is embedded
+ * in `GET /projects`, so finding them costs no extra request) and are `null`
+ * rather than Vikunja's `0` sentinel.
+ */
+export interface VikunjaProjectSummary {
+  id: number
+  title: string
+  kanbanViewId: number | null
+  doneBucketId: number | null
+  defaultBucketId: number | null
+  isArchived: boolean
+}
+
+/**
+ * One bucket (kanban column) of the chosen view. `isDone` marks the view's
+ * own done bucket — moving a task there flips `done` server-side (recon Q7),
+ * which is why the mapping wizard treats it as the only sensible home for
+ * `completed`.
+ */
+export interface VikunjaBucketSummary {
+  id: number
+  title: string
+  isDone: boolean
+}
+
+/** A label, which the Todo widget surfaces as a "project". */
+export interface VikunjaLabelSummary {
+  id: number
+  title: string
+  /** `hex_color` without a leading `#`, or `null` when the label has none. */
+  hexColor: string | null
+}
+
+/**
+ * One task as the pull hands it over.
+ *
+ * `bucketId` is the bucket the task was *found in*, not the task's own
+ * `bucket_id` field — outside a view response that field is `0` (recon Q3).
+ *
+ * `updated` is already normalised to whole seconds (see
+ * `normalizeVikunjaTimestamp`), so it can be compared with the etag stored on
+ * the local task without a false conflict on every other edit.
+ */
+export interface VikunjaPulledTask {
+  id: number
+  identifier: string
+  title: string
+  /** Rich text: Vikunja stores HTML here. */
+  description: string
+  done: boolean
+  /** `null` when unset — the `0001-01-01` sentinel never reaches this side. */
+  doneAt: string | null
+  bucketId: number
+  created: string
+  updated: string
+  labelIds: number[]
+}
+
+export interface VikunjaPullResult {
+  tasks: VikunjaPulledTask[]
+  /** When the worker finished the read, for the widget's "last synced" line. */
+  pulledAt: number
+}
+
+/**
+ * Truncates an API timestamp to whole seconds.
+ *
+ * Mutation responses carry nanoseconds (`…:54.988820952+03:00`) while the
+ * next `GET` answers seconds (`…:54+03:00`) — recon Q16. An etag taken from a
+ * mutation would therefore never match the following read and would report a
+ * conflict on every second edit (recon §2.3). Normalising both sides through
+ * this one function is what keeps the comparison meaningful.
+ *
+ * An unparseable string is returned unchanged: it is a schema problem, not a
+ * precision problem, and silently turning it into the epoch would be worse.
+ */
+export function normalizeVikunjaTimestamp(iso: string): string {
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return iso
+  return new Date(Math.floor(parsed / 1000) * 1000).toISOString()
+}
+
+/**
  * The one failure the bridge itself can produce (as opposed to an op
  * reporting a backend error). Frozen because both sides share this single
  * instance: the worker sends it, the client resolves with it.

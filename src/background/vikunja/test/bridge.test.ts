@@ -76,10 +76,14 @@ describe('handleVikunjaRequest', () => {
   })
 
   it('answers a known but not-yet-implemented op with unknown', async () => {
+    // The write ops land in task 6; until then they fall through to the
+    // dispatcher's default rather than pretending to work.
     const response = await handleVikunjaRequest({
       type: 'vikunja',
-      op: 'listProjects',
+      op: 'create',
       cfg: { baseUrl: 'https://vikunja.example', token: 'super-secret' },
+      projectId: 1,
+      payload: { title: 'probe' },
     })
 
     expect(response).toEqual({ ok: false, errorKey: 'unknown' })

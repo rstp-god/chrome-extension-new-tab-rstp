@@ -30,3 +30,30 @@ const TESTED_VERSION_RE = /^v?2\.6(?:\.\d+)?$/
 export function isTestedVikunjaVersion(version: string): boolean {
   return TESTED_VERSION_RE.test(version.trim())
 }
+
+/**
+ * Label prefixes the widget must pretend not to see.
+ *
+ * The instance this integration was built against already uses `energy:*` and
+ * `mood:*` labels for a different feature of the user's own workflow (recon
+ * Q13). Surfacing them as Todo "projects" would bury the real ones, and task
+ * 6 must never strip them off a task it edits — a sync that quietly deletes
+ * someone's labels is worse than no sync.
+ */
+export const VIKUNJA_RESERVED_LABEL_PREFIXES = ['energy:', 'mood:'] as const
+
+/**
+ * The two columns the mapping wizard offers to create on a board that has
+ * none, keyed by the status they would fill. Values are i18n keys inside the
+ * `todoWidget` namespace, not literals: the bucket is created in the user's
+ * own language.
+ *
+ * Only `struggle` and `deleted` are here. `input` / `inprogress` /
+ * `completed` map onto columns every kanban board already has (and
+ * `completed` must be the view's own done bucket, which the extension cannot
+ * conjure), so there is nothing to offer for them.
+ */
+export const VIKUNJA_MISSING_COLUMN_TITLES = {
+  struggle: 'integrations.vikunja.mapping.columnStruggle',
+  deleted: 'integrations.vikunja.mapping.columnTrash',
+} as const

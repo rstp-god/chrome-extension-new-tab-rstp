@@ -276,3 +276,421 @@ describe('withVikunjaClient', () => {
     expect(contains).toHaveBeenCalledTimes(2)
   })
 })
+
+// ---------- read path (task 5) ----------
+
+const CFG = { baseUrl: 'https://vikunja.example', token: TOKEN }
+const API = 'https://vikunja.example/api/v1'
+
+const KANBAN_VIEW = {
+  id: 4,
+  title: 'Kanban',
+  view_kind: 'kanban',
+  done_bucket_id: 3,
+  default_bucket_id: 1,
+}
+
+const LIST_VIEW = { ...KANBAN_VIEW, id: 2, title: 'List', view_kind: 'list' }
+
+function projectBody(overrides: Record<string, unknown> = {}) {
+  return { id: 1, title: 'Inbox', identifier: '', is_archived: false, views: [], ...overrides }
+}
+
+function bucketBody(id: number, title: string) {
+  return { id, title, project_view_id: 4, position: id * 100, limit: 0 }
+}
+
+function taskBody(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 4,
+    identifier: '#3',
+    index: 3,
+    project_id: 1,
+    // `0` everywhere but inside a view response — the handler must ignore it.
+    bucket_id: 0,
+    title: 'Probe',
+    description: '<p>rich</p>',
+    done: false,
+    done_at: '0001-01-01T00:00:00Z',
+    due_date: '0001-01-01T00:00:00Z',
+    start_date: '0001-01-01T00:00:00Z',
+    end_date: '0001-01-01T00:00:00Z',
+    priority: 0,
+    percent_done: 0,
+    created: '2026-09-20T17:00:00+03:00',
+    updated: '2026-09-20T17:57:12.566126293+03:00',
+    labels: null,
+    assignees: null,
+    reminders: null,
+    repeat_after: 0,
+    repeat_mode: 0,
+    hex_color: '',
+    position: 100,
+    is_favorite: false,
+    related_tasks: null,
+    attachments: null,
+    cover_image_attachment_id: 0,
+    ...overrides,
+  }
+}
+
+/** Routes by path suffix so each test only describes what it cares about. */
+function routes(table: Record<string, unknown>): Responder {
+  return (url) => {
+    const path = url.slice(API.length).split('?')[0]
+    const body = table[path]
+    if (body === undefined) return jsonResponse(404, { message: `unrouted ${path}` })
+    return jsonResponse(200, body)
+  }
+}
+
+describe('listProjects', () => {
+  it('summarises each project and finds its kanban view', async () => {
+    stubPermissions(true)
+    stubFetch(
+      routes({
+        '/projects': [
+          projectBody({ views: [LIST_VIEW, KANBAN_VIEW] }),
+          projectBody({ id: 2, title: 'Archived', is_archived: true, views: [KANBAN_VIEW] }),
+          projectBody({ id: 3, title: 'No kanban', views: [LIST_VIEW] }),
+        ],
+      }),
+    )
+
+    const out = await handleVikunjaRequest({ type: 'vikunja', op: 'listProjects', cfg: CFG })
+
+    expect(out).toEqual({
+      ok: true,
+      value: [
+        {
+          id: 1,
+          title: 'Inbox',
+          kanbanViewId: 4,
+          doneBucketId: 3,
+          defaultBucketId: 1,
+          isArchived: false,
+        },
+        {
+          id: 2,
+          title: 'Archived',
+          kanbanViewId: 4,
+          doneBucketId: 3,
+          defaultBucketId: 1,
+          isArchived: true,
+        },
+        {
+          id: 3,
+          title: 'No kanban',
+          kanbanViewId: null,
+          doneBucketId: null,
+          defaultBucketId: null,
+          isArchived: false,
+        },
+      ],
+    })
+  })
+
+  it('maps the 0 sentinel of a view without buckets to null', async () => {
+    stubPermissions(true)
+    stubFetch(
+      routes({
+        '/projects': [
+          projectBody({
+            views: [{ ...KANBAN_VIEW, done_bucket_id: 0, default_bucket_id: 0 }],
+          }),
+        ],
+      }),
+    )
+
+    await expect(
+      handleVikunjaRequest({ type: 'vikunja', op: 'listProjects', cfg: CFG }),
+    ).resolves.toMatchObject({
+      ok: true,
+      value: [{ doneBucketId: null, defaultBucketId: null }],
+    })
+  })
+
+  it('propagates a backend failure', async () => {
+    stubPermissions(true)
+    stubFetch(() => jsonResponse(401, { code: 11 }))
+
+    await expect(
+      handleVikunjaRequest({ type: 'vikunja', op: 'listProjects', cfg: CFG }),
+    ).resolves.toEqual({ ok: false, errorKey: 'authInvalid' })
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubFetch()
+
+    await expect(
+      handleVikunjaRequest({ type: 'vikunja', op: 'listProjects', cfg: CFG }),
+    ).resolves.toEqual({ ok: false, errorKey: 'permissionMissing' })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('listBuckets', () => {
+  const request = { type: 'vikunja', op: 'listBuckets', cfg: CFG, projectId: 1, viewId: 4 } as const
+
+  it('flags the view’s done bucket', async () => {
+    stubPermissions(true)
+    const fetchMock = stubFetch(
+      routes({
+        '/projects/1/views/4': KANBAN_VIEW,
+        '/projects/1/views/4/buckets': [
+          bucketBody(1, 'To-Do'),
+          bucketBody(2, 'Doing'),
+          bucketBody(3, 'Done'),
+        ],
+      }),
+    )
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: true,
+      value: [
+        { id: 1, title: 'To-Do', isDone: false },
+        { id: 2, title: 'Doing', isDone: false },
+        { id: 3, title: 'Done', isDone: true },
+      ],
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops at the view when it cannot be read', async () => {
+    stubPermissions(true)
+    const fetchMock = stubFetch(() => jsonResponse(404, { message: 'no such view' }))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'notFound',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['a fractional project id', { projectId: 1.5, viewId: 4 }],
+    ['a negative view id', { projectId: 1, viewId: -4 }],
+    ['a zero id', { projectId: 0, viewId: 4 }],
+    ['NaN', { projectId: Number.NaN, viewId: 4 }],
+  ])('refuses %s before it reaches a URL', async (_label, ids) => {
+    stubPermissions(true)
+    const fetchMock = stubFetch()
+
+    await expect(handleVikunjaRequest({ ...request, ...ids })).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubFetch()
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('listLabels', () => {
+  const request = { type: 'vikunja', op: 'listLabels', cfg: CFG } as const
+
+  it('summarises labels and normalises an empty colour to null', async () => {
+    stubPermissions(true)
+    stubFetch(
+      routes({
+        '/labels': [
+          { id: 1, title: 'energy:1', hex_color: 'efbdeb' },
+          { id: 2, title: 'work', hex_color: '' },
+        ],
+      }),
+    )
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: true,
+      value: [
+        { id: 1, title: 'energy:1', hexColor: 'efbdeb' },
+        { id: 2, title: 'work', hexColor: null },
+      ],
+    })
+  })
+
+  it('propagates a backend failure', async () => {
+    stubPermissions(true)
+    stubFetch(() => jsonResponse(429, {}))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'rateLimited',
+    })
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubFetch()
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('createBucket', () => {
+  const request = {
+    type: 'vikunja',
+    op: 'createBucket',
+    cfg: CFG,
+    projectId: 1,
+    viewId: 4,
+    title: 'Struggle',
+  } as const
+
+  it('creates the column and reports it as a non-done bucket', async () => {
+    stubPermissions(true)
+    const fetchMock = stubFetch(() => jsonResponse(201, bucketBody(25, 'Struggle')))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: true,
+      value: { id: 25, title: 'Struggle', isDone: false },
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['an empty title', ''],
+    ['a whitespace-only title', '   '],
+    ['an absurdly long title', 'x'.repeat(251)],
+  ])('refuses %s without fetching', async (_label, title) => {
+    stubPermissions(true)
+    const fetchMock = stubFetch()
+
+    await expect(handleVikunjaRequest({ ...request, title })).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('maps a missing bucket scope on the token to authInvalid', async () => {
+    stubPermissions(true)
+    stubFetch(() => jsonResponse(403, { message: 'forbidden' }))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'authInvalid',
+    })
+  })
+
+  it('answers permissionMissing without fetching', async () => {
+    stubPermissions(false)
+    const fetchMock = stubFetch()
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('pull', () => {
+  const request = { type: 'vikunja', op: 'pull', cfg: CFG, projectId: 1, viewId: 4 } as const
+
+  it('flattens the buckets, keeps the bucket a task was found in and trims `updated`', async () => {
+    stubPermissions(true)
+    stubFetch(
+      routes({
+        '/projects/1/views/4/tasks': [
+          { ...bucketBody(1, 'To-Do'), tasks: [taskBody({ labels: [] })] },
+          {
+            ...bucketBody(3, 'Done'),
+            tasks: [
+              taskBody({
+                id: 5,
+                done: true,
+                done_at: '2026-09-20T14:58:54.988789804Z',
+                labels: [{ id: 1, title: 'energy:1', hex_color: 'efbdeb' }],
+              }),
+            ],
+          },
+        ],
+      }),
+    )
+
+    const out = await handleVikunjaRequest(request)
+
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    const value = out.value as { tasks: unknown[]; pulledAt: number }
+    expect(value.tasks).toEqual([
+      {
+        id: 4,
+        identifier: '#3',
+        title: 'Probe',
+        description: '<p>rich</p>',
+        done: false,
+        doneAt: null,
+        bucketId: 1,
+        created: '2026-09-20T17:00:00+03:00',
+        // Nanoseconds gone: the etag has to match what the next GET answers.
+        updated: '2026-09-20T14:57:12.000Z',
+        labelIds: [],
+      },
+      {
+        id: 5,
+        identifier: '#3',
+        title: 'Probe',
+        description: '<p>rich</p>',
+        done: true,
+        doneAt: '2026-09-20T14:58:54.988789804Z',
+        bucketId: 3,
+        created: '2026-09-20T17:00:00+03:00',
+        updated: '2026-09-20T14:57:12.000Z',
+        labelIds: [1],
+      },
+    ])
+    expect(value.pulledAt).toBeGreaterThan(0)
+  })
+
+  it('answers with an empty list for a board with no tasks', async () => {
+    stubPermissions(true)
+    stubFetch(routes({ '/projects/1/views/4/tasks': [bucketBody(1, 'To-Do')] }))
+
+    await expect(handleVikunjaRequest(request)).resolves.toMatchObject({
+      ok: true,
+      value: { tasks: [] },
+    })
+  })
+
+  it('propagates a backend failure', async () => {
+    stubPermissions(true)
+    stubFetch(() => jsonResponse(404, { message: 'gone' }))
+
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'notFound',
+    })
+  })
+
+  it('refuses a malformed scope and answers permissionMissing without a grant', async () => {
+    stubPermissions(true)
+    const fetchMock = stubFetch()
+    await expect(handleVikunjaRequest({ ...request, viewId: 0 })).resolves.toEqual({
+      ok: false,
+      errorKey: 'unknown',
+    })
+
+    stubPermissions(false)
+    await expect(handleVikunjaRequest(request)).resolves.toEqual({
+      ok: false,
+      errorKey: 'permissionMissing',
+    })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
