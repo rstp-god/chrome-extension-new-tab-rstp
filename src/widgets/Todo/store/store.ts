@@ -1,4 +1,4 @@
-import { removeArea } from '@/services/chrome/storage.ts'
+import { removeArea, setArea } from '@/services/chrome/storage.ts'
 import { focusOrOpenTab, LinkableTab } from '@/services/chrome/tabs.ts'
 import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
 import {
@@ -18,12 +18,19 @@ import {
 } from '@/widgets/Todo/integrations/index.ts'
 import { create } from 'zustand/react'
 
-import { integrationSchema, todoEnvelopeSchema } from './schema.ts'
-import { pushPhase, reconcile } from './sync.ts'
+import { integrationSchema, todoEnvelopeSchema, todoHandoverSchema } from './schema.ts'
+import { pushPhase, reconcile, selectPendingTasks } from './sync.ts'
 
 import type { IntegrationState, TodoPersistedState, TodoTask } from './schema.ts'
 
 export const TODO_STORAGE_KEY = 'todo-widget:v1'
+
+/**
+ * Where the pre-disconnect copy of the task list lands (see
+ * `todoHandoverSchema`). A key of its own, not a field of the widget's
+ * envelope: it is written once, by hand, and read by nobody at runtime.
+ */
+export const TODO_HANDOVER_KEY = 'todo-widget:handover:v1'
 
 export type {
   TodoStatus,
@@ -36,12 +43,13 @@ export type {
 export type {
   IntegrationState,
   LinkedTab,
+  TodoHandoverSnapshot,
   TodoSyncState,
   TodoTask,
   TrelloConfig,
   VikunjaConfig,
 } from './schema.ts'
-export { TODO_STATUSES, todoEnvelopeSchema }
+export { TODO_STATUSES, todoEnvelopeSchema, todoHandoverSchema }
 
 /**
  * The remote address of the active integration, or `null` when there is none
@@ -99,7 +107,36 @@ interface TodoWidgetState {
   updateIntegrationConfig: (config: unknown) => boolean
   refreshContainers: () => Promise<boolean>
   clearIntegration: () => void
+  /**
+   * Leaves a handover snapshot behind, then drops the integration.
+   *
+   * Serves both summary actions — "Disconnect" and "Switch integration" —
+   * because they do the same thing to the store: the tasks stay, unlinked,
+   * a copy of them is kept in case the next connection goes wrong, and the
+   * settings dialog lands back on the picker. What differs is the
+   * confirmation each one shows, which is the summary's business.
+   */
+  switchIntegration: () => Promise<void>
+  /**
+   * Sends the named local tasks to the backend on purpose, for an
+   * integration that does not take them automatically
+   * (`autoImportLocalTasks !== true`).
+   *
+   * Marking them `dirty` is the whole mechanism: the next sync's push phase
+   * picks up anything non-clean, and a task with no ref is pushed as a
+   * `create`. Ids that name a task which is already linked are ignored —
+   * "import" means "create remotely", and a linked task has been.
+   */
+  importLocalTasks: (ids: string[]) => Promise<void>
   syncNow: (options?: SyncNowOptions) => Promise<void>
+  /**
+   * Retires the current error without syncing.
+   *
+   * For the banners the user can act on: once the host permission is granted
+   * again, the `permissionMissing` that raised the banner describes the past,
+   * and the sync that follows is what decides the next state.
+   */
+  clearError: () => void
   /**
    * Records a failure the widget did not ask for: the backend's own watcher
    * (Vikunja's background pull) hit a wall while nobody was looking.
@@ -174,6 +211,39 @@ function getActive(state: TodoWidgetState): ActiveIntegration | null {
   const descriptor = getIntegrationDescriptor(integration.name)
   if (!descriptor) return null
   return { integration, descriptor, adapter: descriptor.create(integration.config) }
+}
+
+/**
+ * Writes the pre-disconnect copy of the task list (see `todoHandoverSchema`).
+ *
+ * Deliberately tolerant: a snapshot is a courtesy, and neither a candidate
+ * the schema refuses nor a storage write that fails may stop the disconnect
+ * the user asked for — being unable to save a backup is not a reason to
+ * refuse to let go of the integration.
+ *
+ * The value written is the schema's output, never the input: `z.object`
+ * strips what it does not declare, so the config (and the token in it) cannot
+ * travel with the copy.
+ */
+async function saveHandoverSnapshot(state: TodoWidgetState): Promise<void> {
+  const integration = state.integration
+  if (!integration) return
+
+  const parsed = todoHandoverSchema.safeParse({
+    version: 1,
+    savedAt: Date.now(),
+    integrationName: integration.name,
+    boardName: integration.boardName,
+    tasks: state.tasks,
+  })
+  if (!parsed.success) return
+
+  try {
+    await setArea('local', TODO_HANDOVER_KEY, parsed.data)
+  } catch (err) {
+    // Never the value, only the failure: the snapshot is task text.
+    console.warn('[todo] handover snapshot write failed:', err)
+  }
 }
 
 function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): TodoTask[] {
@@ -612,6 +682,42 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         void removeArea('local', TODO_STORAGE_KEY)
       },
 
+      switchIntegration: async () => {
+        // The copy goes out *before* the state it describes is unlinked: a
+        // snapshot taken after `clearIntegration` would record a list with
+        // every `remoteRef` already stripped.
+        await saveHandoverSnapshot(get())
+        get().clearIntegration()
+      },
+
+      importLocalTasks: async (ids) => {
+        const wanted = new Set(ids)
+        // Only tasks that never reached the backend. An id naming a linked
+        // task is dropped rather than marked dirty: that would push an edit
+        // the user never made.
+        const targets = new Set(
+          get()
+            .tasks.filter((task) => wanted.has(task.id) && task.remoteRef === null)
+            .map((task) => task.id),
+        )
+        if (targets.size === 0) return
+
+        set((current) => ({
+          tasks: current.tasks.map((task) =>
+            targets.has(task.id) ? { ...task, syncState: 'dirty' } : task,
+          ),
+        }))
+
+        await get().syncNow()
+      },
+
+      clearError: () => {
+        // Guarded so a banner action on an already-clean store does not
+        // notify every subscriber for nothing.
+        if (get().errorKey === null) return
+        set({ errorKey: null })
+      },
+
       reportRemoteFailure: (errorKey) => {
         // Nothing connected → nothing that could have failed remotely. A
         // broadcast that arrives just after a disconnect must not leave a
@@ -648,14 +754,10 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         // `loading` left `true` freezes the widget's spinner until the next
         // sync — with no way for the user to start one.
         try {
-          // Push everything that hasn't reached the remote yet.
-          // - `syncState !== 'clean'` covers normal dirty/error retries.
-          // - `remoteRef === null` catches tasks that were created before the
-          //   integration was set up (they were 'clean' because there was
-          //   nowhere to sync them at the time). Without this we'd end up with
-          //   local tasks coexisting with the pulled set forever and the user
-          //   would see them as duplicates after the first sync.
-          const pending = state.tasks.filter((t) => t.syncState !== 'clean' || t.remoteRef === null)
+          // Push everything that hasn't reached the remote yet — the rule
+          // (including whether tasks predating the integration are swept
+          // along) lives in `selectPendingTasks`.
+          const pending = selectPendingTasks(state.tasks, descriptor)
 
           const failure = await pushPhase(pending, {
             adapter,

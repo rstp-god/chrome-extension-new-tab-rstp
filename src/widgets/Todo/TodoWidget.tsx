@@ -2,19 +2,23 @@ import { ScrollArea } from '@/components/ui/scroll-area.tsx'
 import { AddTodoDialog } from '@/widgets/Todo/components/widget/AddTodoDialog.tsx'
 import { TodoFooter } from '@/widgets/Todo/components/widget/TodoFooter.tsx'
 import { TodoSection } from '@/widgets/Todo/components/widget/TodoSection.tsx'
+import { TodoStatusBanner } from '@/widgets/Todo/components/widget/TodoStatusBanner.tsx'
 import { TodoTaskCard } from '@/widgets/Todo/components/widget/TodoTaskCard.tsx'
 import { TodoSettingsDialog } from '@/widgets/Todo/components/settings/TodoSettingsDialog.tsx'
+import { useOnlineFlush } from '@/widgets/Todo/hooks/useOnlineFlush.ts'
 import {
   getIntegrationDescriptor,
   type Project,
   type TodoStatus,
 } from '@/widgets/Todo/integrations/index.ts'
 import { resolveScope, useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { isTerminalError } from '@/widgets/Todo/utils/errorState.ts'
 import {
   groupTasksBySection,
   resolveVisibleStatuses,
   toggleVisibleStatus,
 } from '@/widgets/Todo/utils/filter.ts'
+import { getHost } from '@/widgets/Todo/utils/url.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -60,9 +64,28 @@ export function TodoWidget() {
   const openOrFocusLinkedTab = useTodoStore((state) => state.openOrFocusLinkedTab)
   const syncNow = useTodoStore((state) => state.syncNow)
   const reportRemoteFailure = useTodoStore((state) => state.reportRemoteFailure)
+  const clearError = useTodoStore((state) => state.clearError)
+  const errorKey = useTodoStore((state) => state.errorKey)
 
   const timeoutRefs = useRef<Record<string, number>>({})
   const didMountSync = useRef(false)
+
+  /**
+   * A failure that no further sync can clear. Two things follow from it: the
+   * widget stops syncing on its own (mount, broadcast, back-online — all of
+   * them would fail the same way and re-raise the same error), and the banner
+   * below offers the one action that ends it.
+   */
+  const terminalError = isTerminalError(errorKey)
+  /** The banner belongs to an integration; without one there is nothing to fix. */
+  const bannerErrorKey = integration !== null && isTerminalError(errorKey) ? errorKey : null
+  /**
+   * Whose grant went missing, for the permission wording. Vikunja-specific
+   * because it is the only backend addressed by a host the user typed — the
+   * rest have no host of their own to name, and get the generic sentence.
+   */
+  const bannerHost = integration?.name === 'vikunja' ? getHost(integration.config.baseUrl) : null
+  const canRecoverPermission = Boolean(getIntegrationDescriptor(integrationName)?.recoverPermission)
 
   // Same reason as `projectById`: a Set built once per change beats an
   // `includes` per card, and the store hands out a stable array until a
@@ -92,11 +115,43 @@ export function TodoWidget() {
   useEffect(() => {
     if (didMountSync.current) return
     if (!hasScope || !hasMapping) return
+    // A mount that lands on a revoked token or a withdrawn host permission
+    // must not sync: it would fail, re-raise the very error the banner is
+    // already showing, and spin the badge on the way. Clearing the error is
+    // the banner's job, and this effect re-runs when it does.
+    if (terminalError) return
     didMountSync.current = true
     // Forced on purpose: a widget that has just appeared knows nothing, so
     // the worker's snapshot is not good enough — read the backend.
     void syncNow()
-  }, [hasScope, hasMapping, syncNow])
+  }, [hasScope, hasMapping, terminalError, syncNow])
+
+  /**
+   * The permission banner's action, and the reason it is not `async`: Chrome
+   * grants an optional origin only from inside a user gesture, so the
+   * descriptor's hook has to be *called* here — synchronously, before
+   * anything is awaited — and everything else hangs off the promise it
+   * returns. See `IntegrationDescriptor.recoverPermission`.
+   */
+  const handleGrantPermission = () => {
+    const active = useTodoStore.getState().integration
+    if (!active) return
+    const descriptor = getIntegrationDescriptor(active.name)
+    if (!descriptor?.recoverPermission) return
+
+    void descriptor.recoverPermission(active.config).then((granted) => {
+      if (!granted) return
+      // The mount effect is about to see a cleared error; claim the sync here
+      // so the two do not both read the backend.
+      didMountSync.current = true
+      clearError()
+      void syncNow()
+    })
+  }
+
+  // Back online → send what piled up, quietly. Only while a sync could
+  // actually succeed.
+  useOnlineFlush(hasScope && hasMapping && !terminalError, syncNow)
 
   /**
    * Live updates, for a backend that can tell us it moved.
@@ -127,6 +182,10 @@ export function TodoWidget() {
     // is free to be a real method on the descriptor and read `this`.
     return descriptor.subscribeRemoteChanges(current, (event) => {
       if (event.kind === 'changed') {
+        // Read at event time rather than closed over, so a terminal error
+        // silences the syncs without re-subscribing the listener every time
+        // the error key moves.
+        if (isTerminalError(useTodoStore.getState().errorKey)) return
         void syncNow({ silent: true })
         return
       }
@@ -177,6 +236,16 @@ export function TodoWidget() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4">
+      {bannerErrorKey && (
+        <TodoStatusBanner
+          errorKey={bannerErrorKey}
+          host={bannerHost}
+          canRecover={canRecoverPermission}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onGrantPermission={handleGrantPermission}
+        />
+      )}
+
       {totalVisible === 0 ? (
         <div className="flex flex-1 items-center">
           <div className="w-full rounded-[2rem] h-full border border-dashed border-border px-5 py-8 text-center content-center text-sm text-muted-foreground">

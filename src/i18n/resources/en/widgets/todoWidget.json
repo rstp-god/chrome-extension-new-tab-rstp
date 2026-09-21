@@ -37,6 +37,17 @@
   "task": {
     "conflictBadge": "Changed in Vikunja — your edit was rolled back"
   },
+  "banners": {
+    "authInvalid": {
+      "text": "The integration's credentials are no longer accepted. Reconnect it to resume syncing.",
+      "action": "Reconnect"
+    },
+    "permissionMissing": {
+      "text": "The extension lost permission for {{host}}.",
+      "textUnknownHost": "The extension lost permission for the integration's host.",
+      "action": "Grant again"
+    }
+  },
   "settings": {
     "title": "Todo settings",
     "description": "Connect an integration or keep todos local."
@@ -109,14 +120,23 @@
     },
     "actions": {
       "back": "Back",
-      "continue": "Continue"
+      "continue": "Continue",
+      "cancel": "Cancel"
+    },
+    "showcase": {
+      "disabled": "Integrations are disabled in showcase mode."
+    },
+    "import": {
+      "action": "Import {{n}} local tasks into {{scope}}",
+      "title": "Import local tasks",
+      "description": "These tasks were created before the integration and have never been sent to {{scope}}. Importing creates them there on the next sync.",
+      "confirm": "Import",
+      "cancel": "Cancel",
+      "empty": "Nothing to import — every task is already linked."
     },
     "trello": {
       "title": "Trello",
       "description": "Two-way sync with a Trello board.",
-      "showcase": {
-        "disabled": "Integrations are disabled in showcase mode."
-      },
       "connect": {
         "title": "Connect Trello",
         "description": "Paste your Trello API key and personal token to enable two-way sync.",
@@ -144,7 +164,9 @@
         "neverSynced": "never",
         "disconnect": "Disconnect",
         "disconnectConfirm": "Disconnect Trello? Local todos stay, but stop syncing.",
-        "rePickBoard": "Change board"
+        "rePickBoard": "Change board",
+        "switch": "Switch integration",
+        "switchConfirm": "Disconnect Trello and pick another integration? Local todos stay in the widget."
       }
     },
     "vikunja": {
@@ -168,7 +190,9 @@
       },
       "board": {
         "title": "Pick a project",
-        "description": "Choose the project whose kanban view this widget will sync with."
+        "description": "Choose the project whose kanban view this widget will sync with.",
+        "pickLabel": "Project",
+        "empty": "No projects with a kanban view on this account."
       },
       "mapping": {
         "title": "Map buckets to statuses",
@@ -192,6 +216,16 @@
       },
       "summary": {
         "title": "Vikunja",
+        "boardLabel": "Project",
+        "mappingLabel": "Mapping",
+        "lastSync": "Last sync",
+        "neverSynced": "never",
+        "disconnect": "Disconnect",
+        "disconnectConfirm": "Disconnect Vikunja? Local todos stay, but stop syncing.",
+        "rePickBoard": "Change project",
+        "switch": "Switch integration",
+        "switchConfirm": "Disconnect Vikunja and pick another integration? Tasks stay in the widget, and a copy of the list is kept in case the next connection goes wrong.",
+        "localOnlyLabel": "Only inside the extension",
         "pullPeriodLabel": "Background sync",
         "pullPeriodOption": "Every {{minutes}} min",
         "pullPeriodHint": "Changes made in Vikunja reach the widget within this interval."

@@ -3,6 +3,7 @@ import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 
 import { sendVikunjaMessage } from './bridge.ts'
 import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
+import { recoverVikunjaPermission } from './permission.ts'
 import { pushVikunjaTask } from './push.ts'
 import { scopePair } from './scope.ts'
 import {
@@ -292,6 +293,18 @@ export const descriptor: IntegrationDescriptor = {
    * someone changed in Vikunja shows up here without the page polling for it.
    */
   subscribeRemoteChanges: subscribeVikunjaRemoteChanges,
+  /**
+   * The instance's origin is optional (unknown at build time), so it can be
+   * withdrawn after the wizard granted it — see `permission.ts` for why the
+   * request has to start inside the click that asked for it.
+   */
+  recoverPermission: recoverVikunjaPermission,
+  /**
+   * Someone's own tracker is not a place to silently create the widget's
+   * backlog in (ADR §Р10): tasks that predate the integration stay local
+   * until the user imports them from the settings summary.
+   */
+  autoImportLocalTasks: false,
   /**
    * The scope is the pair, not either half: a project without a view cannot
    * address a task list, so a half-filled config keeps the user on the

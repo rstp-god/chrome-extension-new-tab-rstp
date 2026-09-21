@@ -182,6 +182,32 @@ const todoPersistedStateSchema = z.object({
 /** The record `withChromeSync` reads from and writes to storage. */
 export const todoEnvelopeSchema = makeEnvelopeSchema(todoPersistedStateSchema)
 
+/**
+ * The copy of the task list left behind when a connection goes away.
+ *
+ * Written right before a disconnect (or a switch to another integration),
+ * because `clearIntegration` unlinks every task in place and there is no
+ * undo: if the reconnect the user is about to make goes wrong, this is the
+ * only record of what the list looked like. It is not part of the store's
+ * own envelope — nothing reads it at runtime, and merging it into the state
+ * the widget renders would make it a second source of truth.
+ *
+ * **It carries no config.** Not the token, not the instance URL, not the
+ * board id — only what a human would want back. The snapshot outlives the
+ * integration by design, so a secret in it would be one nobody is watching
+ * any more; and since `z.object` strips what it does not declare, parsing a
+ * candidate through this schema is what enforces that rather than a habit of
+ * writing the right fields.
+ */
+export const todoHandoverSchema = z.object({
+  version: z.literal(1),
+  savedAt: z.number(),
+  /** Which backend the tasks were linked to, for the user's own bearings. */
+  integrationName: z.string(),
+  boardName: z.string().nullable(),
+  tasks: z.array(todoTaskSchema),
+})
+
 export type LinkedTab = z.infer<typeof linkedTabSchema>
 export type TodoTask = z.infer<typeof todoTaskSchema>
 export type TodoSyncState = z.infer<typeof syncStateSchema>
@@ -189,3 +215,4 @@ export type TrelloConfig = z.infer<typeof trelloConfigSchema>
 export type VikunjaConfig = z.infer<typeof vikunjaConfigSchema>
 export type IntegrationState = z.infer<typeof integrationSchema>
 export type TodoPersistedState = z.infer<typeof todoPersistedStateSchema>
+export type TodoHandoverSnapshot = z.infer<typeof todoHandoverSchema>

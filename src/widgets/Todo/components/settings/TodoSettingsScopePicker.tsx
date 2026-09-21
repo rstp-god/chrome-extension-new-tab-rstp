@@ -20,6 +20,12 @@ import { useTranslation } from 'react-i18next'
 
 interface Props {
   adapter: TodoIntegration
+  /**
+   * Whose scope is being picked, for the wording: Trello picks a *board*,
+   * Vikunja a *project*. The step itself stays backend-agnostic — only the
+   * i18n namespace it reads changes.
+   */
+  integrationName: string
   onBack: () => void
 }
 
@@ -33,9 +39,10 @@ function scopeKey(scope: RemoteScope): string {
  * scope itself is opaque here — only its label is shown — so options are
  * keyed by their serialized scope, which survives a reordered list.
  */
-export function TodoSettingsScopePicker({ adapter, onBack }: Props) {
+export function TodoSettingsScopePicker({ adapter, integrationName, onBack }: Props) {
   const { t } = useTranslation('todoWidget')
   const pickScope = useTodoStore((state) => state.pickScope)
+  const boardKey = (leaf: string) => `integrations.${integrationName}.board.${leaf}`
   const [options, setOptions] = useState<RemoteScopeOption[] | null>(null)
   const [errorKey, setErrorKey] = useState<IntegrationErrorKey | null>(null)
   const [selectedKey, setSelectedKey] = useState<string | undefined>()
@@ -90,15 +97,15 @@ export function TodoSettingsScopePicker({ adapter, onBack }: Props) {
       )}
 
       {options !== null && options.length === 0 && !errorKey && (
-        <p className="text-sm text-muted-foreground">{t('integrations.trello.board.empty')}</p>
+        <p className="text-sm text-muted-foreground">{t(boardKey('empty'))}</p>
       )}
 
       {options !== null && options.length > 0 && (
         <Field>
-          <FieldLabel htmlFor="todo-scope">{t('integrations.trello.board.pickLabel')}</FieldLabel>
+          <FieldLabel htmlFor="todo-scope">{t(boardKey('pickLabel'))}</FieldLabel>
           <Select value={selectedKey} onValueChange={setSelectedKey}>
             <SelectTrigger id="todo-scope" className="w-full">
-              <SelectValue placeholder={t('integrations.trello.board.pickLabel')} />
+              <SelectValue placeholder={t(boardKey('pickLabel'))} />
             </SelectTrigger>
             <SelectContent>
               {options.map((option) => (

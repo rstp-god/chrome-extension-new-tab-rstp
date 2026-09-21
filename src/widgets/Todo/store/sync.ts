@@ -40,6 +40,40 @@ export function inferOpForTask(task: TodoTask): IntegrationPushOp {
   return { kind: 'resync' }
 }
 
+/**
+ * Which tasks phase 1 pushes.
+ *
+ * - anything not `clean` is a normal dirty/error retry;
+ * - a `clean` task with a ref is already where it belongs;
+ * - a `clean` task with **no** ref has never reached the backend, and whether
+ *   a sync may send it is the descriptor's call. Trello says yes (that has
+ *   always been its behaviour); Vikunja — and anything that does not declare
+ *   the flag — says no, and such a task waits for the explicit import instead
+ *   (ADR §Р10). `reconcile`'s rule 4 is what keeps it in the list meanwhile.
+ */
+export function selectPendingTasks(
+  tasks: readonly TodoTask[],
+  descriptor: IntegrationDescriptor,
+): TodoTask[] {
+  const autoImport = descriptor.autoImportLocalTasks === true
+  return tasks.filter((task) => {
+    if (task.syncState !== 'clean') return true
+    if (task.remoteRef !== null) return false
+    return autoImport
+  })
+}
+
+/**
+ * Tasks that predate the integration: never pushed, and not waiting to be.
+ *
+ * The other half of the rule above — what the settings summary offers to
+ * import, and counts. A `dirty` unlinked task is deliberately not here: it
+ * was created while the integration was active, so it is already on its way.
+ */
+export function unlinkedLocalTasks(tasks: readonly TodoTask[]): TodoTask[] {
+  return tasks.filter((task) => task.remoteRef === null && task.syncState === 'clean')
+}
+
 export interface PushPhaseDeps {
   adapter: TodoIntegration
   descriptor: IntegrationDescriptor

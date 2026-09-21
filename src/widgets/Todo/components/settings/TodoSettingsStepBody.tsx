@@ -81,8 +81,14 @@ export function TodoSettingsStepBody({
       )
 
     case 'board':
-      if (!adapter) return null
-      return <TodoSettingsScopePicker adapter={adapter} onBack={onLeaveScopePicker} />
+      if (!adapter || !integration) return null
+      return (
+        <TodoSettingsScopePicker
+          adapter={adapter}
+          integrationName={integration.name}
+          onBack={onLeaveScopePicker}
+        />
+      )
 
     case 'mapping': {
       // A backend may replace the generic table with its own step; most do

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button.tsx'
+import { TestId } from '@tests/constants/testIds.ts'
 
 import { flatModeMapping, suggestMapping, validateMapping } from './autoMapping.ts'
 import { VIKUNJA_MISSING_COLUMN_TITLES } from './constants.ts'
@@ -191,7 +192,7 @@ export function VikunjaMappingStep({
   }
 
   return (
-    <div className="grid gap-4">
+    <div data-testid={TestId.TodoMappingStep} className="grid gap-4">
       <p className="text-sm text-muted-foreground">
         {t('integrations.vikunja.mapping.suggestedHint')}
       </p>

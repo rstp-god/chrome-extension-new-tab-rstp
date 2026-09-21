@@ -10,3 +10,17 @@ export function getHostname(url: string): string {
     return url
   }
 }
+
+/**
+ * Host (with the port, unlike `hostname`) of a URL string, or `null` when it
+ * does not parse — used where the value is shown as an identity rather than
+ * as decoration, so a malformed URL has to read as "unknown" instead of as
+ * itself.
+ */
+export function getHost(url: string): string | null {
+  try {
+    return new URL(url).host
+  } catch {
+    return null
+  }
+}

@@ -69,6 +69,7 @@ import type {
   TrelloRemoteRef,
 } from '@/widgets/Todo/integrations/index.ts'
 import {
+  TODO_HANDOVER_KEY,
   TODO_STORAGE_KEY,
   useTodoStore,
   type IntegrationState,
@@ -1463,5 +1464,155 @@ describe('todo store — syncNow robustness', () => {
     expect(fakePushTask).toHaveBeenCalledTimes(5)
     expect(peak).toBeGreaterThan(1)
     expect(peak).toBeLessThanOrEqual(4)
+  })
+})
+
+/** The one handover write of this run, whatever else reached storage. */
+function handoverWrite(): unknown {
+  const call = setAreaMock.mock.calls.find(([, key]) => key === TODO_HANDOVER_KEY)
+  return call?.[2]
+}
+
+describe('todo store — integration: switchIntegration', () => {
+  it('leaves a handover snapshot behind, then drops the integration', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'a', title: 'Keep me', remoteRef: makeRemoteRef() })],
+    })
+
+    await useTodoStore.getState().switchIntegration()
+
+    expect(handoverWrite()).toMatchObject({
+      version: 1,
+      integrationName: 'trello',
+      boardName: 'Test Board',
+      // Taken *before* the unlinking: a snapshot of the cleared state would
+      // have lost every ref.
+      tasks: [expect.objectContaining({ title: 'Keep me', remoteRef: makeRemoteRef() })],
+    })
+    expect(typeof (handoverWrite() as { savedAt: unknown }).savedAt).toBe('number')
+
+    // …and then the disconnect itself happened.
+    expect(useTodoStore.getState().integration).toBeNull()
+    expect(useTodoStore.getState().tasks[0].remoteRef).toBeNull()
+    expect(removeAreaMock).toHaveBeenCalledWith('local', TODO_STORAGE_KEY)
+  })
+
+  it('never writes the credentials into the snapshot', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState({
+        config: { apiKey: 'ak_live', token: 'tk_secret', boardId: 'board-1' },
+      }),
+      tasks: [makeTask()],
+    })
+
+    await useTodoStore.getState().switchIntegration()
+
+    const written = JSON.stringify(handoverWrite())
+    expect(written).not.toContain('tk_secret')
+    expect(written).not.toContain('ak_live')
+    expect(written).not.toContain('apiKey')
+    expect(written).not.toContain('config')
+  })
+
+  it('writes nothing when there is no integration to hand over', async () => {
+    useTodoStore.setState({ integration: null, tasks: [makeTask()] })
+
+    await useTodoStore.getState().switchIntegration()
+
+    expect(handoverWrite()).toBeUndefined()
+  })
+})
+
+describe('todo store — integration: local tasks are imported on purpose', () => {
+  it('does not push tasks that predate a backend which wants an explicit import', async () => {
+    useTodoStore.setState({
+      integration: makeVikunjaIntegrationState(),
+      tasks: [
+        makeTask({ id: 'old-local', syncState: 'clean', remoteRef: null }),
+        makeTask({ id: 'fresh', syncState: 'dirty', remoteRef: null }),
+      ],
+    })
+    fakePushTask.mockResolvedValue(ok(makeForeignRef({ taskId: 7 })))
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    // Only the one created while the integration was active.
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+    expect((fakePushTask.mock.calls[0][0] as TodoTask).id).toBe('fresh')
+    // And the untouched one is still there, unlinked.
+    const old = useTodoStore.getState().tasks.find((t) => t.id === 'old-local')
+    expect(old?.remoteRef).toBeNull()
+    expect(old?.syncState).toBe('clean')
+  })
+
+  it('pushes them for Trello, whose behaviour predates the flag', async () => {
+    useTodoStore.setState({
+      integration: makeIntegrationState(),
+      tasks: [makeTask({ id: 'old-local', syncState: 'clean', remoteRef: null })],
+    })
+    fakePushTask.mockResolvedValue(ok(makeRemoteRef()))
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow()
+
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+  })
+
+  it('importLocalTasks marks the named tasks dirty and pushes them as creates', async () => {
+    useTodoStore.setState({
+      integration: makeVikunjaIntegrationState(),
+      tasks: [
+        makeTask({ id: 'a', syncState: 'clean', remoteRef: null }),
+        makeTask({ id: 'b', syncState: 'clean', remoteRef: null }),
+      ],
+    })
+    fakePushTask.mockResolvedValue(ok(makeForeignRef({ taskId: 9 })))
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().importLocalTasks(['a'])
+
+    expect(fakePushTask).toHaveBeenCalledTimes(1)
+    const [pushed, op] = fakePushTask.mock.calls[0] as [TodoTask, { kind: string }]
+    expect(pushed.id).toBe('a')
+    expect(pushed.syncState).toBe('dirty')
+    expect(op).toEqual({ kind: 'create' })
+  })
+
+  it('ignores ids of tasks that are already linked', async () => {
+    useTodoStore.setState({
+      integration: makeVikunjaIntegrationState(),
+      tasks: [makeTask({ id: 'linked', syncState: 'clean', remoteRef: makeForeignRef() })],
+    })
+
+    await useTodoStore.getState().importLocalTasks(['linked', 'nobody'])
+
+    // Nothing to import means nothing to sync either.
+    expect(fakePushTask).not.toHaveBeenCalled()
+    expect(fakePullTasks).not.toHaveBeenCalled()
+    expect(useTodoStore.getState().tasks[0].syncState).toBe('clean')
+  })
+})
+
+describe('todo store — clearError', () => {
+  it('retires the error without syncing', () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), errorKey: 'permissionMissing' })
+
+    useTodoStore.getState().clearError()
+
+    expect(useTodoStore.getState().errorKey).toBeNull()
+    expect(fakePullTasks).not.toHaveBeenCalled()
+  })
+
+  it('does not notify subscribers when there was nothing to clear', () => {
+    useTodoStore.setState({ errorKey: null })
+    const seen = vi.fn()
+    const unsubscribe = useTodoStore.subscribe(seen)
+
+    useTodoStore.getState().clearError()
+    unsubscribe()
+
+    expect(seen).not.toHaveBeenCalled()
   })
 })

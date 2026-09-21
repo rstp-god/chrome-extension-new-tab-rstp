@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button.tsx'
+import { TestId } from '@tests/constants/testIds.ts'
 
 interface Props {
   /** `true` while the persisted config is already in flat mode. */
@@ -28,7 +29,10 @@ export function VikunjaFlatModeSection({ active, available, busy, onSkip }: Prop
   if (!available) return null
 
   return (
-    <div className="grid gap-2 rounded-2xl border border-border bg-muted/20 px-3 py-2 text-sm">
+    <div
+      data-testid={TestId.TodoFlatModeSection}
+      className="grid gap-2 rounded-2xl border border-border bg-muted/20 px-3 py-2 text-sm"
+    >
       <p className="text-muted-foreground" role={active ? 'alert' : undefined}>
         {t('integrations.vikunja.mapping.flatNotice')}
       </p>

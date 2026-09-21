@@ -23,6 +23,19 @@ export enum TestId {
   TodoOpenAdd = 'todo-open-add',
   TodoOpenSettings = 'todo-open-settings',
   TodoSyncNow = 'todo-sync-now',
+  TodoStatusBanner = 'todo-status-banner',
+  TodoStatusBannerAction = 'todo-status-banner-action',
+  TodoSettingsDialogContent = 'todo-settings-dialog-content',
+  TodoMappingStep = 'todo-mapping-step',
+  TodoMissingColumnsPanel = 'todo-missing-columns-panel',
+  TodoFlatModeSection = 'todo-flat-mode-section',
+  TodoSummarySwitch = 'todo-summary-switch',
+  TodoSummaryDisconnect = 'todo-summary-disconnect',
+  TodoConfirmDialog = 'todo-confirm-dialog',
+  TodoConfirmAccept = 'todo-confirm-accept',
+  TodoImportAction = 'todo-import-action',
+  TodoImportDialog = 'todo-import-dialog',
+  TodoImportConfirm = 'todo-import-confirm',
   ChromeLibrarySearch = 'chrome-library-search',
   ChromeLibraryOpenSettings = 'chrome-library-open-settings',
   ChromeLibraryModeGroups = 'chrome-library-mode-groups',
@@ -66,6 +79,7 @@ export enum TestIdPrefix {
   TodoNextStatus = 'todo-next-status',
   TodoPrevStatus = 'todo-prev-status',
   TodoConflict = 'todo-conflict',
+  TodoIntegrationPick = 'todo-integration-pick',
 }
 
 function prefixed(prefix: TestIdPrefix, value: string) {
@@ -86,4 +100,6 @@ export const testIds = {
   todoNextStatus: (taskId: string) => prefixed(TestIdPrefix.TodoNextStatus, taskId),
   todoPrevStatus: (taskId: string) => prefixed(TestIdPrefix.TodoPrevStatus, taskId),
   todoConflict: (taskId: string) => prefixed(TestIdPrefix.TodoConflict, taskId),
+  todoIntegrationPick: (integrationName: string) =>
+    prefixed(TestIdPrefix.TodoIntegrationPick, integrationName),
 }

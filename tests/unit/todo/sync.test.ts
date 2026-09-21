@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { inferOpForTask, pushPhase, reconcile } from '@/widgets/Todo/store/sync.ts'
+import {
+  inferOpForTask,
+  pushPhase,
+  reconcile,
+  selectPendingTasks,
+  unlinkedLocalTasks,
+} from '@/widgets/Todo/store/sync.ts'
 
 import type {
   IntegrationDescriptor,
@@ -50,6 +56,10 @@ const descriptor = {
 
 function withConcurrency(limit: number | undefined): IntegrationDescriptor {
   return { ...descriptor, pushConcurrency: limit } as IntegrationDescriptor
+}
+
+function withAutoImport(autoImportLocalTasks: boolean | undefined): IntegrationDescriptor {
+  return { ...descriptor, autoImportLocalTasks } as IntegrationDescriptor
 }
 
 function adapterPushing(
@@ -226,5 +236,59 @@ describe('reconcile', () => {
     expect(local).toHaveLength(1)
     expect(pulled).toHaveLength(1)
     expect(unresolved).toEqual(['a'])
+  })
+})
+
+describe('selectPendingTasks', () => {
+  const tasks = [
+    task({ id: 'clean-linked', syncState: 'clean', remoteRef: trelloRef() }),
+    task({ id: 'dirty-linked', syncState: 'dirty', remoteRef: trelloRef({ cardId: 'c-2' }) }),
+    task({ id: 'error-linked', syncState: 'error', remoteRef: trelloRef({ cardId: 'c-3' }) }),
+    task({ id: 'dirty-local', syncState: 'dirty', remoteRef: null }),
+    task({ id: 'clean-local', syncState: 'clean', remoteRef: null }),
+  ]
+
+  function ids(descriptor: IntegrationDescriptor) {
+    return selectPendingTasks(tasks, descriptor)
+      .map((t) => t.id)
+      .sort()
+  }
+
+  it('sweeps tasks that predate the integration along when the backend takes them', () => {
+    expect(ids(withAutoImport(true))).toEqual([
+      'clean-local',
+      'dirty-linked',
+      'dirty-local',
+      'error-linked',
+    ])
+  })
+
+  it('leaves them alone for a backend that wants an explicit import', () => {
+    // `clean-local` is the one difference: it has never been pushed and the
+    // user has not asked for it to be.
+    expect(ids(withAutoImport(false))).toEqual(['dirty-linked', 'dirty-local', 'error-linked'])
+  })
+
+  it('treats a descriptor that says nothing as "do not import"', () => {
+    expect(ids(withAutoImport(undefined))).toEqual(ids(withAutoImport(false)))
+  })
+
+  it('never pushes a clean, already-linked task', () => {
+    for (const flag of [true, false, undefined]) {
+      expect(ids(withAutoImport(flag))).not.toContain('clean-linked')
+    }
+  })
+})
+
+describe('unlinkedLocalTasks', () => {
+  it('answers the tasks that were never pushed and are not waiting to be', () => {
+    const found = unlinkedLocalTasks([
+      task({ id: 'a', syncState: 'clean', remoteRef: null }),
+      // Created while the integration was active: already on its way.
+      task({ id: 'b', syncState: 'dirty', remoteRef: null }),
+      task({ id: 'c', syncState: 'clean', remoteRef: trelloRef() }),
+    ])
+
+    expect(found.map((t) => t.id)).toEqual(['a'])
   })
 })

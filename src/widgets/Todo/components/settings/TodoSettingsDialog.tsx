@@ -13,6 +13,7 @@ import {
   getDialogTitle,
   type DialogStep,
 } from '@/widgets/Todo/utils/dialogStep.ts'
+import { TestId } from '@tests/constants/testIds.ts'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -89,7 +90,7 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent data-testid={TestId.TodoSettingsDialogContent} className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{getDialogTitle(step, t, integrationName)}</DialogTitle>
           <DialogDescription>{getDialogDescription(step, t, integrationName)}</DialogDescription>
@@ -97,7 +98,7 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
 
         {showcase ? (
           <div className="rounded-2xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
-            {t('integrations.trello.showcase.disabled')}
+            {t('integrations.showcase.disabled')}
           </div>
         ) : (
           <TodoSettingsStepBody

@@ -360,6 +360,44 @@ export interface IntegrationDescriptor {
     onEvent: (event: RemoteChangeEvent) => void,
   ): () => void
   /**
+   * Re-request whatever permission the backend lost, and answer whether it
+   * was granted.
+   *
+   * Optional, because only a backend addressed by a host the user typed has
+   * anything to re-request: Vikunja's origin is an *optional* host permission
+   * (the instance is unknown at build time), so a user who withdraws it from
+   * `chrome://extensions` leaves the worker unable to read anything —
+   * `permissionMissing` — with nothing in the UI to fix it. Trello's origin is
+   * in the manifest and cannot be withdrawn on its own, so it omits this.
+   *
+   * **Must start synchronously.** Chrome grants an optional origin only from
+   * inside a user gesture, so the implementation has to call
+   * `chrome.permissions.request` before it awaits anything and return the
+   * promise that call produced — and the caller has to invoke this as the
+   * first thing in the click handler. Anything else (a `.then` chain, a
+   * settled promise) reads to Chrome as "not a gesture" and the prompt never
+   * appears.
+   *
+   * Resolves `false` rather than rejecting: a dismissed prompt, a stripped
+   * `chrome` and a pattern Chrome cannot represent all mean the same thing to
+   * the caller — nothing was granted.
+   */
+  recoverPermission?(config: unknown): Promise<boolean>
+  /**
+   * May a plain sync push local tasks that were created *before* the
+   * integration existed (`remoteRef === null`, `syncState === 'clean'`)?
+   *
+   * Trello says yes — that has been its behaviour since the widget had one
+   * backend, and a Trello board is where its users keep those todos anyway.
+   * Vikunja says no, and absent means no: someone connecting their own
+   * tracker to see *its* tasks in the widget has not asked for the widget's
+   * own backlog to be created in it, and an automatic migration into a
+   * foreign tracker is not something a sync can take back (ADR §Р10). Such
+   * tasks stay local and unlinked — `reconcile` keeps them — until the user
+   * imports them from the settings summary on purpose.
+   */
+  autoImportLocalTasks?: boolean
+  /**
    * Reads the scope out of a persisted config, or `null` while the user
    * hasn't picked one. The scope is deliberately *not* a separate persisted
    * field: it lives inside the config the adapter already owns, and only the

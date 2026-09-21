@@ -473,6 +473,20 @@ export const descriptor: IntegrationDescriptor = {
   // верните отписку. Есть только у Vikunja (service worker пуллит по
   // chrome.alarms и рассылает дельту); без канала push'а просто не реализуйте.
   // subscribeRemoteChanges: (scope, onEvent) => () => {},
+  // Необязательный: перевыдать потерянное разрешение. Нужен только бэкенду,
+  // чей хост лежит в optional_host_permissions (Vikunja): по кнопке баннера
+  // «Выдать снова». Вызов chrome.permissions.request должен быть
+  // синхронным — Chrome выдаёт optional-origin только внутри жеста
+  // пользователя, — поэтому функция не `async` и возвращает промис самого
+  // запроса.
+  // recoverPermission: (config) => recoverMyPermission(config),
+  // Необязательный: можно ли пушить задачи, созданные ДО подключения
+  // интеграции (remoteRef === null, syncState === 'clean'). У Trello — true
+  // (историческое поведение), у Vikunja — false, и отсутствие флага значит
+  // false: автоматическая миграция в чужой трекер необратима (ADR §Р10).
+  // Такие задачи остаются локальными, пока пользователь сам не нажмёт
+  // «Импортировать» в summary.
+  // autoImportLocalTasks: false,
 }
 ```
 
@@ -1039,6 +1053,19 @@ export const descriptor: IntegrationDescriptor = {
   // Only Vikunja has it (its service worker pulls on chrome.alarms and
   // broadcasts the delta); leave it out when there is no push channel.
   // subscribeRemoteChanges: (scope, onEvent) => () => {},
+  // Optional: re-request a permission the user withdrew. Only a backend whose
+  // host lives in optional_host_permissions (Vikunja) needs it — it powers the
+  // widget banner's "Grant again". The chrome.permissions.request call must be
+  // synchronous, because Chrome grants an optional origin only from inside a
+  // user gesture: hence a non-`async` function returning that call's promise.
+  // recoverPermission: (config) => recoverMyPermission(config),
+  // Optional: may a sync push tasks created BEFORE the integration existed
+  // (remoteRef === null, syncState === 'clean')? Trello says true (its
+  // long-standing behaviour), Vikunja says false — and an absent flag means
+  // false: an automatic migration into someone's own tracker cannot be taken
+  // back (ADR §Р10). Such tasks stay local until the user presses Import in
+  // the settings summary.
+  // autoImportLocalTasks: false,
 }
 ```
 

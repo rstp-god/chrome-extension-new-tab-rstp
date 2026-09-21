@@ -4,6 +4,8 @@
  * adapter stay imports-only.
  */
 
+import type { TodoStatus } from '@/widgets/Todo/integrations/types.ts'
+
 /**
  * Where a user creates a personal API token in the Vikunja web UI. Appended
  * to the instance root the user typed, so the help link points at *their*
@@ -46,3 +48,24 @@ export const VIKUNJA_MISSING_COLUMN_TITLES = {
   struggle: 'integrations.vikunja.mapping.columnStruggle',
   deleted: 'integrations.vikunja.mapping.columnTrash',
 } as const
+
+/**
+ * The statuses that exist only inside the extension while the project is in
+ * flat mode, in the order the widget lists them.
+ *
+ * Flat mode maps everything but `completed` onto the view's default bucket,
+ * so Vikunja can tell "done" from "not done" and nothing else: a task sitting
+ * in `inprogress`, `struggle` or `deleted` looks identical over there.
+ * `input` is absent on purpose — it *is* the default bucket, so it round-trips
+ * as itself.
+ *
+ * A constant rather than a derivation from the mapping: the mapping in flat
+ * mode is a placeholder that points four statuses at one bucket, and reading
+ * the answer out of it would mean re-deriving this rule from its own
+ * consequence.
+ */
+export const VIKUNJA_LOCAL_ONLY_STATUSES: readonly TodoStatus[] = [
+  'inprogress',
+  'struggle',
+  'deleted',
+]

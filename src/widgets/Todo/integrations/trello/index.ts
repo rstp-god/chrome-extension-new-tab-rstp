@@ -212,6 +212,13 @@ export const descriptor: IntegrationDescriptor = {
   descriptionI18nKey: 'todoWidget:integrations.trello.description',
   ConnectForm: TrelloConnectForm,
   create: (config) => new TrelloIntegration(config as TrelloConfig),
+  /**
+   * Unchanged behaviour: a sync has always pushed todos that predate the
+   * connection into the board. The flag exists because Vikunja does not do
+   * that (see `IntegrationDescriptor.autoImportLocalTasks`), and leaving it
+   * off here would quietly change what Trello users already rely on.
+   */
+  autoImportLocalTasks: true,
   getScope: (config) => {
     const { boardId } = config as TrelloConfig
     return boardId ? { boardId } : null

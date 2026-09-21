@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/item.tsx'
 import { todoIntegrationRegistry } from '@/widgets/Todo/integrations/index.ts'
 import { stripNamespace } from '@/widgets/Todo/utils/i18n.ts'
+import { testIds } from '@tests/constants/testIds.ts'
 import { ChevronRightIcon, PlugIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -45,7 +46,11 @@ export function TodoSettingsPicker({ onPick }: Props) {
           asChild
           className="cursor-pointer hover:border-primary hover:bg-muted/50"
         >
-          <button type="button" onClick={() => onPick(descriptor.name)}>
+          <button
+            data-testid={testIds.todoIntegrationPick(descriptor.name)}
+            type="button"
+            onClick={() => onPick(descriptor.name)}
+          >
             <ItemMedia variant="icon">
               <PlugIcon />
             </ItemMedia>

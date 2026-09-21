@@ -2,6 +2,7 @@ import { PlusIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button.tsx'
+import { TestId } from '@tests/constants/testIds.ts'
 
 import type { TodoStatus } from '@/widgets/Todo/integrations/types.ts'
 
@@ -29,7 +30,10 @@ export function VikunjaMissingColumnsPanel({ columns, busy, onCreate }: Props) {
   const { t } = useTranslation('todoWidget')
 
   return (
-    <div className="grid gap-2 rounded-2xl border border-border bg-muted/20 p-3 text-sm">
+    <div
+      data-testid={TestId.TodoMissingColumnsPanel}
+      className="grid gap-2 rounded-2xl border border-border bg-muted/20 p-3 text-sm"
+    >
       <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {t('integrations.vikunja.mapping.createMissingTitle')}
       </div>
