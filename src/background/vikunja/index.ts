@@ -40,13 +40,12 @@ function respond(
 /**
  * Is this message from one of our own extension pages?
  *
- * `chrome.runtime.onMessage` also delivers messages from our content scripts,
- * which run on every https origin and are therefore exposed to whatever page
- * they were injected into. Such a sender must not be able to drive an op that
- * carries the user's Vikunja token, so the bridge answers extension pages
- * only. (A web page cannot reach this listener at all — `externally_connectable`
- * traffic arrives on `onMessageExternal` — so the check is about our own
- * content scripts, not about foreign sites.)
+ * The bridge answers **extension pages only**. A web page cannot reach this
+ * listener at all — `externally_connectable` traffic arrives on
+ * `onMessageExternal` — so this is not a wall against foreign sites; it is
+ * the guarantee that an op carrying the user's Vikunja token can only be
+ * driven from a document this extension itself shipped, whatever gets
+ * injected into the browser later.
  *
  * Note it checks `sender.url`, not `sender.tab`: the New Tab page *is* a tab,
  * so rejecting anything with a tab would reject the only real caller.

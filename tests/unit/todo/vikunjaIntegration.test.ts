@@ -280,12 +280,7 @@ describe('VikunjaIntegration.pullTasks', () => {
     bridge.mockImplementation(async (req) =>
       req.op === 'listLabels'
         ? { ok: true, value: labels }
-        : {
-            ok: true,
-            // The worker always reports a delta alongside the tasks; the
-            // adapter's schema refuses a payload without one.
-            value: { tasks, pulledAt: 1, delta: { added: [], changed: [], removed: [] } },
-          },
+        : { ok: true, value: { tasks, pulledAt: 1 } },
     )
   }
 
@@ -338,10 +333,7 @@ describe('VikunjaIntegration.pullTasks', () => {
     bridge.mockImplementation(async (req) =>
       req.op === 'listLabels'
         ? { ok: false, errorKey: 'rateLimited' }
-        : {
-            ok: true,
-            value: { tasks: [], pulledAt: 1, delta: { added: [], changed: [], removed: [] } },
-          },
+        : { ok: true, value: { tasks: [], pulledAt: 1 } },
     )
 
     await expect(new VikunjaIntegration(CONFIG).pullTasks(ctx)).resolves.toEqual({

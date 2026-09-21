@@ -18,9 +18,9 @@ import type {
   VikunjaBroadcast,
   VikunjaBucketSummary,
   VikunjaConnectInfo,
+  VikunjaDeltaCounts,
   VikunjaLabelSummary,
   VikunjaProjectSummary,
-  VikunjaPullDelta,
   VikunjaPullResult,
   VikunjaPulledTask,
   VikunjaSetLabelsResult,
@@ -85,26 +85,26 @@ export const vikunjaPulledTaskSchema: z.ZodType<VikunjaPulledTask> = z.object({
   labelIds: z.array(z.number()),
 })
 
-export const vikunjaPullDeltaSchema: z.ZodType<VikunjaPullDelta> = z.object({
-  added: z.array(z.number()),
-  changed: z.array(z.number()),
-  removed: z.array(z.number()),
-})
-
 export const vikunjaPullResultSchema: z.ZodType<VikunjaPullResult> = z.object({
   tasks: z.array(vikunjaPulledTaskSchema),
   pulledAt: z.number(),
-  delta: vikunjaPullDeltaSchema,
+})
+
+/** How much moved, as the broadcast reports it: counts, never ids. */
+export const vikunjaDeltaCountsSchema: z.ZodType<VikunjaDeltaCounts> = z.object({
+  added: z.number(),
+  changed: z.number(),
+  removed: z.number(),
 })
 
 /**
  * What the worker's background pull broadcasts, validated on arrival.
  *
- * `isVikunjaBroadcast` only proves the `type`; this is what makes the ids and
- * the error key safe to act on. The channel is shared with the Tab Rules
- * traffic and with our own content scripts, so "the worker sent it" is an
- * assumption, not a fact — and a `projectId` that is not a number would leak
- * straight into the subscriber's scope filter.
+ * `isVikunjaBroadcast` only proves the `type`; this is what makes the counts
+ * and the error key safe to act on. The channel is shared with the Tab Rules
+ * traffic, so "the worker sent it" is an assumption the subscriber checks
+ * (see `isOwnWorker`) rather than a fact — and a `projectId` that is not a
+ * number would leak straight into its scope filter.
  */
 export const vikunjaBroadcastSchema: z.ZodType<VikunjaBroadcast> = z.discriminatedUnion('type', [
   z.object({
@@ -112,7 +112,7 @@ export const vikunjaBroadcastSchema: z.ZodType<VikunjaBroadcast> = z.discriminat
     projectId: z.number(),
     viewId: z.number(),
     at: z.number(),
-    delta: vikunjaPullDeltaSchema,
+    delta: vikunjaDeltaCountsSchema,
   }),
   z.object({
     type: z.literal('vikunja/pull-failed'),

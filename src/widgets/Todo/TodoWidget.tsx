@@ -115,15 +115,17 @@ export function TodoWidget() {
   useEffect(() => {
     if (!integrationName || !scopeKey || !hasMapping) return
 
-    const subscribe = getIntegrationDescriptor(integrationName)?.subscribeRemoteChanges
-    if (!subscribe) return
+    const descriptor = getIntegrationDescriptor(integrationName)
+    if (!descriptor?.subscribeRemoteChanges) return
 
     // Re-resolved from the store rather than closed over: `scopeKey` is what
     // this effect depends on, and the object behind it is rebuilt per render.
     const current = resolveScope(useTodoStore.getState().integration)
     if (!current) return
 
-    return subscribe(current, (event) => {
+    // Called as a method, not through a detached reference: an implementation
+    // is free to be a real method on the descriptor and read `this`.
+    return descriptor.subscribeRemoteChanges(current, (event) => {
       if (event.kind === 'changed') {
         void syncNow({ silent: true })
         return

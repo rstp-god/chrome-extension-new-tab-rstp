@@ -59,6 +59,21 @@ import type {
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 /**
+ * Per-request policy.
+ *
+ * `retry: false` makes a 5xx final. The caller that wants it is the
+ * background alarm: it runs unattended every few minutes, so the *next tick*
+ * is the retry — and the 1/4/12 s backoff waits would be spent sitting in an
+ * idle service worker that MV3 is entitled to unload mid-wait, which turns a
+ * "retry" into a read that simply never finishes. Every bridge op keeps the
+ * default, because a page is waiting for its answer and cannot come back in
+ * five minutes.
+ */
+export interface VikunjaRequestPolicy {
+  retry?: boolean
+}
+
+/**
  * A parsed body, the JSON it was parsed from, and the response headers it
  * arrived with.
  *
@@ -232,6 +247,7 @@ export class VikunjaClient {
   async getViewTasks(
     projectId: number,
     viewId: number,
+    policy: VikunjaRequestPolicy = {},
   ): Promise<VikunjaResponse<VikunjaBucketWithTasks[]>> {
     const schema = z.array(vikunjaBucketWithTasksSchema)
     const path = `${this.viewPath(projectId, viewId)}/tasks`
@@ -244,7 +260,11 @@ export class VikunjaClient {
     const seen = new Set<number>()
 
     for (let page = 1; page <= VIKUNJA_MAX_PULL_PAGES; page += 1) {
-      const out = await this.get(`${path}?per_page=${VIKUNJA_PAGE_SIZE}&page=${page}`, schema)
+      const out = await this.get(
+        `${path}?per_page=${VIKUNJA_PAGE_SIZE}&page=${page}`,
+        schema,
+        policy,
+      )
       if (!out.ok) return out
 
       let sawFullBucket = false
@@ -447,8 +467,12 @@ export class VikunjaClient {
     return `/projects/${projectId}/views/${viewId}`
   }
 
-  private get<S extends z.ZodType>(path: string, schema: S): Promise<VikunjaResponse<z.infer<S>>> {
-    return this.request('GET', path, schema)
+  private get<S extends z.ZodType>(
+    path: string,
+    schema: S,
+    policy?: VikunjaRequestPolicy,
+  ): Promise<VikunjaResponse<z.infer<S>>> {
+    return this.request('GET', path, schema, undefined, policy)
   }
 
   private put<S extends z.ZodType>(
@@ -502,27 +526,33 @@ export class VikunjaClient {
     path: string,
     schema: S,
     body?: unknown,
+    policy?: VikunjaRequestPolicy,
   ): Promise<VikunjaResponse<z.infer<S>>> {
-    const out = await this.requestWithHeaders(method, path, schema, body)
+    const out = await this.requestWithHeaders(method, path, schema, body, policy)
     return out.ok ? { ok: true, value: out.value.value } : out
   }
 
   /**
-   * Runs one request, retrying only a 5xx and only on the documented
-   * schedule. Every other outcome — including a thrown fetch and a timeout —
-   * is final: DNS failures and rejected bodies do not improve with waiting.
+   * Runs one request, retrying only a 5xx, only on the documented schedule
+   * and only when the caller's policy allows it. Every other outcome —
+   * including a thrown fetch and a timeout — is final: DNS failures and
+   * rejected bodies do not improve with waiting.
    */
   private async requestWithHeaders<S extends z.ZodType>(
     method: HttpMethod,
     path: string,
     schema: S,
     body?: unknown,
+    policy?: VikunjaRequestPolicy,
   ): Promise<VikunjaResponse<WithHeaders<z.infer<S>>>> {
     const startedAt = Date.now()
 
     for (let attempt = 0; ; attempt += 1) {
       const outcome = await this.attempt(method, path, schema, body)
       if (!outcome.retry) return outcome.response
+      // A caller that declared itself the retry gets the 5xx as it is, with
+      // no wait spent inside a worker that may not survive it.
+      if (policy?.retry === false) return NETWORK_FAILURE
       if (attempt >= VIKUNJA_BACKOFF_MS.length) return NETWORK_FAILURE
 
       // Slow attempts eat the budget too, so the decision is made on the

@@ -2,7 +2,7 @@
  * The one read path of the integration, shared by the bridge op `pull` and by
  * the background alarm.
  *
- * Two rules it exists to hold in one place:
+ * Four rules it exists to hold in one place:
  *
  * 1. **A pull is always full and always through the view endpoint.** An
  *    incremental read filtered by `updated` is cheaper and wrong twice over:
@@ -15,10 +15,19 @@
  *    those syncs land here within milliseconds of each other. Serving them
  *    from the snapshot is the difference between one request and one request
  *    per tab against someone's own server.
+ * 3. **Every real read broadcasts what it found**, not just the alarm's. A
+ *    manual sync in one tab rewrites the snapshot, so the next alarm tick
+ *    would see an empty delta and the *other* tabs would never learn about
+ *    the change. Broadcasting from here — the single place a read happens —
+ *    is what keeps them in step.
+ * 4. **One read per view at a time.** An alarm tick landing next to a
+ *    widget's forced pull is two reads of the same board for one answer; the
+ *    second caller joins the first instead.
  */
 
 import { z } from 'zod'
 
+import { broadcastVikunja } from '@/background/vikunja/broadcast.ts'
 import { readSnapshot, writeSnapshot } from '@/background/vikunja/cache.ts'
 import { VIKUNJA_SNAPSHOT_FRESH_MS } from '@/background/vikunja/constants.ts'
 import { withVikunjaClient } from '@/background/vikunja/gate.ts'
@@ -31,12 +40,42 @@ import {
 
 import type { VikunjaSnapshot } from '@/background/vikunja/cache.ts'
 import type {
-  VikunjaPullDelta,
-  VikunjaPullResult,
+  VikunjaDeltaCounts,
   VikunjaPulledTask,
   VikunjaResponse,
 } from '@/background/vikunja/messages.ts'
 import type { VikunjaTask } from '@/background/vikunja/schema.ts'
+
+/**
+ * What moved, as task ids.
+ *
+ * Worker-internal on purpose: the broadcast carries `VikunjaDeltaCounts`
+ * instead, because no page has a use for the ids. They exist here so
+ * `isEmptyDelta` can be exact and so a test can say *which* task the
+ * comparison noticed.
+ */
+export interface VikunjaPullDelta {
+  added: number[]
+  changed: number[]
+  removed: number[]
+}
+
+/**
+ * What a read reports back inside the worker: the tasks, plus the two things
+ * only this layer knows — what changed, and whether the snapshot that would
+ * let the woken tabs read it cheaply actually landed.
+ *
+ * The bridge's `VikunjaPullResult` is the narrower half of this; `handlePull`
+ * drops the rest rather than shipping it across a `structuredClone` boundary
+ * for nobody.
+ */
+export interface VikunjaPullOutcome {
+  tasks: VikunjaPulledTask[]
+  pulledAt: number
+  delta: VikunjaPullDelta
+  /** `false` when the snapshot could not be written (quota, storage gone). */
+  persisted: boolean
+}
 
 /**
  * Nothing observed to change — the answer for a cache hit. A factory rather
@@ -77,10 +116,10 @@ function toPulledTask(task: VikunjaTask, bucketId: number): VikunjaPulledTask {
     done: task.done,
     doneAt: task.done_at,
     bucketId,
+    created: task.created,
     // Normalised here, at the single point every pulled task passes through,
     // so no consumer can forget and compare nanoseconds with seconds.
     updated: normalizeVikunjaTimestamp(task.updated),
-    created: task.created,
     labelIds: task.labels.map((label) => label.id),
   }
 }
@@ -145,6 +184,15 @@ export function isEmptyDelta(delta: VikunjaPullDelta): boolean {
   return delta.added.length === 0 && delta.changed.length === 0 && delta.removed.length === 0
 }
 
+/** The delta as it goes on the wire: how many, not which. */
+function toDeltaCounts(delta: VikunjaPullDelta): VikunjaDeltaCounts {
+  return {
+    added: delta.added.length,
+    changed: delta.changed.length,
+    removed: delta.removed.length,
+  }
+}
+
 /**
  * Is the snapshot recent enough to answer a non-forced pull?
  *
@@ -157,6 +205,30 @@ function isFresh(snapshot: VikunjaSnapshot, now: number): boolean {
   return age >= 0 && age < VIKUNJA_SNAPSHOT_FRESH_MS
 }
 
+export interface RunPullOptions {
+  /** Read the view for real instead of answering from a fresh snapshot. */
+  force?: boolean
+  /**
+   * Retry a 5xx on the client's backoff schedule. Default `true`, which is
+   * what a bridge op wants: a page is waiting for the answer.
+   *
+   * The alarm passes `false`. It runs unattended every few minutes, so *it*
+   * is the retry — and the 1/4/12 s waits would be spent sitting in an idle
+   * worker that Chrome is entitled to unload mid-backoff.
+   */
+  retry?: boolean
+}
+
+/**
+ * Reads the view once at a time, per view.
+ *
+ * Keyed by the pair rather than by "a pull is running": two configured
+ * projects are two independent boards, and serialising them would make the
+ * second one wait for no reason. The entry is dropped when the promise
+ * settles, so a failure never wedges the view.
+ */
+const inFlight = new Map<string, Promise<VikunjaResponse<VikunjaPullOutcome>>>()
+
 /**
  * Reads the configured view and reports it together with what changed since
  * the previous read.
@@ -167,26 +239,53 @@ function isFresh(snapshot: VikunjaSnapshot, now: number): boolean {
  * very `chrome.storage.local` the calling page can read on its own. Every
  * path that *does* touch the network goes through `withVikunjaClient`.
  */
-export async function runPull(
+export function runPull(
   cfg: unknown,
   projectId: number,
   viewId: number,
-  opts: { force?: boolean } = {},
-): Promise<VikunjaResponse<VikunjaPullResult>> {
+  opts: RunPullOptions = {},
+): Promise<VikunjaResponse<VikunjaPullOutcome>> {
   const scope = scopeSchema.safeParse({ projectId, viewId })
-  if (!scope.success) return VIKUNJA_UNKNOWN_FAILURE
+  if (!scope.success) return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
 
-  const previous = await readSnapshot(scope.data.projectId, scope.data.viewId)
+  const key = `${scope.data.projectId}:${scope.data.viewId}`
+  const running = inFlight.get(key)
+  // A caller that would have read the very same view joins the read already
+  // in flight. It can only get *fresher* data than it asked for, so even a
+  // non-forced caller is happy with a forced read's answer.
+  if (running) return running
+
+  const started = pullView(cfg, scope.data.projectId, scope.data.viewId, opts).finally(() => {
+    inFlight.delete(key)
+  })
+  inFlight.set(key, started)
+  return started
+}
+
+async function pullView(
+  cfg: unknown,
+  projectId: number,
+  viewId: number,
+  opts: RunPullOptions,
+): Promise<VikunjaResponse<VikunjaPullOutcome>> {
+  const previous = await readSnapshot(projectId, viewId)
 
   if (!opts.force && previous && isFresh(previous, Date.now())) {
     return {
       ok: true,
-      value: { tasks: previous.tasks, pulledAt: previous.pulledAt, delta: emptyDelta() },
+      value: {
+        tasks: previous.tasks,
+        pulledAt: previous.pulledAt,
+        delta: emptyDelta(),
+        // Nothing was written because nothing was read; the snapshot we just
+        // served from is by definition still there.
+        persisted: true,
+      },
     }
   }
 
-  return withVikunjaClient<VikunjaPullResult>(cfg, async (client) => {
-    const out = await client.getViewTasks(scope.data.projectId, scope.data.viewId)
+  return withVikunjaClient<VikunjaPullOutcome>(cfg, async (client) => {
+    const out = await client.getViewTasks(projectId, viewId, { retry: opts.retry !== false })
     if (!out.ok) return out
 
     const tasks = out.value.flatMap((bucket) =>
@@ -195,16 +294,52 @@ export async function runPull(
     const delta = computeDelta(previous?.tasks ?? null, tasks)
     const pulledAt = Date.now()
 
-    // Best effort: a snapshot that could not be written costs the next pull a
-    // network read and an `added`-only delta, which is not a reason to fail a
-    // read that succeeded.
-    await writeSnapshot({
-      projectId: scope.data.projectId,
-      viewId: scope.data.viewId,
-      tasks,
-      pulledAt,
-    })
+    const persisted = await writeSnapshot({ projectId, viewId, tasks, pulledAt })
+    announce({ projectId, viewId, pulledAt, delta, persisted, firstSnapshot: previous === null })
 
-    return { ok: true, value: { tasks, pulledAt, delta } }
+    return { ok: true, value: { tasks, pulledAt, delta, persisted } }
+  })
+}
+
+/**
+ * Tells the open pages about a read that found something — whoever started
+ * it.
+ *
+ * There is no loop to worry about: a page answers `vikunja/pulled` with a
+ * *silent* sync, which pulls unforced, which is served from the snapshot this
+ * very read just wrote (well inside `VIKUNJA_SNAPSHOT_FRESH_MS`), so it makes
+ * no request and reaches no broadcast.
+ *
+ * The one case that is held back is a **first** read whose snapshot did not
+ * persist. Then the woken tabs have nothing to be served from, each would
+ * read the instance for itself, and each of those reads would again see "no
+ * previous snapshot" and broadcast — a storm proportional to the number of
+ * open tabs. A warning is the honest outcome instead.
+ */
+function announce(event: {
+  projectId: number
+  viewId: number
+  pulledAt: number
+  delta: VikunjaPullDelta
+  persisted: boolean
+  firstSnapshot: boolean
+}): void {
+  if (isEmptyDelta(event.delta)) return
+
+  if (event.firstSnapshot && !event.persisted) {
+    // Ids and counts only; never the host, the token or a task's text.
+    console.warn('[vikunja] snapshot not persisted', {
+      projectId: event.projectId,
+      viewId: event.viewId,
+    })
+    return
+  }
+
+  broadcastVikunja({
+    type: 'vikunja/pulled',
+    projectId: event.projectId,
+    viewId: event.viewId,
+    at: event.pulledAt,
+    delta: toDeltaCounts(event.delta),
   })
 }

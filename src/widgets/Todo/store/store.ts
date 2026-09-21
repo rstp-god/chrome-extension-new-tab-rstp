@@ -123,6 +123,11 @@ interface TodoWidgetState {
  * read, while one triggered by a broadcast is a reaction to a read that has
  * just happened and is served from the worker's snapshot. It stays separately
  * settable because the two are not the same question.
+ *
+ * `silent` is about the spinner only: a silent run still clears a previous
+ * `errorKey` when it starts and still sets one when it fails. A background
+ * refresh that succeeded is exactly what should retire a stale banner, and
+ * one that failed is how the user finds out the sync has stopped working.
  */
 export interface SyncNowOptions {
   silent?: boolean
@@ -500,10 +505,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
        * schema that guards storage, exactly like `pickScope` does. A config
        * that does not validate is refused rather than persisted.
        *
-       * Deliberately leaves `mapping` alone: the one caller (Vikunja's
-       * mapping step, writing `kanbanMapping: false`) sets the matching
-       * mapping itself, and silently dropping it here would strand the user
-       * on the mapping step.
+       * Deliberately leaves `mapping` alone. The callers are Vikunja's
+       * mapping step (writing `kanbanMapping: false`, and setting the
+       * matching mapping itself) and its pull-period select in the settings
+       * summary — neither has any business resetting the mapping, and
+       * silently dropping it here would strand the user on the mapping step.
        *
        * Answers whether the write happened, so a caller that is about to
        * save a matching mapping can stop instead of persisting a mapping for

@@ -320,38 +320,40 @@ export interface VikunjaPulledTask {
 }
 
 /**
- * What changed between the previous snapshot of a view and the current one,
- * as task ids.
+ * How much moved between the previous full read of a view and the current
+ * one, as three counts.
  *
- * Ids rather than tasks: the delta travels inside a broadcast to every open
- * New Tab page, and a page that cares reads the tasks out of the pull result
- * it is about to ask for anyway. The three lists are what the worker can
- * honestly tell from two full reads —
+ * Counts, not ids: the delta travels inside a broadcast to every open New Tab
+ * page, and no page has a use for the ids — it answers a non-empty delta by
+ * syncing, which reads the tasks anyway. The ids stay inside the worker,
+ * where the comparison is made.
  *
- * - `added`: ids the previous snapshot did not have (everything, on the first
- *   pull of a view);
- * - `changed`: ids whose `updated`, `bucketId` or `done` moved;
- * - `removed`: ids the previous snapshot had and this one does not, which for
- *   a **full** read of the view means deleted (or moved out of it) remotely.
+ * - `added`: tasks the previous snapshot did not have (all of them, on the
+ *   first pull of a view);
+ * - `changed`: tasks whose `updated`, bucket or `done` moved;
+ * - `removed`: tasks the previous snapshot had and this one does not, which
+ *   for a **full** read of the view means deleted (or moved out) remotely.
  *
  * `removed` is the reason the pull is always full and never filtered by
  * `updated` (recon §2.2): an incremental read cannot report a deletion at all.
  */
-export interface VikunjaPullDelta {
-  added: number[]
-  changed: number[]
-  removed: number[]
+export interface VikunjaDeltaCounts {
+  added: number
+  changed: number
+  removed: number
 }
 
+/**
+ * What the `pull` op answers with.
+ *
+ * Deliberately no delta: the widget reconciles the whole list it is handed
+ * and has no use for "what changed" — the worker keeps that for itself, to
+ * decide whether a broadcast is worth sending.
+ */
 export interface VikunjaPullResult {
   tasks: VikunjaPulledTask[]
   /** When the worker finished the read, for the widget's "last synced" line. */
   pulledAt: number
-  /**
-   * How this read differs from the previous snapshot of the same view. Empty
-   * on a cache hit — nothing was read, so nothing was observed to change.
-   */
-  delta: VikunjaPullDelta
 }
 
 /**
@@ -421,8 +423,8 @@ export const VIKUNJA_UNKNOWN_FAILURE: VikunjaResponse<never> = Object.freeze({
  * of `isVikunjaRequest`'s allowlist, so a broadcast can never be mistaken for
  * an op the worker should run.
  *
- * `vikunja/pulled` means "the view moved, ask me for it"; the delta is there
- * so a page can tell a real change from a no-op without a round trip.
+ * `vikunja/pulled` means "the view moved, ask me for it"; the counts are
+ * there so a page can tell a real change from a no-op without a round trip.
  * `vikunja/pull-failed` is the counterpart the widget could otherwise never
  * learn about: the alarm runs while no page is looking, and a revoked token
  * or a host permission the user withdrew has to reach the UI somehow.
@@ -433,7 +435,7 @@ export type VikunjaBroadcast =
       projectId: number
       viewId: number
       at: number
-      delta: VikunjaPullDelta
+      delta: VikunjaDeltaCounts
     }
   | {
       type: 'vikunja/pull-failed'

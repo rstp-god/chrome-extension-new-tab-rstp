@@ -87,6 +87,7 @@ function stubView(bodies: Record<string, unknown>[] = [taskBody()]) {
 
 function installChrome(granted: boolean, seed: Record<string, unknown> = {}) {
   const store = new Map(Object.entries(seed))
+  const sent: unknown[] = []
   const local = {
     get: vi.fn(async (key: string | null) =>
       key === null ? Object.fromEntries(store) : store.has(key) ? { [key]: store.get(key) } : {},
@@ -96,16 +97,22 @@ function installChrome(granted: boolean, seed: Record<string, unknown> = {}) {
     }),
     remove: vi.fn(async () => {}),
   }
+  // The read path broadcasts what it found, whoever started it — so every
+  // test here can see it.
+  const sendMessage = vi.fn((message: unknown) => {
+    sent.push(message)
+  })
 
   Object.defineProperty(globalThis, 'chrome', {
     value: {
       permissions: { contains: vi.fn(async () => granted) },
       storage: { local },
+      runtime: { sendMessage },
     },
     configurable: true,
   })
 
-  return { store, local }
+  return { store, local, sent, sendMessage }
 }
 
 beforeEach(() => {
@@ -390,5 +397,201 @@ describe('runPull: failures', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('runPull: announcing what it found', () => {
+  it('broadcasts a non-empty delta as counts, whoever started the read', async () => {
+    const chromeMock = installChrome(true)
+    stubView()
+
+    // "Tab A" syncing by hand — not the alarm. The other tabs still have to
+    // hear about it, which is why the broadcast lives in the read path.
+    await runPull(CFG, 1, 4, { force: true })
+
+    expect(chromeMock.sent).toEqual([
+      {
+        type: 'vikunja/pulled',
+        projectId: 1,
+        viewId: 4,
+        at: expect.any(Number),
+        // Counts, not ids: no page has a use for the ids.
+        delta: { added: 1, changed: 0, removed: 0 },
+      },
+    ])
+  })
+
+  it('stays quiet when a real read found nothing new', async () => {
+    const chromeMock = installChrome(true)
+    stubView()
+    await writeSnapshot({ projectId: 1, viewId: 4, tasks: [task()], pulledAt: 1 })
+
+    await runPull(CFG, 1, 4, { force: true })
+
+    expect(chromeMock.sent).toEqual([])
+  })
+
+  it('does not broadcast a cache hit — nothing was read, so nothing was observed', async () => {
+    const chromeMock = installChrome(true)
+    stubView()
+    await writeSnapshot({ projectId: 1, viewId: 4, tasks: [task({ id: 7 })], pulledAt: Date.now() })
+
+    await runPull(CFG, 1, 4, {})
+
+    expect(chromeMock.sent).toEqual([])
+  })
+
+  it('the tab woken by a broadcast reads nothing and broadcasts nothing — no loop', async () => {
+    const chromeMock = installChrome(true)
+    const fetchMock = stubView()
+
+    // Tab A, forced: one read, one broadcast.
+    await runPull(CFG, 1, 4, { force: true })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(chromeMock.sent).toHaveLength(1)
+
+    // Tab B reacting to that broadcast: a silent sync pulls unforced, lands
+    // inside the freshness window of the snapshot the read just wrote, and so
+    // makes no request — which is what makes the broadcast terminate.
+    const echo = await runPull(CFG, 1, 4, { force: false })
+
+    expect(echo).toMatchObject({ ok: true })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(chromeMock.sent).toHaveLength(1)
+  })
+
+  it('never puts the token, the host or a task title on the wire', async () => {
+    const chromeMock = installChrome(true)
+    stubFetch(() => jsonResponse(200, [bucketBody(1, [taskBody({ title: 'private thing' })])]))
+
+    await runPull(CFG, 1, 4, { force: true })
+
+    const serialised = JSON.stringify(chromeMock.sent)
+    expect(serialised).not.toContain(CFG.token)
+    expect(serialised).not.toContain('vikunja.example')
+    expect(serialised).not.toContain('private thing')
+  })
+})
+
+describe('runPull: a snapshot that would not persist', () => {
+  it('holds back the first-pull broadcast and warns once', async () => {
+    const chromeMock = installChrome(true)
+    chromeMock.local.set.mockRejectedValue(new Error('QuotaExceededError'))
+    stubView()
+
+    const out = await runPull(CFG, 1, 4, { force: true })
+
+    expect(out).toMatchObject({ ok: true, value: { persisted: false } })
+    // Otherwise every woken tab would read the instance for itself, see "no
+    // previous snapshot" and broadcast again — a storm per open tab.
+    expect(chromeMock.sent).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith('[vikunja] snapshot not persisted', {
+      projectId: 1,
+      viewId: 4,
+    })
+    expect(console.warn).toHaveBeenCalledTimes(2) // the write failure, then this
+  })
+
+  it('still broadcasts a later read: the woken tabs have the older snapshot to serve from', async () => {
+    const chromeMock = installChrome(true)
+    stubView()
+    await writeSnapshot({ projectId: 1, viewId: 4, tasks: [task({ id: 7 })], pulledAt: 1 })
+    chromeMock.local.set.mockRejectedValue(new Error('QuotaExceededError'))
+
+    await runPull(CFG, 1, 4, { force: true })
+
+    expect(chromeMock.sent).toEqual([
+      expect.objectContaining({
+        type: 'vikunja/pulled',
+        delta: { added: 1, changed: 0, removed: 1 },
+      }),
+    ])
+  })
+
+  it('reports persisted: true for a cache hit, which wrote nothing', async () => {
+    installChrome(true)
+    stubView()
+    await writeSnapshot({ projectId: 1, viewId: 4, tasks: [task()], pulledAt: Date.now() })
+
+    await expect(runPull(CFG, 1, 4, {})).resolves.toMatchObject({
+      ok: true,
+      value: { persisted: true },
+    })
+  })
+})
+
+describe('runPull: one read per view at a time', () => {
+  it('shares a single network read between two concurrent callers', async () => {
+    installChrome(true)
+    const fetchMock = stubView()
+
+    // An alarm tick landing next to a widget's forced pull.
+    const [first, second] = await Promise.all([
+      runPull(CFG, 1, 4, { force: true }),
+      runPull(CFG, 1, 4, { force: true }),
+    ])
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(first).toEqual(second)
+  })
+
+  it('lets a later caller read again once the first has settled', async () => {
+    installChrome(true)
+    const fetchMock = stubView()
+
+    await runPull(CFG, 1, 4, { force: true })
+    await runPull(CFG, 1, 4, { force: true })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not wedge the view when a read fails', async () => {
+    installChrome(true)
+    const fetchMock = stubFetch(() => jsonResponse(401, {}))
+
+    await expect(runPull(CFG, 1, 4, { force: true })).resolves.toMatchObject({ ok: false })
+    await expect(runPull(CFG, 1, 4, { force: true })).resolves.toMatchObject({ ok: false })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not serialise two different views', async () => {
+    installChrome(true)
+    const fetchMock = stubView()
+
+    await Promise.all([runPull(CFG, 1, 4, { force: true }), runPull(CFG, 2, 9, { force: true })])
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('runPull: the retry policy', () => {
+  it('retries a 5xx by default — a page is waiting for the answer', async () => {
+    vi.useFakeTimers()
+    try {
+      installChrome(true)
+      const fetchMock = stubFetch(() => jsonResponse(503, {}))
+
+      const pending = runPull(CFG, 1, 4, { force: true })
+      await vi.advanceTimersByTimeAsync(60_000)
+
+      await expect(pending).resolves.toEqual({ ok: false, errorKey: 'network' })
+      expect(fetchMock).toHaveBeenCalledTimes(VIKUNJA_BACKOFF_MS.length + 1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('issues exactly one request per page with retry: false, and reports network', async () => {
+    installChrome(true)
+    const fetchMock = stubFetch(() => jsonResponse(503, {}))
+
+    // The alarm path: no waiting inside a worker Chrome may unload, because
+    // the next tick is the retry.
+    await expect(runPull(CFG, 1, 4, { force: true, retry: false })).resolves.toEqual({
+      ok: false,
+      errorKey: 'network',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 })

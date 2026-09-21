@@ -7,7 +7,10 @@ import {
   VIKUNJA_SNAPSHOT_PREFIX,
   writeSnapshot,
 } from '@/background/vikunja/cache.ts'
-import { VIKUNJA_SNAPSHOT_MAX_TASKS } from '@/background/vikunja/constants.ts'
+import {
+  VIKUNJA_SNAPSHOT_MAX_BYTES,
+  VIKUNJA_SNAPSHOT_MAX_TASKS,
+} from '@/background/vikunja/constants.ts'
 
 import type { VikunjaSnapshot } from '@/background/vikunja/cache.ts'
 import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
@@ -187,5 +190,87 @@ describe('without a chrome.storage API', () => {
     await expect(readSnapshot(1, 4)).resolves.toBeNull()
     await expect(writeSnapshot(snapshot())).resolves.toBe(false)
     await expect(clearSnapshots()).resolves.toBeUndefined()
+  })
+})
+
+describe('the byte budget', () => {
+  /** A task whose description alone is ~50 KB of rich text. */
+  function heavyTask(id: number): VikunjaPulledTask {
+    return task({ id, description: 'x'.repeat(50_000) })
+  }
+
+  it('drops trailing tasks until the record fits', async () => {
+    const { store } = installStorage()
+    // 60 × 50 KB ≈ 3 MB: under the count cap, twice over the byte budget.
+    const tasks = Array.from({ length: 60 }, (_, index) => heavyTask(index + 1))
+
+    await writeSnapshot(snapshot({ tasks }))
+
+    const stored = store.get(snapshotKey(1, 4)) as VikunjaSnapshot
+    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
+    // Trailing tasks go, so the board's own order decides what survives.
+    expect(stored.tasks.length).toBeGreaterThan(0)
+    expect(stored.tasks.length).toBeLessThan(tasks.length)
+    expect(stored.tasks[0].id).toBe(1)
+  })
+
+  it('leaves an ordinary snapshot untouched', async () => {
+    const { store } = installStorage()
+    const tasks = Array.from({ length: 50 }, (_, index) => task({ id: index + 1 }))
+
+    await writeSnapshot(snapshot({ tasks }))
+
+    expect((store.get(snapshotKey(1, 4)) as VikunjaSnapshot).tasks).toHaveLength(50)
+  })
+
+  it('applies the count cap before the byte budget', async () => {
+    const { store } = installStorage()
+    const tasks = Array.from({ length: VIKUNJA_SNAPSHOT_MAX_TASKS + 5 }, (_, index) =>
+      task({ id: index + 1 }),
+    )
+
+    await writeSnapshot(snapshot({ tasks }))
+
+    const stored = store.get(snapshotKey(1, 4)) as VikunjaSnapshot
+    expect(stored.tasks).toHaveLength(VIKUNJA_SNAPSHOT_MAX_TASKS)
+    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
+  })
+
+  it('writes a task list of one even when that one is oversized on its own', async () => {
+    const { store } = installStorage()
+
+    // Nothing can be done about a single record over the budget — the point
+    // of the cap is that N of them cannot multiply, not that one is refused.
+    await writeSnapshot(snapshot({ tasks: [task({ description: 'x'.repeat(50_000) })] }))
+
+    expect((store.get(snapshotKey(1, 4)) as VikunjaSnapshot).tasks).toHaveLength(1)
+  })
+})
+
+describe('clearSnapshots key listing', () => {
+  it('prefers getKeys() and never reads a single value', async () => {
+    const { store, local } = installStorage({
+      [snapshotKey(1, 4)]: snapshot(),
+      'todo-widget:v1': { keep: true },
+    })
+    const getKeys = vi.fn(async () => [...store.keys()])
+    Object.assign(local, { getKeys })
+
+    await clearSnapshots()
+
+    expect(getKeys).toHaveBeenCalledTimes(1)
+    // `get(null)` would pull every stored value into memory just to read its
+    // keys — including somebody's whole task list.
+    expect(local.get).not.toHaveBeenCalled()
+    expect([...store.keys()]).toEqual(['todo-widget:v1'])
+  })
+
+  it('falls back to get(null) where getKeys is not available', async () => {
+    const { store, local } = installStorage({ [snapshotKey(1, 4)]: snapshot() })
+
+    await clearSnapshots()
+
+    expect(local.get).toHaveBeenCalledWith(null)
+    expect(store.size).toBe(0)
   })
 })

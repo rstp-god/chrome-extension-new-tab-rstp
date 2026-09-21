@@ -3,7 +3,9 @@
  * timings, magic strings on the wire) lives here so `client.ts` stays
  * readable and the numbers are testable by import rather than by literal.
  *
- * Tasks 5–7 add the pagination and mapping constants next to these.
+ * Numbers both sides of the bridge need (the pull periods, the push
+ * concurrency) live in `messages.ts` instead and are re-exported at the
+ * bottom of this file — nothing under `src/widgets/` may import this one.
  */
 
 /** Versioned REST root, appended to the user's normalised base URL. */
@@ -17,12 +19,16 @@ export const VIKUNJA_API_PREFIX = '/api/v1'
 export const VIKUNJA_REQUEST_TIMEOUT_MS = 20_000
 
 /**
- * Wall-clock ceiling for one logical operation, retries and backoff waits
- * included. `VIKUNJA_REQUEST_TIMEOUT_MS` bounds a single round trip, which is
- * not the same thing: four slow-but-not-hung attempts plus 17 s of backoff
- * could otherwise keep a `syncNow` spinning for over a minute, long enough for
- * MV3 to unload the worker mid-flight. A retry that would cross this line is
- * skipped and the op reports `network`.
+ * Wall-clock ceiling for **one request and its retries**, backoff waits
+ * included — not for a logical operation, which may be several requests
+ * (`getViewTasks` reads a page at a time, `updateTask` reads before it
+ * writes) and is therefore bounded by this many milliseconds *per request*.
+ *
+ * `VIKUNJA_REQUEST_TIMEOUT_MS` bounds a single round trip, which is not the
+ * same thing: four slow-but-not-hung attempts plus 17 s of backoff could
+ * otherwise keep one request going for over a minute, long enough for MV3 to
+ * unload the worker mid-flight. A retry that would cross this line is skipped
+ * and the request reports `network`.
  */
 export const VIKUNJA_OP_DEADLINE_MS = 45_000
 
@@ -91,6 +97,20 @@ export const VIKUNJA_SNAPSHOT_FRESH_MS = 15_000
  * widget was never going to show.
  */
 export const VIKUNJA_SNAPSHOT_MAX_TASKS = 2000
+
+/**
+ * Ceiling on the serialised size of one snapshot.
+ *
+ * The count cap above is not enough on its own: a description is rich text
+ * bounded at 16 KiB, so 2000 tasks is a theoretical 32 MB record — far past
+ * `chrome.storage.local`'s quota, which every widget shares. Both dimensions
+ * are therefore bounded: `writeSnapshot` applies the count cap first and then
+ * drops trailing tasks until the JSON fits in this budget.
+ *
+ * 1.5 MB is generous for a board a person reads in a widget and small enough
+ * that a pathological one cannot squeeze the other widgets out of storage.
+ */
+export const VIKUNJA_SNAPSHOT_MAX_BYTES = 1_500_000
 
 /**
  * The Todo widget's envelope key in `chrome.storage.local`.

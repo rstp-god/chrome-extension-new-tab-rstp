@@ -23,7 +23,10 @@
 
 import { z } from 'zod'
 
-import { VIKUNJA_SNAPSHOT_MAX_TASKS } from '@/background/vikunja/constants.ts'
+import {
+  VIKUNJA_SNAPSHOT_MAX_BYTES,
+  VIKUNJA_SNAPSHOT_MAX_TASKS,
+} from '@/background/vikunja/constants.ts'
 import {
   VIKUNJA_MAX_DESCRIPTION_LENGTH,
   VIKUNJA_MAX_TITLE_LENGTH,
@@ -124,19 +127,53 @@ export async function readSnapshot(
 }
 
 /**
- * Persists a snapshot, truncating the task list to
- * `VIKUNJA_SNAPSHOT_MAX_TASKS`. Answers whether the write landed — a caller
- * that only wanted the cache warmed can ignore it, which is why a failure is
- * not thrown.
+ * Trims the snapshot to both of its budgets: at most
+ * `VIKUNJA_SNAPSHOT_MAX_TASKS` tasks, and at most
+ * `VIKUNJA_SNAPSHOT_MAX_BYTES` of JSON.
+ *
+ * The count cap alone is not enough — a description is rich text bounded at
+ * 16 KiB, so the cap allows a theoretically enormous record — and a byte cap
+ * alone would let one pathological task cost the whole budget. Trailing tasks
+ * are dropped, so the board's own order decides what survives.
+ *
+ * Sized task by task rather than by re-serialising the whole record after
+ * every drop: a JSON array's length is the empty record plus each element
+ * plus one comma between them, so one pass costs one `stringify` per task
+ * instead of one per candidate size.
+ */
+function withinBudget(snapshot: VikunjaSnapshot): VikunjaSnapshot {
+  const capped: VikunjaSnapshot =
+    snapshot.tasks.length > VIKUNJA_SNAPSHOT_MAX_TASKS
+      ? { ...snapshot, tasks: snapshot.tasks.slice(0, VIKUNJA_SNAPSHOT_MAX_TASKS) }
+      : snapshot
+
+  if (JSON.stringify(capped).length <= VIKUNJA_SNAPSHOT_MAX_BYTES) return capped
+
+  let used = JSON.stringify({ ...capped, tasks: [] }).length
+  const kept: VikunjaPulledTask[] = []
+  for (const task of capped.tasks) {
+    // `+ 1` for the comma that would separate it from the previous element;
+    // over-counting by one byte per task is the safe direction.
+    const cost = JSON.stringify(task).length + 1
+    if (used + cost > VIKUNJA_SNAPSHOT_MAX_BYTES) break
+    used += cost
+    kept.push(task)
+  }
+
+  return { ...capped, tasks: kept }
+}
+
+/**
+ * Persists a snapshot, trimmed to the documented budgets. Answers whether the
+ * write landed: a first pull whose snapshot did not persist must not be
+ * broadcast (see `announce` in `pull.ts`), so this is a result rather than a
+ * throw.
  */
 export async function writeSnapshot(snapshot: VikunjaSnapshot): Promise<boolean> {
   const area = localArea()
   if (!area) return false
 
-  const bounded: VikunjaSnapshot =
-    snapshot.tasks.length > VIKUNJA_SNAPSHOT_MAX_TASKS
-      ? { ...snapshot, tasks: snapshot.tasks.slice(0, VIKUNJA_SNAPSHOT_MAX_TASKS) }
-      : snapshot
+  const bounded = withinBudget(snapshot)
 
   try {
     await area.set({ [snapshotKey(bounded.projectId, bounded.viewId)]: bounded })
@@ -151,6 +188,21 @@ export async function writeSnapshot(snapshot: VikunjaSnapshot): Promise<boolean>
 }
 
 /**
+ * Every key in the area.
+ *
+ * `getKeys()` (Chrome 130+) answers with the names alone; `get(null)` — the
+ * fallback — reads every *value* the extension has ever stored, which for
+ * this feature means pulling a task list into memory only to throw it away.
+ * Preferring the cheap call is what makes clearing snapshots something the
+ * worker can do without thinking about it.
+ */
+async function listKeys(area: chrome.storage.LocalStorageArea): Promise<string[]> {
+  const withKeys = area as chrome.storage.LocalStorageArea & { getKeys?: () => Promise<string[]> }
+  if (typeof withKeys.getKeys === 'function') return withKeys.getKeys()
+  return Object.keys(await area.get(null))
+}
+
+/**
  * Drops every snapshot, whatever view it belongs to.
  *
  * Used when the integration goes away (disconnect wipes the Todo envelope, the
@@ -162,8 +214,7 @@ export async function clearSnapshots(): Promise<void> {
   if (!area) return
 
   try {
-    const items = await area.get(null)
-    const keys = Object.keys(items).filter((key) => key.startsWith(VIKUNJA_SNAPSHOT_PREFIX))
+    const keys = (await listKeys(area)).filter((key) => key.startsWith(VIKUNJA_SNAPSHOT_PREFIX))
     if (keys.length === 0) return
     await area.remove(keys)
   } catch (err) {

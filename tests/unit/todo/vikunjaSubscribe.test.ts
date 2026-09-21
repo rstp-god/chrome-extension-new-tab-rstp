@@ -17,16 +17,23 @@ vi.mock('@/services/chrome/runtime.ts', async (importOriginal) => {
   return { ...actual, isShowcaseMode: () => runtimeFlags.showcase }
 })
 
-type Listener = (message: unknown) => void
+type Sender = chrome.runtime.MessageSender
+type Listener = (message: unknown, sender: Sender) => void
 
 const SCOPE = { projectId: 1, viewId: 4 }
+const EXTENSION_ID = 'abcdefghijklmnopabcdefghijklmnop'
+const EXTENSION_ROOT = `chrome-extension://${EXTENSION_ID}/`
+
+/** The service worker: our id, and no `url` at all. */
+const WORKER_SENDER: Sender = { id: EXTENSION_ID }
 
 const PULLED = {
   type: 'vikunja/pulled',
   projectId: 1,
   viewId: 4,
   at: 1_700_000_000_000,
-  delta: { added: [4], changed: [], removed: [] },
+  // Counts, not ids — the ids never leave the worker.
+  delta: { added: 1, changed: 0, removed: 0 },
 }
 
 function installChromeMock() {
@@ -35,15 +42,19 @@ function installChromeMock() {
   const removeListener = vi.fn((listener: Listener) => listeners.delete(listener))
 
   ;(globalThis as unknown as { chrome: unknown }).chrome = {
-    runtime: { onMessage: { addListener, removeListener } },
+    runtime: {
+      id: EXTENSION_ID,
+      getURL: (path: string) => `${EXTENSION_ROOT}${path}`,
+      onMessage: { addListener, removeListener },
+    },
   }
 
   return {
     addListener,
     removeListener,
     /** Play the worker: hand every registered listener one message. */
-    emit: (message: unknown) => {
-      for (const listener of [...listeners]) listener(message)
+    emit: (message: unknown, sender: Sender = WORKER_SENDER) => {
+      for (const listener of [...listeners]) listener(message, sender)
     },
     size: () => listeners.size,
   }
@@ -130,6 +141,10 @@ describe('subscribeVikunjaRemoteChanges', () => {
     ['a malformed broadcast', { type: 'vikunja/pulled', projectId: '1', viewId: 4, at: 1 }],
     ['a broadcast with no delta', { type: 'vikunja/pulled', projectId: 1, viewId: 4, at: 1 }],
     [
+      'a delta of ids rather than counts',
+      { ...PULLED, delta: { added: [4], changed: [], removed: [] } },
+    ],
+    [
       'a failure with an error key we do not know',
       { type: 'vikunja/pull-failed', projectId: 1, viewId: 4, at: 1, errorKey: 'whatever' },
     ],
@@ -187,10 +202,53 @@ describe('subscribeVikunjaRemoteChanges', () => {
     const { onEvent } = collect()
     subscribeVikunjaRemoteChanges(SCOPE, onEvent)
 
-    const listener = chromeMock.addListener.mock.calls[0][0] as (message: unknown) => unknown
+    const listener = chromeMock.addListener.mock.calls[0][0] as (
+      message: unknown,
+      sender: Sender,
+    ) => unknown
 
     // A truthy return would hold the port open and starve the listener that
     // actually answers `chrome.runtime.sendMessage`.
-    expect(listener(PULLED)).toBeUndefined()
+    expect(listener(PULLED, WORKER_SENDER)).toBeUndefined()
+  })
+})
+
+describe('subscribeVikunjaRemoteChanges — who is allowed to say it', () => {
+  it('accepts the service worker, which sends no url', () => {
+    const chromeMock = installChromeMock()
+    const { events, onEvent } = collect()
+    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+
+    chromeMock.emit(PULLED, { id: EXTENSION_ID })
+
+    expect(events).toEqual([{ kind: 'changed' }])
+  })
+
+  it('accepts another page of this same extension', () => {
+    const chromeMock = installChromeMock()
+    const { events, onEvent } = collect()
+    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+
+    chromeMock.emit(PULLED, { id: EXTENSION_ID, url: `${EXTENSION_ROOT}src/newtab/index.html` })
+
+    expect(events).toEqual([{ kind: 'changed' }])
+  })
+
+  it.each([
+    ['another extension', { id: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz' }],
+    ['no id at all', {}],
+    ['our id but a web origin', { id: EXTENSION_ID, url: 'https://evil.example/page' }],
+    [
+      'a url that merely starts like ours',
+      { id: EXTENSION_ID, url: `chrome-extension://${EXTENSION_ID}.evil.example/x` },
+    ],
+  ])('rejects a broadcast from %s', (_label, sender) => {
+    const chromeMock = installChromeMock()
+    const { events, onEvent } = collect()
+    subscribeVikunjaRemoteChanges(SCOPE, onEvent)
+
+    chromeMock.emit(PULLED, sender as Sender)
+
+    expect(events).toEqual([])
   })
 })

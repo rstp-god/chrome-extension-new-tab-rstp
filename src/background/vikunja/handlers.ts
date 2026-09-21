@@ -248,14 +248,20 @@ export function handleCreateBucket(
  * pull may be answered from the worker's snapshot, which is the whole point
  * of the broadcast-triggered sync.
  */
-export function handlePull(
+export async function handlePull(
   req: Extract<VikunjaRequest, { op: 'pull' }>,
 ): Promise<VikunjaResponse<VikunjaPullResult>> {
   const scope = vikunjaScopeSchema.safeParse(req)
-  if (!scope.success) return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
+  if (!scope.success) return VIKUNJA_UNKNOWN_FAILURE
   const { projectId, viewId } = scope.data
 
-  return runPull(req.cfg, projectId, viewId, { force: req.force === true })
+  const out = await runPull(req.cfg, projectId, viewId, { force: req.force === true })
+  if (!out.ok) return out
+
+  // The delta and the snapshot's fate stay in the worker: the widget
+  // reconciles the whole list, and shipping what it does not read across a
+  // `structuredClone` boundary would only be more for it to validate.
+  return { ok: true, value: { tasks: out.value.tasks, pulledAt: out.value.pulledAt } }
 }
 
 /**

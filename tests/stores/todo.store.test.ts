@@ -708,6 +708,28 @@ describe('todo store — integration: syncNow options', () => {
     expect(fakePullTasks).toHaveBeenCalledWith(expect.objectContaining({ force: true }))
   })
 
+  it('a silent sync that fails still sets the error key', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState() })
+    fakePullTasks.mockResolvedValueOnce({ ok: false, errorKey: 'authInvalid' })
+
+    await useTodoStore.getState().syncNow({ silent: true })
+
+    // Silence is about the spinner, not about swallowing the outcome: a
+    // background refresh that stopped working is exactly what the user needs
+    // to be told.
+    expect(useTodoStore.getState().errorKey).toBe('authInvalid')
+    expect(useTodoStore.getState().loading).toBe(false)
+  })
+
+  it('a silent sync clears a stale error when it succeeds', async () => {
+    useTodoStore.setState({ integration: makeIntegrationState(), errorKey: 'network' })
+    fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))
+
+    await useTodoStore.getState().syncNow({ silent: true })
+
+    expect(useTodoStore.getState().errorKey).toBeNull()
+  })
+
   it('lets `force` be set independently of `silent`', async () => {
     useTodoStore.setState({ integration: makeIntegrationState() })
     fakePullTasks.mockResolvedValueOnce(ok({ tasks: [], refs: {} }))

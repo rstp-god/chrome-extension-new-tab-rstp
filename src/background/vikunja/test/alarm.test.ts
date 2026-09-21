@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   ensureAlarm,
+  readVikunjaScheduleFrom,
   readVikunjaScheduleFromStorage,
   setupVikunjaPull,
 } from '@/background/vikunja/alarm.ts'
@@ -125,13 +126,16 @@ interface Harness {
   /** Every broadcast `chrome.runtime.sendMessage` was handed. */
   sent: unknown[]
   fire: (name?: string) => Promise<void>
-  change: (key: string) => Promise<void>
+  /** Dispatch a `storage.onChanged` carrying `newValue`, as Chrome does. */
+  changeTo: (key: string, newValue: unknown) => Promise<void>
   settle: () => Promise<void>
   alarmCreate: ReturnType<typeof vi.fn>
   alarmClear: ReturnType<typeof vi.fn>
   sendMessage: ReturnType<typeof vi.fn>
   onAlarmAdd: ReturnType<typeof vi.fn>
   onChangedAdd: ReturnType<typeof vi.fn>
+  storageGet: ReturnType<typeof vi.fn>
+  storageRemove: ReturnType<typeof vi.fn>
 }
 
 /**
@@ -176,6 +180,16 @@ function installChrome(
     return options.sendMessageImpl?.(message)
   })
 
+  const storageGet = vi.fn(async (key: string | null) =>
+    key === null ? Object.fromEntries(store) : store.has(key) ? { [key]: store.get(key) } : {},
+  )
+  const storageSet = vi.fn(async (items: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(items)) store.set(key, value)
+  })
+  const storageRemove = vi.fn(async (keys: string | string[]) => {
+    for (const key of Array.isArray(keys) ? keys : [keys]) store.delete(key)
+  })
+
   Object.defineProperty(globalThis, 'chrome', {
     value: {
       alarms: {
@@ -185,21 +199,7 @@ function installChrome(
         onAlarm: { addListener: onAlarmAdd },
       },
       storage: {
-        local: {
-          get: vi.fn(async (key: string | null) =>
-            key === null
-              ? Object.fromEntries(store)
-              : store.has(key)
-                ? { [key]: store.get(key) }
-                : {},
-          ),
-          set: vi.fn(async (items: Record<string, unknown>) => {
-            for (const [key, value] of Object.entries(items)) store.set(key, value)
-          }),
-          remove: vi.fn(async (keys: string | string[]) => {
-            for (const key of Array.isArray(keys) ? keys : [keys]) store.delete(key)
-          }),
-        },
+        local: { get: storageGet, set: storageSet, remove: storageRemove },
         onChanged: { addListener: onChangedAdd },
       },
       permissions: { contains: vi.fn(async () => options.granted ?? true) },
@@ -231,8 +231,14 @@ function installChrome(
     await settle()
   }
 
-  const change = async (key: string) => {
-    for (const listener of changeListeners) listener({ [key]: {} }, 'local')
+  const changeTo = async (key: string, newValue: unknown) => {
+    // Keep storage and the event in step: the listener parses `newValue`, but
+    // a queued reconciliation re-reads storage.
+    if (newValue === undefined) store.delete(key)
+    else store.set(key, newValue)
+
+    const change = newValue === undefined ? {} : { newValue }
+    for (const listener of changeListeners) listener({ [key]: change }, 'local')
     await settle()
   }
 
@@ -241,13 +247,15 @@ function installChrome(
     alarms,
     sent,
     fire,
-    change,
+    changeTo,
     settle,
     alarmCreate,
     alarmClear,
     sendMessage,
     onAlarmAdd,
     onChangedAdd,
+    storageGet,
+    storageRemove,
   }
 }
 
@@ -418,8 +426,7 @@ describe('setupVikunjaPull', () => {
     const chromeMock = installChrome({ seed: {} })
     setupVikunjaPull()
 
-    chromeMock.store.set(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
-    await chromeMock.change(VIKUNJA_TODO_STORAGE_KEY)
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
 
     expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
   })
@@ -427,10 +434,10 @@ describe('setupVikunjaPull', () => {
   it('ignores a change to somebody else’s key', async () => {
     const chromeMock = installChrome({ seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() } })
     setupVikunjaPull()
-    await chromeMock.change(VIKUNJA_TODO_STORAGE_KEY)
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
     chromeMock.alarmCreate.mockClear()
 
-    await chromeMock.change('activity_day')
+    await chromeMock.changeTo('activity_day', { anything: true })
 
     expect(chromeMock.alarmCreate).not.toHaveBeenCalled()
   })
@@ -443,12 +450,11 @@ describe('setupVikunjaPull', () => {
       },
     })
     setupVikunjaPull()
-    await chromeMock.change(VIKUNJA_TODO_STORAGE_KEY)
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
     expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
 
     // `clearIntegration` wipes the local envelope; the worker sees the removal.
-    chromeMock.store.delete(VIKUNJA_TODO_STORAGE_KEY)
-    await chromeMock.change(VIKUNJA_TODO_STORAGE_KEY)
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, undefined)
 
     expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(false)
     expect(chromeMock.store.has(snapshotKey(1, 4))).toBe(false)
@@ -466,13 +472,15 @@ describe('the alarm firing', () => {
     await chromeMock.fire()
 
     expect(fetchMock).toHaveBeenCalled()
+    // Sent from the read path (`pull.ts`), not from here — the alarm is only
+    // one of the callers that can find a moved view.
     expect(chromeMock.sent).toEqual([
       {
         type: 'vikunja/pulled',
         projectId: 1,
         viewId: 4,
         at: expect.any(Number),
-        delta: { added: [4], changed: [], removed: [] },
+        delta: { added: 1, changed: 0, removed: 0 },
       },
     ])
   })
@@ -518,7 +526,7 @@ describe('the alarm firing', () => {
     })
     const fetchMock = stubFetch(() => jsonResponse(200, []))
     setupVikunjaPull()
-    await chromeMock.change(VIKUNJA_TODO_STORAGE_KEY)
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
     expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
 
     await chromeMock.fire()
@@ -542,7 +550,7 @@ describe('the alarm firing', () => {
     })
     stubFetch(() => jsonResponse(401, { message: 'invalid token' }))
     setupVikunjaPull()
-    await chromeMock.change(VIKUNJA_TODO_STORAGE_KEY)
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
 
     await chromeMock.fire()
 
@@ -553,30 +561,25 @@ describe('the alarm firing', () => {
   })
 
   it('keeps the alarm on a transient network failure', async () => {
-    vi.useFakeTimers()
-    try {
-      const chromeMock = installChrome({
-        seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() },
-      })
-      stubFetch(() => jsonResponse(503, {}))
-      setupVikunjaPull()
-      await vi.advanceTimersByTimeAsync(0)
-      expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
+    const chromeMock = installChrome({
+      seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() },
+    })
+    stubFetch(() => jsonResponse(503, {}))
+    setupVikunjaPull()
+    await chromeMock.settle()
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
 
-      chromeMock.sendMessage.mockClear()
-      chromeMock.alarmClear.mockClear()
-      await chromeMock.fire()
-      // Let the client exhaust its backoff schedule.
-      await vi.advanceTimersByTimeAsync(60_000)
+    chromeMock.sendMessage.mockClear()
+    chromeMock.alarmClear.mockClear()
+    // No timer juggling needed: the scheduled read does not retry, so the
+    // 5xx comes back on the first attempt.
+    await chromeMock.fire()
 
-      expect(chromeMock.alarmClear).not.toHaveBeenCalled()
-      expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
-      expect(chromeMock.sendMessage).toHaveBeenCalledWith(
-        expect.objectContaining({ type: 'vikunja/pull-failed', errorKey: 'network' }),
-      )
-    } finally {
-      vi.useRealTimers()
-    }
+    expect(chromeMock.alarmClear).not.toHaveBeenCalled()
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
+    expect(chromeMock.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'vikunja/pull-failed', errorKey: 'network' }),
+    )
   })
 
   it('swallows "Receiving end does not exist" when no page is open', async () => {
@@ -614,7 +617,7 @@ describe('the alarm firing', () => {
     })
     const fetchMock = stubFetch(() => jsonResponse(200, []))
     setupVikunjaPull()
-    await chromeMock.change(VIKUNJA_TODO_STORAGE_KEY)
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
 
     chromeMock.store.delete(VIKUNJA_TODO_STORAGE_KEY)
     await chromeMock.fire()
@@ -630,5 +633,162 @@ describe('without the chrome APIs', () => {
     Object.defineProperty(globalThis, 'chrome', { value: undefined, configurable: true })
 
     expect(() => setupVikunjaPull()).not.toThrow()
+  })
+})
+
+describe('readVikunjaScheduleFrom', () => {
+  it('parses the envelope the change event already handed us', () => {
+    // No `chrome` installed at all: the point of this entry point is that it
+    // needs no storage read.
+    expect(readVikunjaScheduleFrom(vikunjaEnvelope())).toEqual({
+      cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
+      projectId: 1,
+      viewId: 4,
+      periodMin: VIKUNJA_PULL_PERIOD_MIN,
+    })
+  })
+
+  it.each([
+    ['a removal', undefined],
+    ['an explicit null', null],
+    ['another backend', trelloEnvelope()],
+  ])('answers null for %s', (_label, raw) => {
+    expect(readVikunjaScheduleFrom(raw)).toBeNull()
+  })
+
+  it('agrees with the storage-reading variant', async () => {
+    installChrome({ seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() } })
+
+    await expect(readVikunjaScheduleFromStorage()).resolves.toEqual(
+      readVikunjaScheduleFrom(vikunjaEnvelope()),
+    )
+  })
+})
+
+describe('reacting to storage without re-reading it', () => {
+  it('schedules from the change event alone', async () => {
+    const chromeMock = installChrome({ seed: {} })
+    setupVikunjaPull()
+    await chromeMock.settle()
+    chromeMock.storageGet.mockClear()
+
+    // Chrome hands the whole envelope to the listener; going back to storage
+    // for it would be a read per task the user ticks off.
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, vikunjaEnvelope())
+
+    expect(chromeMock.alarms.get(VIKUNJA_PULL_ALARM)?.periodInMinutes).toBe(VIKUNJA_PULL_PERIOD_MIN)
+    expect(chromeMock.storageGet).not.toHaveBeenCalled()
+  })
+
+  it('does not sweep storage for snapshots when there was no alarm', async () => {
+    const chromeMock = installChrome({ seed: {} })
+    setupVikunjaPull()
+    await chromeMock.settle()
+    chromeMock.storageGet.mockClear()
+    chromeMock.storageRemove.mockClear()
+
+    // A Trello user (or a plain local list) editing a task: nothing of ours
+    // is stored, so nothing of ours needs cleaning.
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, trelloEnvelope())
+
+    expect(chromeMock.storageGet).not.toHaveBeenCalled()
+    expect(chromeMock.storageRemove).not.toHaveBeenCalled()
+  })
+
+  it('still sweeps them on the transition out of being scheduled', async () => {
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope(),
+        [snapshotKey(1, 4)]: { projectId: 1, viewId: 4, tasks: [pulledTask()], pulledAt: 1 },
+      },
+    })
+    setupVikunjaPull()
+    await chromeMock.settle()
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
+
+    await chromeMock.changeTo(VIKUNJA_TODO_STORAGE_KEY, undefined)
+
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(false)
+    expect(chromeMock.store.has(snapshotKey(1, 4))).toBe(false)
+  })
+})
+
+describe('one reconciliation at a time', () => {
+  it('two concurrent ensureAlarm calls create the alarm once', async () => {
+    const chromeMock = installChrome({
+      seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() },
+    })
+
+    await Promise.all([ensureAlarm(), ensureAlarm()])
+
+    // Without the guard both runs would read "no alarm" before either
+    // created one, and the second create would restart the interval.
+    expect(chromeMock.alarmCreate).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not lose a change that arrived mid-run', async () => {
+    const chromeMock = installChrome({
+      seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() },
+    })
+
+    const first = ensureAlarm()
+    // The user picks another period while the first run is in flight; the
+    // queued tail re-reads storage, which is authoritative.
+    chromeMock.store.set(
+      VIKUNJA_TODO_STORAGE_KEY,
+      vikunjaEnvelope({ config: { ...CONFIG, pullPeriodMin: 1 } }),
+    )
+    await Promise.all([first, ensureAlarm()])
+
+    expect(chromeMock.alarms.get(VIKUNJA_PULL_ALARM)?.periodInMinutes).toBe(1)
+  })
+
+  it('survives an alarms.create that rejects', async () => {
+    const chromeMock = installChrome({
+      seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() },
+    })
+    chromeMock.alarmCreate.mockReturnValue(Promise.reject(new Error('no room')))
+
+    await expect(ensureAlarm()).resolves.toBeUndefined()
+    expect(console.error).not.toHaveBeenCalled()
+  })
+})
+
+describe('the scheduled read does not retry', () => {
+  it('issues exactly one request on a 5xx and reports network', async () => {
+    const chromeMock = installChrome({
+      seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() },
+    })
+    const fetchMock = stubFetch(() => jsonResponse(503, {}))
+    setupVikunjaPull()
+    await chromeMock.settle()
+
+    await chromeMock.fire()
+
+    // The next tick is the retry; a 12-second backoff would be spent in a
+    // worker Chrome is entitled to unload.
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
+    expect(chromeMock.sent).toEqual([
+      expect.objectContaining({ type: 'vikunja/pull-failed', errorKey: 'network' }),
+    ])
+  })
+})
+
+describe('what the worker is allowed to log', () => {
+  it('never writes the token or the instance host to the console', async () => {
+    const chromeMock = installChrome({
+      seed: { [VIKUNJA_TODO_STORAGE_KEY]: vikunjaEnvelope() },
+    })
+    stubFetch(() => jsonResponse(503, {}))
+    setupVikunjaPull()
+    await chromeMock.settle()
+    await chromeMock.fire()
+
+    const warn = vi.mocked(console.warn)
+    const error = vi.mocked(console.error)
+    const logged = JSON.stringify([...warn.mock.calls, ...error.mock.calls])
+    expect(logged).not.toContain(CONFIG.token)
+    expect(logged).not.toContain('vikunja.example')
   })
 })

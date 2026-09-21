@@ -1,13 +1,16 @@
 /**
  * The background half of the Vikunja integration: a periodic `chrome.alarms`
- * job that pulls the configured view and tells the open New Tab pages what
- * moved.
+ * job that pulls the configured view so the widget finds out about a task
+ * somebody changed elsewhere.
  *
  * Three constraints shape everything here.
  *
  * **`chrome.alarms`, never a timer.** MV3 unloads the service worker after
  * ~30 s of idle, taking every `setInterval` with it. An alarm survives that,
- * which is the only reason a "background pull" can exist at all.
+ * which is the only reason a "background pull" can exist at all. The same
+ * fact is why the read itself does not retry (`retry: false`): a 5xx is
+ * answered by the *next tick*, not by sitting on a 12-second backoff inside a
+ * worker Chrome is entitled to kill.
  *
  * **Listeners register synchronously, at module scope** (see
  * `setupVikunjaPull` and the comment in `src/background/index.ts`). The event
@@ -16,13 +19,19 @@
  * that started the worker — and the next one is a whole period away.
  *
  * **The worker has no config but storage.** It keeps nothing between
- * wake-ups, so the schedule is re-read from the Todo widget's envelope on
+ * wake-ups, so the schedule is parsed out of the Todo widget's envelope on
  * every alarm — with a minimal schema of its own, because the worker may not
  * import the widget's (boundary rule in `messages.ts`).
+ *
+ * Note what is *not* here: the `vikunja/pulled` broadcast. Every real read
+ * announces itself from `pull.ts`, whichever caller started it, so a manual
+ * sync in one tab reaches the others too. The alarm only owns the failures,
+ * which nobody else is in a position to notice.
  */
 
 import { z } from 'zod'
 
+import { broadcastVikunja, swallowRejection } from '@/background/vikunja/broadcast.ts'
 import { clearSnapshots } from '@/background/vikunja/cache.ts'
 import {
   VIKUNJA_PULL_ALARM,
@@ -30,10 +39,9 @@ import {
   VIKUNJA_PULL_PERIODS_MIN,
   VIKUNJA_TODO_STORAGE_KEY,
 } from '@/background/vikunja/constants.ts'
-import { isEmptyDelta, runPull } from '@/background/vikunja/pull.ts'
+import { runPull } from '@/background/vikunja/pull.ts'
 
 import type {
-  VikunjaBroadcast,
   VikunjaErrorKey,
   VikunjaPullPeriod,
   VikunjaWire,
@@ -96,28 +104,20 @@ function resolvePeriod(raw: number | undefined): VikunjaPullPeriod {
 }
 
 /**
- * The schedule the persisted state currently asks for, or `null` when there
- * is nothing to pull: no integration, a different backend, half a scope, or a
- * mapping the user never finished.
+ * The schedule one stored envelope asks for, or `null` when there is nothing
+ * to pull: no integration, a different backend, half a scope, or a mapping
+ * the user never finished.
+ *
+ * Takes the record rather than reading storage so the `storage.onChanged`
+ * listener can parse the `newValue` Chrome already handed it — the change
+ * event carries the whole envelope, and going back to storage for it is a
+ * read per edited task.
  *
  * `null` is not an error — it is the normal answer for a widget with no
- * Vikunja connected, and it is what tells `ensureAlarm` to clean up.
+ * Vikunja connected, and it is what tells `applySchedule` to clean up.
  */
-export async function readVikunjaScheduleFromStorage(): Promise<VikunjaSchedule | null> {
-  const local = chromeObject()?.storage?.local
-  if (!local) return null
-
-  let raw: unknown
-  try {
-    const items = await local.get(VIKUNJA_TODO_STORAGE_KEY)
-    raw = items[VIKUNJA_TODO_STORAGE_KEY]
-  } catch {
-    // Storage unreadable: treat as "nothing scheduled" rather than throwing
-    // inside an alarm handler, where there is nobody to catch it.
-    return null
-  }
-
-  if (raw === undefined) return null
+export function readVikunjaScheduleFrom(raw: unknown): VikunjaSchedule | null {
+  if (raw === undefined || raw === null) return null
 
   const parsed = scheduleEnvelopeSchema.safeParse(raw)
   if (!parsed.success) return null
@@ -130,6 +130,24 @@ export async function readVikunjaScheduleFromStorage(): Promise<VikunjaSchedule 
     projectId: config.projectId,
     viewId: config.viewId,
     periodMin: resolvePeriod(config.pullPeriodMin),
+  }
+}
+
+/**
+ * The same answer, read from storage. Used by the paths that have no event to
+ * read it from: worker start, and the alarm actually firing.
+ */
+export async function readVikunjaScheduleFromStorage(): Promise<VikunjaSchedule | null> {
+  const local = chromeObject()?.storage?.local
+  if (!local) return null
+
+  try {
+    const items = await local.get(VIKUNJA_TODO_STORAGE_KEY)
+    return readVikunjaScheduleFrom(items[VIKUNJA_TODO_STORAGE_KEY])
+  } catch {
+    // Storage unreadable: treat as "nothing scheduled" rather than throwing
+    // inside an alarm handler, where there is nobody to catch it.
+    return null
   }
 }
 
@@ -155,36 +173,40 @@ async function clearAlarm(): Promise<void> {
 }
 
 /**
- * Brings the alarm in line with what is persisted.
+ * Brings the alarm in line with one schedule.
  *
  * Re-created only when the period actually differs: `chrome.alarms.create`
  * with an existing name replaces the alarm and restarts its interval, so
  * calling it unconditionally on every `storage.onChanged` — which fires for
- * every task the user ticks off — would keep pushing the next pull away and
- * a busy widget would never pull at all.
+ * every task the user ticks off — would keep pushing the next pull away and a
+ * busy widget would never pull at all.
  *
- * With nothing scheduled the alarm goes *and* the snapshots go with it: the
- * cached task list of a project nobody is linked to any more is stale data
- * with no one left to invalidate it. That is the disconnect path —
- * `clearIntegration` wipes the local envelope, `storage.onChanged` brings us
- * here, and the feature leaves no trace behind.
+ * With nothing scheduled the alarm goes *and* the snapshots go with it — but
+ * only when there *was* an alarm. That condition is what keeps a Trello user
+ * (or a local list) from paying for a storage sweep on every edit: no alarm
+ * means this feature has nothing stored, so there is nothing to clean.
  */
-export async function ensureAlarm(): Promise<void> {
-  const schedule = await readVikunjaScheduleFromStorage()
+async function applySchedule(schedule: VikunjaSchedule | null): Promise<void> {
+  const existing = await getExistingAlarm()
 
   if (!schedule) {
+    // Not merely "no schedule" but the transition into it: the disconnect
+    // path (`clearIntegration` wipes the local envelope) is the only way an
+    // alarm and its snapshots become garbage.
+    if (!existing) return
     await clearAlarm()
     await clearSnapshots()
     return
   }
 
-  const existing = await getExistingAlarm()
   if (existing && existing.periodInMinutes === schedule.periodMin) return
 
   const alarms = chromeObject()?.alarms
   if (!alarms?.create) return
   try {
-    alarms.create(VIKUNJA_PULL_ALARM, { periodInMinutes: schedule.periodMin })
+    // Promise-style on modern Chrome, `void` on older builds; either way a
+    // rejection here is not worth an unhandled promise in the worker.
+    swallowRejection(alarms.create(VIKUNJA_PULL_ALARM, { periodInMinutes: schedule.periodMin }))
   } catch (err) {
     console.warn('[vikunja] pull alarm create failed', {
       error: err instanceof Error ? err.name : 'unknown',
@@ -193,28 +215,44 @@ export async function ensureAlarm(): Promise<void> {
 }
 
 /**
- * Tells whoever is listening, and shrugs when nobody is.
+ * One alarm reconciliation at a time.
  *
- * "Receiving end does not exist" is the *normal* case here: the alarm fires
- * whether or not a New Tab page is open, and with no page there is no
- * listener. Swallowing it silently is the point — an unhandled rejection in
- * the worker would be logged on every pull of a browser whose owner has no
- * new tab open.
+ * `storage.onChanged` fires for every task edit, and each run is a couple of
+ * `chrome.alarms` round trips; two of them interleaving would both read "no
+ * alarm" and both create one. A request that arrives while a run is in flight
+ * is not dropped either — it sets `queued`, and the tail re-reads storage,
+ * which is authoritative for whatever the events raced over.
  */
-function broadcast(message: VikunjaBroadcast): void {
-  const runtime = chromeObject()?.runtime
-  if (!runtime?.sendMessage) return
+let running: Promise<void> | null = null
+let queued = false
 
-  try {
-    const sent: unknown = runtime.sendMessage(message)
-    if (sent && typeof (sent as PromiseLike<unknown>).then === 'function') {
-      void Promise.resolve(sent).catch(() => {
-        // No page listening, or it went away mid-send.
-      })
-    }
-  } catch {
-    // Synchronous throw from `sendMessage` (no receivers at all).
+function reconcile(resolve: () => Promise<VikunjaSchedule | null>): Promise<void> {
+  if (running) {
+    queued = true
+    return running
   }
+
+  running = (async () => {
+    await applySchedule(await resolve())
+    while (queued) {
+      queued = false
+      await applySchedule(await readVikunjaScheduleFromStorage())
+    }
+  })().finally(() => {
+    running = null
+  })
+
+  return running
+}
+
+/** Brings the alarm in line with what is persisted right now. */
+export function ensureAlarm(): Promise<void> {
+  return reconcile(readVikunjaScheduleFromStorage)
+}
+
+/** Failures no amount of retrying fixes — see `runScheduledPull`. */
+function isTerminalFailure(errorKey: VikunjaErrorKey): boolean {
+  return errorKey === 'permissionMissing' || errorKey === 'authInvalid'
 }
 
 /**
@@ -232,51 +270,33 @@ function broadcast(message: VikunjaBroadcast): void {
  *   **stays** and the next period tries again.
  *
  * Either way the failure is broadcast, because the alarm runs while nobody is
- * looking and the widget has no other way to learn about it.
- *
- * A success only broadcasts when something actually moved; a quiet board must
- * not wake every open tab into a sync every period.
+ * looking and the widget has no other way to learn about it. A *success* is
+ * announced by `pull.ts` instead — it is the read that knows whether anything
+ * moved, and it is not only the alarm that reads.
  */
 async function runScheduledPull(): Promise<void> {
   const schedule = await readVikunjaScheduleFromStorage()
   if (!schedule) {
     // Configuration disappeared between the alarm being set and it firing.
-    await clearAlarm()
-    await clearSnapshots()
+    await applySchedule(null)
     return
   }
 
   const { cfg, projectId, viewId } = schedule
-  // Always forced: the point of the alarm is to find out whether the remote
-  // moved, which a snapshot by definition cannot answer.
-  const out = await runPull(cfg, projectId, viewId, { force: true })
+  // Forced, because the point of the alarm is to find out whether the remote
+  // moved, which a snapshot by definition cannot answer. Unretried, because
+  // the alarm is the retry — see the module comment.
+  const out = await runPull(cfg, projectId, viewId, { force: true, retry: false })
+  if (out.ok) return
 
-  if (!out.ok) {
-    if (isTerminalFailure(out.errorKey)) await clearAlarm()
-    broadcast({
-      type: 'vikunja/pull-failed',
-      projectId,
-      viewId,
-      at: Date.now(),
-      errorKey: out.errorKey,
-    })
-    return
-  }
-
-  if (isEmptyDelta(out.value.delta)) return
-
-  broadcast({
-    type: 'vikunja/pulled',
+  if (isTerminalFailure(out.errorKey)) await clearAlarm()
+  broadcastVikunja({
+    type: 'vikunja/pull-failed',
     projectId,
     viewId,
-    at: out.value.pulledAt,
-    delta: out.value.delta,
+    at: Date.now(),
+    errorKey: out.errorKey,
   })
-}
-
-/** Failures no amount of retrying fixes — see `runScheduledPull`. */
-function isTerminalFailure(errorKey: VikunjaErrorKey): boolean {
-  return errorKey === 'permissionMissing' || errorKey === 'authInvalid'
 }
 
 /**
@@ -309,11 +329,13 @@ export function setupVikunjaPull(): void {
     // connected (secrets never reach `sync`), so a `sync` change cannot be
     // about a Vikunja schedule.
     if (area !== 'local') return
-    if (!Object.prototype.hasOwnProperty.call(changes, VIKUNJA_TODO_STORAGE_KEY)) return
+    const change = changes[VIKUNJA_TODO_STORAGE_KEY]
+    if (!change) return
 
-    // One path for a change and for a removal: `ensureAlarm` re-reads storage
-    // and a missing key answers "nothing scheduled", which clears up.
-    void ensureAlarm().catch((err: unknown) => {
+    // The event carries the envelope, so a removal (`newValue` absent) and a
+    // write are the same code path — `readVikunjaScheduleFrom` answers `null`
+    // for the first, which clears up.
+    void reconcile(async () => readVikunjaScheduleFrom(change.newValue)).catch((err: unknown) => {
       console.error('[vikunja] pull alarm sync failed', {
         error: err instanceof Error ? err.name : 'unknown',
       })

@@ -141,7 +141,7 @@ describe('setupVikunjaBridge', () => {
   })
 
   it.each([
-    ['a content script on a web page', { id: EXTENSION_ID, url: 'https://evil.example/page' }],
+    ['our id but a web origin', { id: EXTENSION_ID, url: 'https://evil.example/page' }],
     ['another extension', { id: 'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz', url: EXTENSION_ROOT }],
     ['a sender with no url at all', { id: EXTENSION_ID }],
     ['a sender with no id at all', { url: `${EXTENSION_ROOT}src/newtab/index.html` }],

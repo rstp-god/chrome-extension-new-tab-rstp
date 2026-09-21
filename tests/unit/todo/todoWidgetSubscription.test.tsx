@@ -183,6 +183,41 @@ describe('TodoWidget — remote change subscription', () => {
     expect(useTodoStore.getState().loading).toBe(false)
   })
 
+  it('re-subscribes for the new view when the user re-picks a project', async () => {
+    const unsubscribe = vi.fn()
+    fakeSubscribe.mockReturnValue(unsubscribe)
+    useTodoStore.setState({ integration: VIKUNJA })
+    await act(async () => {
+      render(<TodoWidget />)
+    })
+    expect(fakeSubscribe.mock.calls[0][0]).toEqual({ projectId: 1, viewId: 4 })
+
+    await act(async () => {
+      useTodoStore.setState({
+        integration: { ...VIKUNJA, config: { ...VIKUNJA.config, projectId: 7, viewId: 9 } },
+      })
+    })
+
+    // Otherwise the listener would keep filtering broadcasts for the project
+    // the widget no longer shows.
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+    expect(fakeSubscribe).toHaveBeenCalledTimes(2)
+    expect(fakeSubscribe.mock.calls[1][0]).toEqual({ projectId: 7, viewId: 9 })
+  })
+
+  it('does not re-subscribe when an unrelated part of the slice changes', async () => {
+    useTodoStore.setState({ integration: VIKUNJA })
+    await act(async () => {
+      render(<TodoWidget />)
+    })
+
+    await act(async () => {
+      useTodoStore.setState({ integration: { ...VIKUNJA, lastSyncAt: Date.now() } })
+    })
+
+    expect(fakeSubscribe).toHaveBeenCalledTimes(1)
+  })
+
   it('unsubscribes when the widget goes away', async () => {
     const unsubscribe = vi.fn()
     fakeSubscribe.mockReturnValue(unsubscribe)
