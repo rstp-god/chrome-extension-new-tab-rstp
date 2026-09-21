@@ -14,7 +14,10 @@
  *    the view once and broadcasts; every open New Tab page then syncs, and
  *    those syncs land here within milliseconds of each other. Serving them
  *    from the snapshot is the difference between one request and one request
- *    per tab against someone's own server.
+ *    per tab against someone's own server. Only a *complete* snapshot may
+ *    answer, which `cache.ts` guarantees by never storing any other kind: a
+ *    page takes what it is served for the whole view and drops the tasks it
+ *    does not mention.
  * 3. **Every real read broadcasts what it found**, not just the alarm's. A
  *    manual sync in one tab rewrites the snapshot, so the next alarm tick
  *    would see an empty delta and the *other* tabs would never learn about
@@ -78,7 +81,12 @@ export interface VikunjaPullOutcome {
   tasks: VikunjaPulledTask[]
   pulledAt: number
   delta: VikunjaPullDelta
-  /** `false` when the snapshot could not be written (quota, storage gone). */
+  /**
+   * `false` when no snapshot of this read is in storage: it could not be
+   * written (quota, storage gone) or did not fit the budgets and was refused
+   * whole (see `writeSnapshot`). The tasks above are the read's own either
+   * way — nothing trims what is *returned*, only what is cached.
+   */
   persisted: boolean
   /**
    * Did this read find something the open pages should be told about?
@@ -332,16 +340,10 @@ async function pullView(
     const pulledAt = Date.now()
 
     const persisted = await writeSnapshot(
-      { host, projectId, viewId, tasks, pulledAt },
+      { host, projectId, viewId, tasks, pulledAt, complete: true },
       snapshotBudgetBytes(opts.boardCount),
     )
-    const announceable = announceableChange({
-      projectId,
-      viewId,
-      delta,
-      persisted,
-      firstSnapshot: previous === null,
-    })
+    const announceable = announceableChange({ projectId, viewId, delta, persisted })
     if (announceable && opts.announce !== false) {
       broadcastVikunja({
         type: 'vikunja/pulled',
@@ -367,22 +369,24 @@ async function pullView(
  * very read just wrote (well inside `VIKUNJA_SNAPSHOT_FRESH_MS`), so it makes
  * no request and reaches no broadcast.
  *
- * The one case that is held back is a **first** read whose snapshot did not
- * persist. Then the woken tabs have nothing to be served from, each would
- * read the instance for itself, and each of those reads would again see "no
- * previous snapshot" and broadcast — a storm proportional to the number of
- * open tabs. A warning is the honest outcome instead.
+ * Which is exactly why a read whose snapshot did **not** persist is never
+ * announced, whatever the read before it found. The woken tabs would have
+ * nothing to be served from, each would read the instance for itself, and —
+ * the snapshot failing for the same reason (the view past its budget, a full
+ * quota) — each of those reads would compute a non-empty delta against
+ * whatever is left and broadcast again: a storm proportional to the number of
+ * open tabs, and one that does not end. A warning is the honest outcome
+ * instead; the pages learn about the change on their own next sync.
  */
 function announceableChange(event: {
   projectId: number
   viewId: number
   delta: VikunjaPullDelta
   persisted: boolean
-  firstSnapshot: boolean
 }): boolean {
   if (isEmptyDelta(event.delta)) return false
 
-  if (event.firstSnapshot && !event.persisted) {
+  if (!event.persisted) {
     // Ids and counts only; never the host, the token or a task's text.
     console.warn('[vikunja] snapshot not persisted', {
       projectId: event.projectId,

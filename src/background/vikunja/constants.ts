@@ -100,9 +100,13 @@ export const VIKUNJA_SNAPSHOT_FRESH_MS = 60_000
  * written on every background pull. Title and description are already
  * truncated at the edge (`VIKUNJA_MAX_TITLE_LENGTH` /
  * `VIKUNJA_MAX_DESCRIPTION_LENGTH`), so the remaining unbounded dimension is
- * the task count. 2000 is far past any board a person reads in a widget, and
- * the delta a truncated snapshot produces is wrong only about tasks the
- * widget was never going to show.
+ * the task count. 2000 is far past any board a person reads in a widget.
+ *
+ * A view past it is not trimmed to fit — it is not cached at all (see
+ * `cache.ts`: a snapshot is complete or absent, because a page takes what it
+ * is served for the whole view). Such a board costs a network read per pull
+ * and is never announced by the alarm; the pages still sync it on mount and
+ * on demand.
  */
 export const VIKUNJA_SNAPSHOT_MAX_TASKS = 2000
 
@@ -112,8 +116,8 @@ export const VIKUNJA_SNAPSHOT_MAX_TASKS = 2000
  * The count cap above is not enough on its own: a description is rich text
  * bounded at 16 KiB, so 2000 tasks is a theoretical 32 MB record — far past
  * `chrome.storage.local`'s quota, which every widget shares. Both dimensions
- * are therefore bounded: `writeSnapshot` applies the count cap first and then
- * drops trailing tasks until the JSON fits in this budget.
+ * are therefore bounded: `writeSnapshot` refuses a record over either one,
+ * whole, for the reason given above the count cap.
  *
  * 1.5 MB is generous for a board a person reads in a widget and small enough
  * that a pathological one cannot squeeze the other widgets out of storage.

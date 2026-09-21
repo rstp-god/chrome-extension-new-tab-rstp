@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { readSnapshot, snapshotKey, writeSnapshot } from '@/background/vikunja/cache.ts'
 import { VIKUNJA_BACKOFF_MS, VIKUNJA_SNAPSHOT_FRESH_MS } from '@/background/vikunja/constants.ts'
+import { VIKUNJA_MAX_DESCRIPTION_LENGTH } from '@/background/vikunja/messages.ts'
 import { computeDelta, isEmptyDelta, runPull } from '@/background/vikunja/pull.ts'
 
 import type { VikunjaPulledTask, VikunjaPullResult } from '@/background/vikunja/messages.ts'
@@ -96,7 +97,9 @@ function installChrome(granted: boolean, seed: Record<string, unknown> = {}) {
     set: vi.fn(async (items: Record<string, unknown>) => {
       for (const [key, value] of Object.entries(items)) store.set(key, value)
     }),
-    remove: vi.fn(async () => {}),
+    remove: vi.fn(async (keys: string | string[]) => {
+      for (const key of Array.isArray(keys) ? keys : [keys]) store.delete(key)
+    }),
   }
   // The read path broadcasts what it found, whoever started it — so every
   // test here can see it.
@@ -200,6 +203,7 @@ describe('runPull: the snapshot short-circuit', () => {
       viewId: 4,
       tasks: [task({ id: 7 })],
       pulledAt: Date.now(),
+      complete: true,
     })
 
     const out = await runPull(CFG, 1, 4, {})
@@ -220,6 +224,7 @@ describe('runPull: the snapshot short-circuit', () => {
       viewId: 4,
       tasks: [task({ id: 7 })],
       pulledAt: Date.now(),
+      complete: true,
     })
 
     const out = await runPull(CFG, 1, 4, { force: true })
@@ -239,6 +244,7 @@ describe('runPull: the snapshot short-circuit', () => {
       viewId: 4,
       tasks: [task({ id: 7 })],
       pulledAt: Date.now() - VIKUNJA_SNAPSHOT_FRESH_MS - 1,
+      complete: true,
     })
 
     await runPull(CFG, 1, 4, {})
@@ -254,6 +260,7 @@ describe('runPull: the snapshot short-circuit', () => {
       viewId: 4,
       tasks: [task({ id: 7 })],
       pulledAt: Date.now() + 60_000,
+      complete: true,
     })
 
     await runPull(CFG, 1, 4, {})
@@ -314,6 +321,8 @@ describe('runPull: the read', () => {
       viewId: 4,
       tasks: out.value.tasks,
       pulledAt: out.value.pulledAt,
+      // Written whole, and it says so — the marker the short-circuit trusts.
+      complete: true,
     })
   })
 
@@ -327,6 +336,7 @@ describe('runPull: the read', () => {
       viewId: 9,
       tasks: [task({ id: 4 })],
       pulledAt: 1,
+      complete: true,
     })
 
     const out = await runPull(CFG, 1, 4, { force: true })
@@ -386,7 +396,14 @@ describe('runPull: failures', () => {
 
   it('leaves the snapshot untouched when the read fails', async () => {
     installChrome(true)
-    const kept = { host: HOST, projectId: 1, viewId: 4, tasks: [task({ id: 7 })], pulledAt: 1 }
+    const kept = {
+      host: HOST,
+      projectId: 1,
+      viewId: 4,
+      tasks: [task({ id: 7 })],
+      pulledAt: 1,
+      complete: true as const,
+    }
     await writeSnapshot(kept)
     stubFetch(() => jsonResponse(401, {}))
 
@@ -447,7 +464,14 @@ describe('runPull: announcing what it found', () => {
   it('stays quiet when a real read found nothing new', async () => {
     const chromeMock = installChrome(true)
     stubView()
-    await writeSnapshot({ host: HOST, projectId: 1, viewId: 4, tasks: [task()], pulledAt: 1 })
+    await writeSnapshot({
+      host: HOST,
+      projectId: 1,
+      viewId: 4,
+      tasks: [task()],
+      pulledAt: 1,
+      complete: true,
+    })
 
     await runPull(CFG, 1, 4, { force: true })
 
@@ -463,6 +487,7 @@ describe('runPull: announcing what it found', () => {
       viewId: 4,
       tasks: [task({ id: 7 })],
       pulledAt: Date.now(),
+      complete: true,
     })
 
     await runPull(CFG, 1, 4, {})
@@ -521,7 +546,7 @@ describe('runPull: a snapshot that would not persist', () => {
     expect(console.warn).toHaveBeenCalledTimes(2) // the write failure, then this
   })
 
-  it('still broadcasts a later read: the woken tabs have the older snapshot to serve from', async () => {
+  it('holds back the broadcast even with an older snapshot around', async () => {
     const chromeMock = installChrome(true)
     stubView()
     await writeSnapshot({
@@ -530,17 +555,22 @@ describe('runPull: a snapshot that would not persist', () => {
       viewId: 4,
       tasks: [task({ id: 7 })],
       pulledAt: 1,
+      complete: true,
     })
     chromeMock.local.set.mockRejectedValue(new Error('QuotaExceededError'))
 
     await runPull(CFG, 1, 4, { force: true })
 
-    expect(chromeMock.sent).toEqual([
-      expect.objectContaining({
-        type: 'vikunja/pulled',
-        delta: { added: 1, changed: 0, removed: 1 },
-      }),
-    ])
+    // The older snapshot is not what the woken tabs would be served — it is
+    // past the freshness window, or it would have answered this read. Each
+    // tab would read the instance itself, fail to store the result for the
+    // same reason, find the same delta against the old record and broadcast
+    // again: a loop, not a storm that ends.
+    expect(chromeMock.sent).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith('[vikunja] snapshot not persisted', {
+      projectId: 1,
+      viewId: 4,
+    })
   })
 
   it('reports persisted: true for a cache hit, which wrote nothing', async () => {
@@ -552,12 +582,105 @@ describe('runPull: a snapshot that would not persist', () => {
       viewId: 4,
       tasks: [task()],
       pulledAt: Date.now(),
+      complete: true,
     })
 
     await expect(runPull(CFG, 1, 4, {})).resolves.toMatchObject({
       ok: true,
       value: { persisted: true },
     })
+  })
+})
+
+describe('runPull: a read past the snapshot budget', () => {
+  /** Five tasks with descriptions at the ceiling: ~80 KB of view. */
+  function heavyBodies() {
+    return [1, 2, 3, 4, 5].map((id) =>
+      taskBody({ id, description: 'x'.repeat(VIKUNJA_MAX_DESCRIPTION_LENGTH) }),
+    )
+  }
+  /** A hundred boards divide the connection's total into 40 KB each. */
+  const CROWDED = { boardCount: 100 }
+
+  it('returns the whole read: only the cache is bounded, never the answer', async () => {
+    const chromeMock = installChrome(true)
+    stubView(heavyBodies())
+
+    const out = await runPull(CFG, 1, 4, { force: true, ...CROWDED })
+
+    expect(out).toMatchObject({ ok: true, value: { persisted: false } })
+    if (!out.ok) return
+    expect(out.value.tasks.map((t) => t.id)).toEqual([1, 2, 3, 4, 5])
+    // And nothing trimmed was stored in its place: complete or absent.
+    expect(chromeMock.store.has(snapshotKey(HOST, 1, 4))).toBe(false)
+  })
+
+  it('is not announced — the woken tabs would have nothing to be served from', async () => {
+    const chromeMock = installChrome(true)
+    stubView(heavyBodies())
+
+    await runPull(CFG, 1, 4, { force: true, ...CROWDED })
+
+    expect(chromeMock.sent).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith('[vikunja] snapshot not persisted', {
+      projectId: 1,
+      viewId: 4,
+    })
+  })
+
+  it('costs the next non-forced pull a network read, not a trimmed answer', async () => {
+    installChrome(true)
+    const fetchMock = stubView(heavyBodies())
+    await runPull(CFG, 1, 4, { force: true, ...CROWDED })
+
+    const out = await runPull(CFG, 1, 4, CROWDED)
+
+    // Before the fix the second pull was served the trimmed record as the
+    // whole view, and a page trusting it dropped the tasks past the cut.
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value.tasks).toHaveLength(5)
+  })
+
+  it('removes the snapshot a smaller read left, so it cannot answer for this one', async () => {
+    const chromeMock = installChrome(true)
+    await writeSnapshot({
+      host: HOST,
+      projectId: 1,
+      viewId: 4,
+      tasks: [task({ id: 7 })],
+      pulledAt: Date.now(),
+      complete: true,
+    })
+    stubView(heavyBodies())
+
+    await runPull(CFG, 1, 4, { force: true, ...CROWDED })
+
+    expect(chromeMock.store.has(snapshotKey(HOST, 1, 4))).toBe(false)
+    await expect(readSnapshot(HOST, 1, 4)).resolves.toBeNull()
+  })
+
+  it('does not serve a snapshot an older build wrote: it carries no completeness marker', async () => {
+    const fetchMock = stubView()
+    installChrome(true, {
+      // Fresh by its stamp, and possibly a trim — the build that wrote it
+      // stored what was left after trimming and said nothing about it.
+      [snapshotKey(HOST, 1, 4)]: {
+        host: HOST,
+        projectId: 1,
+        viewId: 4,
+        tasks: [task({ id: 7 })],
+        pulledAt: Date.now(),
+      },
+    })
+
+    const out = await runPull(CFG, 1, 4, {})
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(out).toMatchObject({ ok: true })
+    if (!out.ok) return
+    expect(out.value.tasks.map((t) => t.id)).toEqual([4])
   })
 })
 

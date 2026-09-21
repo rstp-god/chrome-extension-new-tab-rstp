@@ -20,7 +20,10 @@
 
 import { defaultVikunjaBoard } from '@/background/vikunja/messages.ts'
 
+import { getVikunjaBoardPillClass } from './projectStyles.ts'
+
 import type { VikunjaScopePair } from './scope.ts'
+import type { Project } from '@/widgets/Todo/integrations/types.ts'
 import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 
 /**
@@ -30,6 +33,32 @@ import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
  */
 export function defaultBoard(config: VikunjaConfig): VikunjaBoard | null {
   return defaultVikunjaBoard(config)
+}
+
+/**
+ * A board as the widget's project: the project id it is addressed by, the
+ * title cached when it was picked, and a pill colour derived from that id
+ * (a Vikunja project carries no colour of its own).
+ *
+ * Two callers, and they are the reason it lives here rather than next to
+ * `listProjects`: the adapter answers `listProjects` with it, and the
+ * legacy-state upgrade rebuilds `integration.projects` with it — the cache
+ * the pills and the add dialog read. Under the single-board model those
+ * entries were the instance's *labels*, so an upgrade that left them alone
+ * would offer the user choices that name nothing (see `upgradePersistedState`).
+ * One helper, so the cache the upgrade writes cannot drift from the one the
+ * next sync writes.
+ *
+ * Takes only the two fields it reads, so a caller holding a board that is not
+ * yet a parsed `VikunjaBoard` — the upgrade builds one field by field — can
+ * use it without a cast.
+ */
+export function boardToProject(board: Pick<VikunjaBoard, 'projectId' | 'name'>): Project {
+  return {
+    id: String(board.projectId),
+    name: board.name,
+    pillClassName: getVikunjaBoardPillClass(board.projectId),
+  }
 }
 
 /**

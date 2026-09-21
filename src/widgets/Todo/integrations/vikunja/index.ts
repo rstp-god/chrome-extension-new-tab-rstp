@@ -2,11 +2,16 @@ import { VIKUNJA_MUTATION_CONCURRENCY } from '@/background/vikunja/messages.ts'
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 import { urlHost } from '@/widgets/Todo/utils/url.ts'
 
-import { boardForProject, defaultBoard, hasUnmappedBoard, withDefaultBoardPatch } from './boards.ts'
+import {
+  boardForProject,
+  boardToProject,
+  defaultBoard,
+  hasUnmappedBoard,
+  withDefaultBoardPatch,
+} from './boards.ts'
 import { sendVikunjaMessage } from './bridge.ts'
 import { vikunjaTaskToTodo } from './mapping.ts'
 import { recoverVikunjaPermission } from './permission.ts'
-import { getVikunjaBoardPillClass } from './projectStyles.ts'
 import { pushVikunjaTask } from './push.ts'
 import { scopePair } from './scope.ts'
 import {
@@ -404,19 +409,6 @@ function toContainer(bucket: VikunjaBucketSummary): RemoteContainer {
     name: bucket.title,
     ...(bucket.isDone ? { isTerminal: true } : {}),
     ...(bucket.isDefault ? { isDefault: true } : {}),
-  }
-}
-
-/**
- * A board as the widget's project: the project id it is addressed by, the
- * title cached when it was picked, and a pill colour derived from that id
- * (a Vikunja project carries no colour of its own).
- */
-function boardToProject(board: VikunjaBoard): Project {
-  return {
-    id: String(board.projectId),
-    name: board.name,
-    pillClassName: getVikunjaBoardPillClass(board.projectId),
   }
 }
 

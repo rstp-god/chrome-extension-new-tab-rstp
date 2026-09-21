@@ -43,6 +43,7 @@ function snapshot(overrides: Partial<VikunjaSnapshot> = {}): VikunjaSnapshot {
     viewId: 4,
     tasks: [task()],
     pulledAt: 1_700_000_000_000,
+    complete: true,
     ...overrides,
   }
 }
@@ -119,19 +120,32 @@ describe('write then read', () => {
     await expect(readSnapshot(HOST, 1, 9)).resolves.toBeNull()
   })
 
-  it('truncates the task list to the documented ceiling', async () => {
-    const { store } = installStorage()
+  it('refuses a task list past the documented ceiling, whole', async () => {
+    const { store } = installStorage({ [snapshotKey(HOST, 1, 4)]: snapshot() })
     const tasks = Array.from({ length: VIKUNJA_SNAPSHOT_MAX_TASKS + 10 }, (_, index) =>
       task({ id: index + 1 }),
     )
 
-    await writeSnapshot(snapshot({ tasks }))
+    await expect(writeSnapshot(snapshot({ tasks }))).resolves.toBe(false)
 
-    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
-    expect(stored.tasks).toHaveLength(VIKUNJA_SNAPSHOT_MAX_TASKS)
-    // And the bound survives the round trip rather than being re-read as-is.
-    const read = await readSnapshot(HOST, 1, 4)
-    expect(read?.tasks).toHaveLength(VIKUNJA_SNAPSHOT_MAX_TASKS)
+    // Not trimmed to fit: a trimmed record would be served as the whole view.
+    // And the record the previous read left is gone with it — it no longer
+    // describes the view, and a fresh one would answer the next pull.
+    expect(store.has(snapshotKey(HOST, 1, 4))).toBe(false)
+    await expect(readSnapshot(HOST, 1, 4)).resolves.toBeNull()
+  })
+
+  it('writes exactly the ceiling', async () => {
+    const { store } = installStorage()
+    const tasks = Array.from({ length: VIKUNJA_SNAPSHOT_MAX_TASKS }, (_, index) =>
+      task({ id: index + 1 }),
+    )
+
+    await expect(writeSnapshot(snapshot({ tasks }))).resolves.toBe(true)
+
+    expect((store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot).tasks).toHaveLength(
+      VIKUNJA_SNAPSHOT_MAX_TASKS,
+    )
   })
 })
 
@@ -149,7 +163,18 @@ describe('reading a record we did not write', () => {
     ],
     [
       'a body addressing another instance',
-      { host: 'other.example', projectId: 1, viewId: 4, tasks: [], pulledAt: 1 },
+      { host: 'other.example', projectId: 1, viewId: 4, tasks: [], pulledAt: 1, complete: true },
+    ],
+    [
+      // The build that wrote it trimmed what did not fit and said nothing
+      // about it; served as the whole view, such a record would have a page
+      // drop every task past the cut.
+      'a record without the completeness marker',
+      { host: HOST, projectId: 1, viewId: 4, tasks: [task()], pulledAt: 1 },
+    ],
+    [
+      'a record whose marker is not true',
+      { host: HOST, projectId: 1, viewId: 4, tasks: [task()], pulledAt: 1, complete: false },
     ],
     [
       'a task list past the ceiling',
@@ -168,16 +193,15 @@ describe('reading a record we did not write', () => {
     await expect(readSnapshot(HOST, 1, 4)).resolves.toBeNull()
   })
 
-  it('still reads a snapshot an older build wrote, dropping its labelIds', async () => {
-    // The field left the wire when the widget stopped surfacing labels as
-    // projects. Refusing the record instead of stripping it would report the
-    // whole board as `added` on the next pull — a broadcast, and a full
-    // re-read in every open tab, for nothing.
-    const legacy = {
+  it('strips a task field it does not know rather than refusing the record', async () => {
+    // `labelIds` left the wire when the widget stopped surfacing labels as
+    // projects. A field a later build stops writing costs nothing on read;
+    // only the completeness marker is a hard requirement.
+    const stale = {
       ...snapshot(),
       tasks: [{ ...task(), labelIds: [1, 7] }],
     }
-    installStorage({ [snapshotKey(HOST, 1, 4)]: legacy })
+    installStorage({ [snapshotKey(HOST, 1, 4)]: stale })
 
     const out = await readSnapshot(HOST, 1, 4)
 
@@ -228,28 +252,24 @@ describe('writeSnapshot with a divided budget', () => {
     return task({ id, description: 'x'.repeat(50_000) })
   }
 
-  it('trims to the budget it was given, not to the per-board cap', async () => {
+  it('judges by the budget it was given, not by the per-board cap', async () => {
     const { store } = installStorage()
-    // 60 × 50 KB ≈ 3 MB, which fits under neither budget — but the smaller
-    // one has to keep strictly fewer tasks.
-    const tasks = Array.from({ length: 60 }, (_, index) => heavy(index + 1))
+    // 20 × 50 KB ≈ 1 MB: under the per-board cap, over an eighth of the total.
+    const tasks = Array.from({ length: 20 }, (_, index) => heavy(index + 1))
 
-    await writeSnapshot(snapshot({ tasks }), VIKUNJA_SNAPSHOT_MAX_BYTES)
-    const generous = (store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot).tasks.length
+    await expect(writeSnapshot(snapshot({ tasks }), VIKUNJA_SNAPSHOT_MAX_BYTES)).resolves.toBe(true)
+    expect((store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot).tasks).toHaveLength(20)
 
-    await writeSnapshot(snapshot({ tasks }), snapshotBudgetBytes(8))
-    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
-
-    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(snapshotBudgetBytes(8))
-    expect(stored.tasks.length).toBeLessThan(generous)
-    expect(stored.tasks.length).toBeGreaterThan(0)
+    await expect(writeSnapshot(snapshot({ tasks }), snapshotBudgetBytes(8))).resolves.toBe(false)
+    // Refused whole, and the record the generous write left is gone with it.
+    expect(store.has(snapshotKey(HOST, 1, 4))).toBe(false)
   })
 
   it('defaults to the per-board cap when no budget is passed', async () => {
     const { store } = installStorage()
-    const tasks = Array.from({ length: 60 }, (_, index) => heavy(index + 1))
+    const tasks = Array.from({ length: 20 }, (_, index) => heavy(index + 1))
 
-    await writeSnapshot(snapshot({ tasks }))
+    await expect(writeSnapshot(snapshot({ tasks }))).resolves.toBe(true)
 
     const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
     expect(JSON.stringify(stored).length).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
@@ -361,51 +381,53 @@ describe('the byte budget', () => {
     return task({ id, description: 'x'.repeat(50_000) })
   }
 
-  it('drops trailing tasks until the record fits', async () => {
-    const { store } = installStorage()
+  it('refuses a record over the byte budget, whole', async () => {
+    const { store, local } = installStorage()
     // 60 × 50 KB ≈ 3 MB: under the count cap, twice over the byte budget.
     const tasks = Array.from({ length: 60 }, (_, index) => heavyTask(index + 1))
 
-    await writeSnapshot(snapshot({ tasks }))
+    await expect(writeSnapshot(snapshot({ tasks }))).resolves.toBe(false)
 
-    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
-    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
-    // Trailing tasks go, so the board's own order decides what survives.
-    expect(stored.tasks.length).toBeGreaterThan(0)
-    expect(stored.tasks.length).toBeLessThan(tasks.length)
-    expect(stored.tasks[0].id).toBe(1)
+    // Not a shorter record — none. A trimmed one would be served as the whole
+    // view, and a page trusting it would drop every task past the cut.
+    expect(store.has(snapshotKey(HOST, 1, 4))).toBe(false)
+    expect(local.set).not.toHaveBeenCalled()
   })
 
   it('leaves an ordinary snapshot untouched', async () => {
     const { store } = installStorage()
     const tasks = Array.from({ length: 50 }, (_, index) => task({ id: index + 1 }))
 
-    await writeSnapshot(snapshot({ tasks }))
+    await expect(writeSnapshot(snapshot({ tasks }))).resolves.toBe(true)
 
     expect((store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot).tasks).toHaveLength(50)
   })
 
-  it('applies the count cap before the byte budget', async () => {
-    const { store } = installStorage()
-    const tasks = Array.from({ length: VIKUNJA_SNAPSHOT_MAX_TASKS + 5 }, (_, index) =>
-      task({ id: index + 1 }),
-    )
+  it('removes the record the previous read left, and says so with ids only', async () => {
+    const { store } = installStorage({ [snapshotKey(HOST, 1, 4)]: snapshot() })
+    const tasks = Array.from({ length: 60 }, (_, index) => heavyTask(index + 1))
 
     await writeSnapshot(snapshot({ tasks }))
 
-    const stored = store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot
-    expect(stored.tasks).toHaveLength(VIKUNJA_SNAPSHOT_MAX_TASKS)
-    expect(JSON.stringify(stored).length).toBeLessThanOrEqual(VIKUNJA_SNAPSHOT_MAX_BYTES)
+    expect(store.has(snapshotKey(HOST, 1, 4))).toBe(false)
+    expect(console.warn).toHaveBeenCalledWith('[vikunja] snapshot over budget, not cached', {
+      projectId: 1,
+      viewId: 4,
+      tasks: 60,
+      maxBytes: VIKUNJA_SNAPSHOT_MAX_BYTES,
+    })
+    // Never the host, a title or a description.
+    const logged = JSON.stringify(vi.mocked(console.warn).mock.calls)
+    expect(logged).not.toContain(HOST)
+    expect(logged).not.toContain('xxxxx')
   })
 
-  it('writes a task list of one even when that one is oversized on its own', async () => {
-    const { store } = installStorage()
+  it('still answers false when the stale record cannot be removed', async () => {
+    const { local } = installStorage({ [snapshotKey(HOST, 1, 4)]: snapshot() })
+    local.remove.mockRejectedValueOnce(new Error('storage gone'))
+    const tasks = Array.from({ length: 60 }, (_, index) => heavyTask(index + 1))
 
-    // Nothing can be done about a single record over the budget — the point
-    // of the cap is that N of them cannot multiply, not that one is refused.
-    await writeSnapshot(snapshot({ tasks: [task({ description: 'x'.repeat(50_000) })] }))
-
-    expect((store.get(snapshotKey(HOST, 1, 4)) as VikunjaSnapshot).tasks).toHaveLength(1)
+    await expect(writeSnapshot(snapshot({ tasks }))).resolves.toBe(false)
   })
 })
 

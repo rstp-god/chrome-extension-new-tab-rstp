@@ -525,6 +525,7 @@ describe('ensureAlarm', () => {
           viewId: 4,
           tasks: [pulledTask()],
           pulledAt: 1,
+          complete: true,
         },
       },
     })
@@ -595,6 +596,7 @@ describe('setupVikunjaPull', () => {
           viewId: 4,
           tasks: [pulledTask()],
           pulledAt: 1,
+          complete: true,
         },
       },
     })
@@ -646,6 +648,7 @@ describe('the alarm firing', () => {
           tasks: [pulledTask()],
           // Old enough that the pull is not answered from the cache.
           pulledAt: 1,
+          complete: true,
         },
       },
     })
@@ -831,6 +834,7 @@ describe('the alarm firing — every connected board', () => {
       tasks: [pulledTask()],
       // Old enough that the forced read is not answered from the cache.
       pulledAt: 1,
+      complete: true,
     }
   }
 
@@ -1040,6 +1044,7 @@ describe('the alarm firing — every connected board', () => {
           viewId: 42,
           tasks: [pulledTask()],
           pulledAt: 1,
+          complete: true,
         },
         [snapshotKey(SNAPSHOT_HOST, 43, 44)]: {
           host: SNAPSHOT_HOST,
@@ -1047,6 +1052,7 @@ describe('the alarm firing — every connected board', () => {
           viewId: 44,
           tasks: [pulledTask()],
           pulledAt: 1,
+          complete: true,
         },
       },
     })
@@ -1076,6 +1082,7 @@ describe('the alarm firing — every connected board', () => {
           viewId: 52,
           tasks: [pulledTask()],
           pulledAt: 1,
+          complete: true,
         },
       },
     })
@@ -1195,6 +1202,7 @@ describe('reacting to storage without re-reading it', () => {
           viewId: 4,
           tasks: [pulledTask()],
           pulledAt: 1,
+          complete: true,
         },
       },
     })

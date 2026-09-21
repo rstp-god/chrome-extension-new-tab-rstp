@@ -1,3 +1,5 @@
+import { boardToProject } from '@/widgets/Todo/integrations/vikunja/boards.ts'
+import { getVikunjaBoardPillClass } from '@/widgets/Todo/integrations/vikunja/projectStyles.ts'
 import { todoEnvelopeSchema } from '@/widgets/Todo/store/store.ts'
 import { upgradePersistedState } from '@/widgets/Todo/store/upgrade.ts'
 import {
@@ -178,12 +180,23 @@ describe('upgradePersistedState — the single board an old config described', (
     expect(integration.mapping).toBeNull()
   })
 
-  it('keeps the projects cache, which is not part of the move', () => {
-    const integration = vikunjaSlice(makeLegacyVikunjaEnvelope())
-
-    expect(integration.projects).toStrictEqual([
+  it('rebuilds the projects cache from the board — the old entries were labels', () => {
+    const raw = makeLegacyVikunjaEnvelope()
+    // What the single-board model cached: the instance's labels, which no
+    // longer name anything a task could be routed to.
+    expect((raw.state.integration as { projects: unknown[] }).projects).toStrictEqual([
       { id: 'label-7', name: 'Urgent', pillClassName: null },
     ])
+
+    const integration = vikunjaSlice(raw)
+    const board = (integration.config as VikunjaConfigShape).boards[0]
+
+    expect(integration.projects).toStrictEqual([
+      { id: '1', name: 'Inbox', pillClassName: getVikunjaBoardPillClass(1) },
+    ])
+    // …and through the same helper the adapter's `listProjects` answers with,
+    // so the cache the upgrade writes is the one the next sync would write.
+    expect(integration.projects).toStrictEqual([boardToProject(board)])
   })
 
   it('tells every linked task which board it lives on', () => {
@@ -228,6 +241,12 @@ describe('upgradePersistedState — a connection that never picked a project', (
 
     expect(config.boards).toStrictEqual([])
     expect(config.defaultProjectId).toBeNull()
+  })
+
+  it('empties the projects cache: no board, so nothing a task could name', () => {
+    const raw = makeLegacyVikunjaEnvelope({ projectId: null, viewId: null })
+
+    expect(vikunjaSlice(raw).projects).toStrictEqual([])
   })
 
   it.each([

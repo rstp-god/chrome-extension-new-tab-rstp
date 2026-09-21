@@ -26,6 +26,16 @@
  *   and the wizard and the summary read the board itself), and a copy nobody
  *   updates is a copy a later reader would trust by mistake.
  *
+ * The one thing it *replaces* is the projects cache. Under the single-board
+ * model `integration.projects` held the instance's labels; now a project is a
+ * board, and the cache is what the task pills and the add dialog read without
+ * touching the network. Left as it was, it would keep offering the old label
+ * entries — choices the push would silently route to the default board — and
+ * nothing repairs the cache until the user revisits the boards step (a sync
+ * rewrites the tasks, not the projects). So it is rebuilt here from the
+ * migrated board, through the very helper the adapter's `listProjects`
+ * answers with, and comes out exactly as the next sync would have left it.
+ *
  * The one lossy input is a config whose `projectId` or `viewId` is not a
  * positive integer — a hand-edited or half-written record. It describes no
  * board the widget could address, so it upgrades to `boards: []` and the
@@ -33,6 +43,8 @@
  * ref schema's `.catch(null)`; the tasks themselves survive and the next
  * sync re-links them.
  */
+
+import { boardToProject } from '@/widgets/Todo/integrations/vikunja/boards.ts'
 
 /** A plain object — an array and `null` are neither. */
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -168,9 +180,18 @@ export function upgradePersistedState(raw: unknown): unknown {
   return {
     ...raw,
     tasks,
-    // The three single-board slice fields are emptied rather than carried
-    // over: their values are on the board now, and this backend's readers all
-    // go through it. See the module comment.
-    integration: { ...integration, config: nextConfig, boardName: null, lists: [], mapping: null },
+    integration: {
+      ...integration,
+      config: nextConfig,
+      // The three single-board slice fields are emptied rather than carried
+      // over: their values are on the board now, and this backend's readers
+      // all go through it. See the module comment.
+      boardName: null,
+      lists: [],
+      mapping: null,
+      // The label entries the old model cached give way to the board, which
+      // is what a project *is* now. See the module comment.
+      projects: board ? [boardToProject(board)] : [],
+    },
   }
 }
