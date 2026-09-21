@@ -24,6 +24,13 @@
  *   mirror of that board: every reader in the widget still goes through them.
  *   Task 2 (the contract hooks) redirects those readers to `config.boards`
  *   and nulls the mirror.
+ *
+ * The one lossy input is a config whose `projectId` or `viewId` is not a
+ * positive integer — a hand-edited or half-written record. It describes no
+ * board the widget could address, so it upgrades to `boards: []` and the
+ * refs of its tasks, having no board to name, are dropped to `null` by the
+ * ref schema's `.catch(null)`; the tasks themselves survive and the next
+ * sync re-links them.
  */
 
 /** A plain object — an array and `null` are neither. */
@@ -31,17 +38,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/**
+ * Does the record carry this field *itself*?
+ *
+ * `Object.prototype.hasOwnProperty.call`, the form the rest of `src` uses
+ * (`background/activity/rollup.ts`) because the app is compiled against the
+ * ES2020 lib and has no `Object.hasOwn`. Either way the point is the same:
+ * a plain `in` — or a property read compared against `undefined` — also
+ * answers for whatever sits on the prototype chain, and these records come
+ * out of storage.
+ */
+function hasOwn(record: Record<string, unknown>, field: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, field)
+}
+
 /** A Vikunja id as the schema accepts it: a positive integer, or nothing. */
-function positiveInt(value: unknown): number | null {
+function asPositiveInt(value: unknown): number | null {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null
 }
 
-/** The board an old config described, in the shape `vikunjaBoardSchema` wants. */
+/**
+ * The board an old config described, in the shape `vikunjaBoardSchema` wants
+ * — as far as this module can vouch for it. The two ids, the name and the
+ * mode are checked here; `containers` and `mapping` are the slice's own
+ * values passed through, so they are honestly `unknown` until the schema
+ * parses them.
+ */
 interface UpgradedBoard {
   projectId: number
   viewId: number
   name: string
-  containers: unknown
+  containers: unknown[]
   mapping: unknown
   kanbanMapping: boolean
 }
@@ -61,8 +88,8 @@ function upgradedBoard(
   config: Record<string, unknown>,
   integration: Record<string, unknown>,
 ): UpgradedBoard | null {
-  const projectId = positiveInt(config.projectId)
-  const viewId = positiveInt(config.viewId)
+  const projectId = asPositiveInt(config.projectId)
+  const viewId = asPositiveInt(config.viewId)
   if (projectId === null || viewId === null) return null
 
   return {
@@ -84,7 +111,7 @@ function upgradedBoard(
  * alone, whatever it holds.
  */
 function needsProjectId(ref: unknown): ref is Record<string, unknown> {
-  return isRecord(ref) && typeof ref.taskId === 'number' && ref.projectId === undefined
+  return isRecord(ref) && typeof ref.taskId === 'number' && !hasOwn(ref, 'projectId')
 }
 
 /**
@@ -118,7 +145,7 @@ export function upgradePersistedState(raw: unknown): unknown {
   // here: a config that has it has been upgraded already (or was written by
   // this version), and re-running the upgrade over it would rebuild the
   // board from a mirror the widget is no longer the only writer of.
-  if (!isRecord(config) || 'boards' in config) return raw
+  if (!isRecord(config) || hasOwn(config, 'boards')) return raw
 
   const board = upgradedBoard(config, integration)
   const nextConfig: Record<string, unknown> = {

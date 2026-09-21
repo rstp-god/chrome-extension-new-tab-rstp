@@ -2,7 +2,7 @@ import { VIKUNJA_MUTATION_CONCURRENCY } from '@/background/vikunja/messages.ts'
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 import { urlHost } from '@/widgets/Todo/utils/url.ts'
 
-import { boardForProject, defaultBoard } from './boards.ts'
+import { boardForProject, defaultBoard, withDefaultBoardPatch } from './boards.ts'
 import { sendVikunjaMessage } from './bridge.ts'
 import { isReservedLabel, labelToProject, vikunjaTaskToTodo } from './mapping.ts'
 import { recoverVikunjaPermission } from './permission.ts'
@@ -45,6 +45,18 @@ import type { z } from 'zod'
 
 /** A scope that does not address a project *and* a view addresses nothing. */
 const NO_SCOPE: IntegrationOutcome<never> = { ok: false, errorKey: 'notFound' }
+
+/**
+ * A scope this config has no board for.
+ *
+ * `mappingIncomplete` rather than `notFound`: the scope names a real project,
+ * it is *this connection* that has nothing stored about it — no columns, no
+ * mapping, no mode — and every one of those is what the settings step the
+ * error sends the user to is for. Reported instead of guessing: without the
+ * board there is no honest answer to "is this board flat", and assuming
+ * either way would run the operation under rules the user never chose.
+ */
+const NO_BOARD: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
 
 /**
  * Vikunja adapter.
@@ -130,6 +142,10 @@ export class VikunjaIntegration implements TodoIntegration {
     const pair = scopePair(ctx.scope)
     if (!pair) return NO_SCOPE
 
+    // The board carries the mode this read has to interpret the tasks under.
+    const board = this.board(pair.projectId)
+    if (!board) return NO_BOARD
+
     /**
      * Labels are read only when the pull is a real read of the instance.
      *
@@ -170,7 +186,7 @@ export class VikunjaIntegration implements TodoIntegration {
       knownStatuses: ctx.knownStatuses,
       // `kanbanMapping: false` means the user skipped the bucket wizard for
       // this board and only `completed` round-trips.
-      flat: !this.board(pair.projectId)?.kanbanMapping,
+      flat: !board.kanbanMapping,
       projectIds,
       // Every ref built below says which board its task lives on.
       boardProjectId: pair.projectId,
@@ -219,12 +235,17 @@ export class VikunjaIntegration implements TodoIntegration {
     const scope = scopePair(ctx.scope)
     if (!scope) return NO_SCOPE
 
+    // Same reason as in `pullTasks`: the mode is the board's, and a write
+    // made under the wrong one moves the user's task to the wrong place.
+    const board = this.board(scope.projectId)
+    if (!board) return NO_BOARD
+
     return pushVikunjaTask(
       {
         cfg: this.wire(),
         // `kanbanMapping: false` means the user skipped the bucket wizard for
         // this board and only `completed` round-trips.
-        flat: !this.board(scope.projectId)?.kanbanMapping,
+        flat: !board.kanbanMapping,
         send: (request, schema) => this.send(request, schema),
       },
       { task, op, ctx, scope },
@@ -234,9 +255,10 @@ export class VikunjaIntegration implements TodoIntegration {
   // ---------- internals ----------
 
   /**
-   * The board an op is about — the one the scope addresses, falling back to
-   * the default one (see `boardForProject`). It carries the mode and the
-   * cached columns; the credentials are per connection and come from `wire`.
+   * The board an op is about: the one the scope addresses, or `null` when
+   * this config has none for it (see `boardForProject`). It carries the mode
+   * and the cached columns; the credentials are per connection and come from
+   * `wire`.
    */
   private board(projectId: number): VikunjaBoard | null {
     return boardForProject(this.config, projectId)
@@ -374,17 +396,27 @@ export const descriptor: IntegrationDescriptor = {
     const known = current.boards.some((board) => board.projectId === pair.projectId)
     const boards: VikunjaBoard[] = known
       ? current.boards.map((board) =>
-          board.projectId === pair.projectId ? { ...board, viewId: pair.viewId } : board,
+          board.projectId === pair.projectId
+            ? {
+                ...board,
+                viewId: pair.viewId,
+                // Another view means other buckets, so the cached columns and
+                // the mapping built from them describe a board that is no
+                // longer the one being synced. Keeping them would map
+                // statuses onto bucket ids from a different view.
+                containers: [],
+                mapping: null,
+              }
+            : board,
         )
       : [
           ...current.boards,
           {
             projectId: pair.projectId,
             viewId: pair.viewId,
-            // Everything else about the board is what the picker's caller
-            // writes next (`pickScope` → the slice mirror) or what the
-            // wizard produces; a fresh board starts kanban, like the first
-            // one always did.
+            // Everything else about the board is written next, by the store's
+            // `withBoardState` from what the picker just read; a fresh board
+            // starts kanban, like the first one always did.
             name: '',
             containers: [],
             mapping: null,
@@ -392,9 +424,25 @@ export const descriptor: IntegrationDescriptor = {
           },
         ]
 
-    // The first board picked becomes the default one; a later pick does not
-    // move new tasks off the board the user chose for them.
-    return { ...current, boards, defaultProjectId: current.defaultProjectId ?? pair.projectId }
+    // Picking a scope is the user saying which board they want synced, so it
+    // becomes the default one — the widget shows one board until task 3, and
+    // leaving the previous pick in place would answer the picker with "the
+    // board you just chose is not the board you see".
+    return { ...current, boards, defaultProjectId: pair.projectId }
   },
+  /**
+   * The cached name, columns and mapping belong to the board they were read
+   * from, so they are written into it rather than only onto the slice.
+   *
+   * The default board is the one being synced (task 3 adds the switcher), and
+   * a config with no board at all comes back untouched — see
+   * `withDefaultBoardPatch`.
+   */
+  withBoardState: (config, patch) =>
+    withDefaultBoardPatch(config as VikunjaConfig, {
+      ...(patch.name === undefined ? {} : { name: patch.name }),
+      ...(patch.containers === undefined ? {} : { containers: patch.containers }),
+      ...(patch.mapping === undefined ? {} : { mapping: patch.mapping }),
+    }),
   ownsRef: isVikunjaRef,
 }

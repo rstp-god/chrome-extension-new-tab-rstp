@@ -39,6 +39,7 @@ import {
   VIKUNJA_PULL_PERIODS_MIN,
   VIKUNJA_TODO_STORAGE_KEY,
 } from '@/background/vikunja/constants.ts'
+import { defaultVikunjaBoard } from '@/background/vikunja/messages.ts'
 import { runPull } from '@/background/vikunja/pull.ts'
 
 import type {
@@ -125,28 +126,6 @@ const legacyEnvelopeSchema = z.object({
   }),
 })
 
-type ScheduleBoard = z.infer<typeof boardSchema>
-
-/**
- * The board this alarm pulls: the one `defaultProjectId` names, the first one
- * when it names nothing.
- *
- * **Only the default board, for now.** One alarm cannot say which board woke
- * it, so pulling all of them needs a key per board (and a period that is not
- * multiplied by the number of boards) — that is task 3. Until then a second
- * board is synced when the widget itself asks.
- */
-function defaultScheduleBoard(config: {
-  boards: ScheduleBoard[]
-  defaultProjectId: number | null
-}): ScheduleBoard | null {
-  const [first] = config.boards
-  if (first === undefined) return null
-  if (config.defaultProjectId === null) return first
-
-  return config.boards.find((board) => board.projectId === config.defaultProjectId) ?? first
-}
-
 function chromeObject(): typeof chrome | null {
   return (globalThis as { chrome?: typeof chrome }).chrome ?? null
 }
@@ -176,7 +155,14 @@ export function readVikunjaScheduleFrom(raw: unknown): VikunjaSchedule | null {
   const current = boardsEnvelopeSchema.safeParse(raw)
   if (current.success) {
     const { config } = current.data.state.integration
-    const board = defaultScheduleBoard(config)
+    // **The default board, for now** — resolved by the same rule the widget
+    // resolves it by, which is why that rule lives in `messages.ts`. One
+    // alarm cannot say which board woke it, so pulling every board needs a
+    // key per board (and a period that is not multiplied by their number):
+    // that is task 3. Until then a second board is read when the widget asks.
+    const board = defaultVikunjaBoard(config)
+    // No board, or one whose wizard is unfinished: a pulled task would have
+    // nowhere to go, so there is nothing worth waking up for.
     if (!board || board.mapping === null) return null
 
     return {

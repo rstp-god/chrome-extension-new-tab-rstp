@@ -4,6 +4,7 @@ import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChro
 import {
   getIntegrationDescriptor,
   TODO_STATUSES,
+  type BoardStatePatch,
   type IntegrationDescriptor,
   type IntegrationErrorKey,
   type IntegrationOutcome,
@@ -209,6 +210,28 @@ function getActive(state: TodoWidgetState): ActiveIntegration | null {
   return { integration, descriptor, adapter: descriptor.create(integration.config) }
 }
 
+/**
+ * A candidate integration slice with `patch` written into the backend's own
+ * per-scope state — `config.boards` for Vikunja, nothing at all for a backend
+ * that keeps it on the slice (Trello implements no hook, so its config comes
+ * back as it was).
+ *
+ * Returned as a candidate rather than set, because every caller re-validates
+ * it against the schema that guards storage before it reaches the store. The
+ * slice's own `boardName` / `lists` / `mapping` are still written by the
+ * caller: they are what the whole widget reads today, and the hook is what
+ * keeps the *board* from being the one thing nobody updates.
+ */
+function withBoardState(
+  integration: IntegrationState,
+  config: unknown,
+  patch: BoardStatePatch,
+): Record<string, unknown> {
+  const descriptor = getIntegrationDescriptor(integration.name)
+  const next = descriptor?.withBoardState ? descriptor.withBoardState(config, patch) : config
+  return { ...integration, config: next }
+}
+
 function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): TodoTask[] {
   return tasks.map((t) => (t.id === id ? { ...t, ...patch } : t))
 }
@@ -233,6 +256,11 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
     // config holds apiKey/token, so we keep everything device-local: secrets
     // never reach `storage.sync`. Local list (no integration) → sync the tasks.
     area: (state) => (state.integration ? 'local' : 'sync'),
+    // This store's schema upgrades what it parses (`upgrade.ts`: the
+    // single-board Vikunja config becomes `boards[]`), and the service worker
+    // reads the very same record for its background pull — so the upgraded
+    // shape has to reach storage without waiting for the user's next edit.
+    persistTransformedEnvelope: true,
     // No debounce: task actions are discrete (add/status/project), never
     // slider-frequency, and dedup skips writes on non-persisted changes
     // (loading/errorKey). Persisting immediately also avoids a pending write
@@ -642,15 +670,22 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         // Only the descriptor knows where the scope lives inside its config,
-        // so the write goes through `withScope` and the result is re-checked
-        // against the persisted schema before it reaches the store.
+        // so the write goes through `withScope` — and what the picker just
+        // read about the scope goes through `withBoardState`, so a backend
+        // that keeps it per board (Vikunja) has it on the board and not only
+        // on the slice. The result is re-checked against the persisted schema
+        // before it reaches the store.
+        const scoped = withBoardState(
+          integration,
+          descriptor.withScope(integration.config, scope),
+          // Picking a new scope invalidates the previous mapping.
+          { name: scopeName, containers, mapping: null },
+        )
         const parsed = integrationSchema.safeParse({
-          ...integration,
-          config: descriptor.withScope(integration.config, scope),
+          ...scoped,
           boardName: scopeName,
           lists: containers,
           projects,
-          // Picking a new scope invalidates the previous mapping.
           mapping: null,
         })
         if (!parsed.success) {
@@ -664,10 +699,20 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       setMapping: async (mapping) => {
         const integration = get().integration
         if (!integration) return
-        set({
-          integration: { ...integration, mapping },
-          errorKey: null,
+
+        // The mapping is per board for a backend with several of them, so it
+        // is written through the descriptor as well as onto the slice — and
+        // validated, like every other config write.
+        const parsed = integrationSchema.safeParse({
+          ...withBoardState(integration, integration.config, { mapping }),
+          mapping,
         })
+        if (!parsed.success) {
+          set({ errorKey: 'unknown' })
+          return
+        }
+
+        set({ integration: parsed.data, errorKey: null })
         await get().syncNow()
       },
 
@@ -747,7 +792,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         const parsed = integrationSchema.safeParse({
-          ...current,
+          ...withBoardState(current, current.config, { containers: containers.value }),
           lists: containers.value,
           projects: projects.value,
         })

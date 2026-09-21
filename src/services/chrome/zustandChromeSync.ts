@@ -36,6 +36,44 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(canonicalize(value))
 }
 
+/** What a successful parse of a stored record yields. */
+type ParsedEnv<TPersisted> = {
+  meta: { originId: string; rev: number; ts: number }
+  state: TPersisted
+}
+
+/**
+ * An envelope that was loaded, together with the record it was parsed from —
+ * which is what `wasTransformed` needs.
+ */
+type LoadedEnv<TPersisted> = { env: ParsedEnv<TPersisted>; raw: unknown }
+
+function loaded<TPersisted>(
+  env: ParsedEnv<TPersisted> | null,
+  raw: unknown,
+): LoadedEnv<TPersisted> | null {
+  return env ? { env, raw } : null
+}
+
+/**
+ * Did the schema *change* the state on its way out — that is, does the store
+ * now hold something the bytes on disk do not contain?
+ *
+ * A schema may upgrade an older persisted shape (the Todo widget's
+ * single-board Vikunja config becoming `boards[]`), fill in a default or drop
+ * a field it no longer declares. All of that happens on every read, in every
+ * context, and stays invisible to anything that reads the record instead of
+ * the store — the service worker above all.
+ *
+ * Compared key-order-insensitively: `z.object` rebuilds its output in schema
+ * order, so plain `JSON.stringify` would call a record that merely lists its
+ * keys differently "transformed" and rewrite it for nothing.
+ */
+function wasTransformed<TPersisted>(raw: unknown, state: TPersisted): boolean {
+  const stored = (raw as { state?: unknown } | null)?.state
+  return canonicalJson(stored) !== canonicalJson(state)
+}
+
 type StorageChange = { oldValue?: unknown; newValue?: unknown }
 type StorageChanges = Record<string, StorageChange>
 export type ChromeSyncActions = { commit: () => Promise<void> }
@@ -48,6 +86,20 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
   schema: z.ZodType<{ meta: { originId: string; rev: number; ts: number }; state: TPersisted }>
   merge: (current: TState, persisted: TPersisted) => Partial<TState>
   autoPersist?: boolean
+  /**
+   * Write the record back once when the schema **transformed** it on load —
+   * for a store whose persisted shape is upgraded by its own schema (the Todo
+   * widget's), so the bytes stop being the old shape and another reader of
+   * the record (the service worker) sees what the store sees.
+   *
+   * Off by default, and deliberately opt-in: most stores here parse a record
+   * they are not the only reader of, or do not own writes at all
+   * (`autoPersist: false` plus an explicit `commit`), and a middleware that
+   * wrote on load would turn every page load into a storage write — on
+   * `sync`, against a write-rate quota — for a normalisation nobody asked
+   * for.
+   */
+  persistTransformedEnvelope?: boolean
   debounceMs?: number
 }) {
   const {
@@ -58,6 +110,7 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
     merge,
     debounceMs = 0,
     autoPersist = true,
+    persistTransformedEnvelope = false,
   } = opts
 
   return (config: StateCreator<TState>): StateCreator<Synced<TState>> =>
@@ -145,18 +198,6 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
         applyingRemote = false
       }
 
-      /** What a successful parse of a stored record yields. */
-      type ParsedEnv = { meta: { originId: string; rev: number; ts: number }; state: TPersisted }
-
-      /**
-       * An envelope that was loaded, together with the record it was parsed
-       * from — which is what `wasTransformed` below needs.
-       */
-      type LoadedEnv = { env: ParsedEnv; raw: unknown }
-
-      const loaded = (env: ParsedEnv | null, raw: unknown): LoadedEnv | null =>
-        env ? { env, raw } : null
-
       /**
        * Load the initial envelope, resolving which storage area owns it.
        *
@@ -168,7 +209,7 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
        *   `local` (Todo with an active integration → secrets live device-local),
        *   it wins; otherwise prefer the cross-device `sync` copy.
        */
-      const loadInitialEnv = async (): Promise<LoadedEnv | null> => {
+      const loadInitialEnv = async (): Promise<LoadedEnv<TPersisted> | null> => {
         if (typeof area === 'function') {
           const [syncRaw, localRaw] = await Promise.all([
             getArea<unknown>('sync', key),
@@ -193,26 +234,6 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
         return loaded(parseEnv(raw), raw)
       }
 
-      /**
-       * Did the schema *change* the state on its way out — that is, does the
-       * store now hold something the bytes on disk do not contain?
-       *
-       * A schema may upgrade an older persisted shape (the Todo widget's
-       * single-board Vikunja config becoming `boards[]`), fill in a default
-       * or drop a field it no longer declares. All of that happens on every
-       * read, in every context, and stays invisible to anything that reads
-       * the record instead of the store — the service worker above all.
-       *
-       * Compared key-order-insensitively: `z.object` rebuilds its output in
-       * schema order, so plain `JSON.stringify` would call a record that
-       * merely lists its keys differently "transformed" and rewrite it for
-       * nothing.
-       */
-      const wasTransformed = (raw: unknown, state: TPersisted): boolean => {
-        const stored = (raw as { state?: unknown } | null)?.state
-        return canonicalJson(stored) !== canonicalJson(state)
-      }
-
       ;(async () => {
         const result = await loadInitialEnv()
         if (!result) return
@@ -222,6 +243,7 @@ export function withChromeSync<TState extends object, TPersisted>(opts: {
         // worker, another context, this page after a reload — sees what the
         // store sees. `lastWrittenJson` was just set to the parsed slice by
         // `applyEnv`, which is precisely what would skip this write.
+        if (!persistTransformedEnvelope) return
         if (!wasTransformed(result.raw, result.env.state)) return
         lastWrittenJson = null
         await writeNow().catch(logWriteFailure)

@@ -40,12 +40,25 @@ const MAPPING = {
   deleted: ['4'],
 }
 
-/** The same connection in the current shape: the boards live in the config. */
+/**
+ * The same connection in the current shape: the boards live in the config,
+ * each with the name, buckets, mapping and mode of its own board — which is
+ * what the widget's `withBoardState` writes there.
+ */
 function boardsConfig(overrides: Record<string, unknown> = {}) {
   return {
     baseUrl: CONFIG.baseUrl,
     token: CONFIG.token,
-    boards: [{ projectId: 1, viewId: 4, name: 'Probe', containers: [], mapping: MAPPING }],
+    boards: [
+      {
+        projectId: 1,
+        viewId: 4,
+        name: 'Probe',
+        containers: [],
+        mapping: MAPPING,
+        kanbanMapping: true,
+      },
+    ],
     defaultProjectId: 1,
     ...overrides,
   }
@@ -398,8 +411,11 @@ describe('readVikunjaScheduleFrom — the current, multi-board shape', () => {
       boardsConfig({ boards: [{ ...boardsConfig().boards[0], mapping: null }] }),
     ],
   ])('answers null when %s', (_label, config) => {
-    // The slice mirror is deliberately filled here: it is the *board* that
-    // decides, not the field the single-board build used.
+    // A board with no mapping means the wizard is unfinished, and a pulled
+    // task would have nowhere to go. The envelope's slice mirror carries one
+    // on purpose: what decides is the board, and the widget writes the
+    // mapping to both (`withBoardState`), so the two disagreeing is a record
+    // nothing in the UI can produce any more.
     expect(readVikunjaScheduleFrom(vikunjaEnvelope({ config }))).toBeNull()
   })
 })

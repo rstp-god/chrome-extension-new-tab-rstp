@@ -37,6 +37,23 @@ export interface Project {
  */
 export type RemoteScope = Record<string, string | number>
 
+/**
+ * The cached state of one scope, as the store hands it to `withBoardState`.
+ *
+ * Every field is optional and only the ones present are written: the three
+ * callers know different amounts (picking a scope knows all of it, saving a
+ * mapping knows the mapping, refreshing the columns knows the columns), and
+ * an absent field must not overwrite what the config already holds.
+ */
+export interface BoardStatePatch {
+  /** Human name of the scope, as `listScopes` reported it. */
+  name?: string
+  /** Containers of the scope, as `listContainers` reported them. */
+  containers?: RemoteContainer[]
+  /** The mapping for this scope, or `null` when it has just been invalidated. */
+  mapping?: StatusListMapping | null
+}
+
 /** One pickable scope plus its human label, as offered by `listScopes`. */
 export interface RemoteScopeOption {
   scope: RemoteScope
@@ -477,6 +494,25 @@ export interface IntegrationDescriptor {
    * descriptor knows which keys make it up.
    */
   getScope: (config: unknown) => RemoteScope | null
+  /**
+   * Writes the cached state of the scope the store just read — its name, its
+   * containers, its mapping — into the config, for a backend that keeps that
+   * per scope rather than once.
+   *
+   * Optional, and absent means "this backend keeps it on the integration
+   * slice", which is where it has always lived (`boardName` / `lists` /
+   * `mapping`) and is all Trello needs: one board, one set of columns, one
+   * mapping. Vikunja implements it because it syncs a *list* of boards and
+   * each board has its own columns — the same status maps to a different
+   * bucket on each, so a single stored mapping would be wrong for all but one
+   * of them.
+   *
+   * Pure, like `withScope`: it returns a copy of the config, and the store
+   * re-validates that copy against the persisted schema before it lands.
+   * Writing the slice fields stays the store's own business — a descriptor
+   * that implements this hook does not stop them being written.
+   */
+  withBoardState?: (config: unknown, patch: BoardStatePatch) => unknown
   /** Pure counterpart of `getScope`: returns a copy of the config with the scope written in. */
   withScope: (config: unknown, scope: RemoteScope) => unknown
   /**

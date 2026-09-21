@@ -22,6 +22,7 @@ export function getIntegrationDescriptor(
 }
 
 export type {
+  BoardStatePatch,
   ConnectFormProps,
   IntegrationDescriptor,
   IntegrationErrorKey,

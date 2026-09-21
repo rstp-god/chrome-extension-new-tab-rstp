@@ -7,9 +7,15 @@
  * and the summary use instead of reaching into `config.boards` each in their
  * own way.
  *
- * Task 3 gives the widget a real board switcher; until then "the board" means
- * the default one.
+ * "The default board" itself is `defaultVikunjaBoard` in the bridge's shared
+ * vocabulary, because the service worker's background pull has to resolve it
+ * the same way — a rule the two sides cannot afford to implement twice.
+ *
+ * Task 3 gives the widget a real board switcher; until then most callers ask
+ * about the default one.
  */
+
+import { defaultVikunjaBoard } from '@/background/vikunja/messages.ts'
 
 import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 
@@ -19,32 +25,31 @@ import type { VikunjaBoard, VikunjaConfig } from '@/widgets/Todo/store/store.ts'
  * `null` while the wizard has picked none.
  */
 export function defaultBoard(config: VikunjaConfig): VikunjaBoard | null {
-  const [first] = config.boards
-  if (first === undefined) return null
-  if (config.defaultProjectId === null) return first
-
-  return config.boards.find((board) => board.projectId === config.defaultProjectId) ?? first
+  return defaultVikunjaBoard(config)
 }
 
 /**
- * The board a project id addresses.
+ * The board a project id addresses, or `null` when this config knows nothing
+ * about that project.
  *
- * Falls back to the default board rather than to `null`, because the callers
- * are the adapter's own paths: they are given a scope the descriptor derived
- * from this very config, and a page caught mid-reconfigure must keep behaving
- * the way it did when there was one board instead of quietly switching to
- * flat mode because no board matched.
+ * Deliberately **not** falling back to the default board. The callers are the
+ * adapter's read and write paths, and the board carries the mode and the
+ * columns the operation is about: answering with another board's would run
+ * the op against the wrong rules — flat mode on a kanban board, or a mapping
+ * naming buckets that live somewhere else. A scope this config cannot place
+ * is an error the caller has to report, not a guess it should make.
  */
 export function boardForProject(config: VikunjaConfig, projectId: number): VikunjaBoard | null {
-  return config.boards.find((board) => board.projectId === projectId) ?? defaultBoard(config)
+  return config.boards.find((board) => board.projectId === projectId) ?? null
 }
 
 /**
  * A copy of the config with `patch` applied to the default board.
  *
  * Returns the config unchanged when there is no board to patch: the callers
- * write a per-board setting (the wizard's flat-mode flag), and inventing a
- * board to hold it would put a scope in the config the user never picked.
+ * write per-board state (the wizard's flat-mode flag, the store's cached
+ * name/containers/mapping), and inventing a board to hold it would put a
+ * scope in the config the user never picked.
  */
 export function withDefaultBoardPatch(
   config: VikunjaConfig,

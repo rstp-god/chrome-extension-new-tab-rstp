@@ -13,13 +13,25 @@ vi.mock('@/widgets/Todo/integrations/vikunja/bridge.ts', () => ({
 
 const bridge = vi.mocked(sendVikunjaMessage)
 
-/** The one board these tests sync; `SCOPE` below is its pair. */
+/**
+ * The one board these tests sync; `SCOPE` below is its pair.
+ *
+ * Its buckets and mapping are deliberately non-empty: they are what a
+ * `withScope` that re-points the board at another view has to drop, and an
+ * empty board could not tell that apart from doing nothing.
+ */
 const BOARD: VikunjaBoard = {
   projectId: 1,
   viewId: 4,
   name: 'Probe',
-  containers: [],
-  mapping: null,
+  containers: [{ id: '1', name: 'To-Do', isDefault: true }],
+  mapping: {
+    input: ['1'],
+    inprogress: ['1'],
+    struggle: ['1'],
+    completed: ['1'],
+    deleted: ['1'],
+  },
   kanbanMapping: true,
 }
 
@@ -128,6 +140,20 @@ describe('VikunjaIntegration.pushTask', () => {
         },
       ),
     ).resolves.toEqual({ ok: false, errorKey: 'notFound' })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('answers mappingIncomplete for a scope this config has no board for', async () => {
+    // The board carries the mode and the columns the write is about, so
+    // without it there is nothing honest to push under — and guessing would
+    // run the write under rules the user never chose.
+    await expect(
+      integration.pushTask(
+        {} as never,
+        { kind: 'create' },
+        { scope: { projectId: 99, viewId: 4 }, mapping: MAPPING, knownRef: null },
+      ),
+    ).resolves.toEqual({ ok: false, errorKey: 'mappingIncomplete' })
     expect(bridge).not.toHaveBeenCalled()
   })
 
@@ -363,6 +389,13 @@ describe('VikunjaIntegration.pullTasks', () => {
     expect(out.value.refs['vikunja:4']).toMatchObject({ taskId: 4 })
   })
 
+  it('answers mappingIncomplete for a scope this config has no board for', async () => {
+    await expect(
+      new VikunjaIntegration(CONFIG).pullTasks({ ...ctx, scope: { projectId: 99, viewId: 4 } }),
+    ).resolves.toEqual({ ok: false, errorKey: 'mappingIncomplete' })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
   it('keeps a locally-known intermediate status in flat mode', async () => {
     stubPull([pulledTask({ bucketId: 1 })])
 
@@ -483,7 +516,7 @@ describe('vikunja descriptor', () => {
     it('adds the picked board and makes it the default one', () => {
       expect(descriptor.withScope(NO_BOARD, { projectId: 1, viewId: 4 })).toEqual({
         ...NO_BOARD,
-        boards: [{ ...BOARD, name: '' }],
+        boards: [{ ...BOARD, name: '', containers: [], mapping: null }],
         defaultProjectId: 1,
       })
     })
@@ -495,16 +528,19 @@ describe('vikunja descriptor', () => {
       })
     })
 
-    it('appends a second board and leaves the default one alone', () => {
+    it('appends a second board and syncs it — the user just picked it', () => {
       expect(descriptor.withScope(CONFIG, { projectId: 8, viewId: 21 })).toMatchObject({
         boards: [BOARD, expect.objectContaining({ projectId: 8, viewId: 21 })],
-        defaultProjectId: 1,
+        defaultProjectId: 8,
       })
     })
 
-    it('replaces the view of a board that is already there', () => {
+    it('re-points a board at another view and drops its stale buckets', () => {
       expect(descriptor.withScope(CONFIG, { projectId: 1, viewId: 9 })).toMatchObject({
-        boards: [{ ...BOARD, viewId: 9 }],
+        // Another view has other buckets, so cached columns and a mapping
+        // built from them would name ids that live somewhere else.
+        boards: [{ ...BOARD, viewId: 9, containers: [], mapping: null }],
+        defaultProjectId: 1,
       })
     })
 
@@ -514,6 +550,37 @@ describe('vikunja descriptor', () => {
       ['an empty half', { projectId: '', viewId: 4 }],
     ])('adds no board given %s — half a scope is not a board', (_label, scope) => {
       expect(descriptor.withScope(NO_BOARD, scope)).toEqual(NO_BOARD)
+    })
+  })
+
+  describe('withBoardState', () => {
+    it('writes name, containers and mapping into the default board', () => {
+      const containers = [{ id: '7', name: 'Doing' }]
+
+      expect(
+        descriptor.withBoardState?.(CONFIG, { name: 'Work', containers, mapping: MAPPING }),
+      ).toMatchObject({
+        boards: [{ ...BOARD, name: 'Work', containers, mapping: MAPPING }],
+      })
+    })
+
+    it('writes only the fields the patch carries', () => {
+      expect(descriptor.withBoardState?.(CONFIG, { mapping: null })).toMatchObject({
+        boards: [{ ...BOARD, mapping: null }],
+      })
+    })
+
+    it('patches the board the default points at, not the first one', () => {
+      const second: VikunjaBoard = { ...BOARD, projectId: 8, viewId: 21, name: 'Work' }
+      const config = { ...CONFIG, boards: [BOARD, second], defaultProjectId: 8 }
+
+      expect(descriptor.withBoardState?.(config, { name: 'Renamed' })).toMatchObject({
+        boards: [BOARD, { ...second, name: 'Renamed' }],
+      })
+    })
+
+    it('changes nothing when no board is connected', () => {
+      expect(descriptor.withBoardState?.(NO_BOARD, { name: 'Work' })).toEqual(NO_BOARD)
     })
   })
 

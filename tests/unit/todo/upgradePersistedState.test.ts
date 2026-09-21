@@ -87,6 +87,15 @@ describe('upgradePersistedState — what it leaves alone', () => {
     expect(upgradePersistedState(state)).toBe(state)
   })
 
+  it('is a fixed point: upgrading an upgraded state changes nothing', () => {
+    const once = upgradePersistedState(makeLegacyVikunjaEnvelope().state)
+
+    // The second pass has to recognise its own output as current — otherwise
+    // every load would rebuild the board out of the slice mirror, which the
+    // widget is no longer the only writer of.
+    expect(upgradePersistedState(once)).toBe(once)
+  })
+
   it('never mutates the state it was given', () => {
     const raw = makeLegacyVikunjaEnvelope()
     const before = JSON.stringify(raw.state)

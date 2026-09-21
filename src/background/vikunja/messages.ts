@@ -591,3 +591,31 @@ export function vikunjaHostPattern(baseUrl: string): string | null {
   if (!isLiteralHostname(url.hostname)) return null
   return `https://${url.hostname}/*`
 }
+
+/**
+ * Which of the configured boards is "the board" for a caller that has not
+ * been told: the one `defaultProjectId` names, the first one when it names
+ * nothing (or names a board no longer in the list), and `null` when none is
+ * connected.
+ *
+ * Structural on purpose — it asks for `projectId` and answers with whatever
+ * was passed in — so the two sides of the bridge can share the rule without
+ * sharing a type. The worker's board is the three fields its schedule schema
+ * reads; the widget's is the full `VikunjaBoard`. Both would otherwise
+ * implement "the default board" separately, and the pull would drift from
+ * what the page is showing.
+ *
+ * Lives here because this is the one module both sides may import (see the
+ * boundary rule at the top of this file), and because the rule is part of
+ * the persisted config's meaning rather than of either side's UI.
+ */
+export function defaultVikunjaBoard<TBoard extends { projectId: number }>(config: {
+  boards: readonly TBoard[]
+  defaultProjectId: number | null
+}): TBoard | null {
+  const [first] = config.boards
+  if (first === undefined) return null
+  if (config.defaultProjectId === null) return first
+
+  return config.boards.find((board) => board.projectId === config.defaultProjectId) ?? first
+}
