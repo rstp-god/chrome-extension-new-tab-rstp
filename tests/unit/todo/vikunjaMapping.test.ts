@@ -8,12 +8,10 @@ import { statusForContainerId } from '@/widgets/Todo/integrations/statusMapping.
 import {
   clampForVikunja,
   htmlToText,
-  isReservedLabel,
   localIdForTask,
   textToHtml,
   vikunjaTaskToTodo,
 } from '@/widgets/Todo/integrations/vikunja/mapping.ts'
-import { vikunjaHueFor } from '@/widgets/Todo/integrations/vikunja/projectStyles.ts'
 
 import type { VikunjaPulledTask } from '@/background/vikunja/messages.ts'
 import type { StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
@@ -139,42 +137,6 @@ describe('textToHtml', () => {
     'multi\nline\n\nwith a gap',
   ])('round-trips %j', (text) => {
     expect(htmlToText(textToHtml(text))).toBe(text)
-  })
-})
-
-describe('labels', () => {
-  it.each(['energy:1', 'ENERGY:3', ' mood:low', 'mood:'])('treats %s as reserved', (title) => {
-    expect(isReservedLabel(title)).toBe(true)
-  })
-
-  it.each(['work', 'energetic', 'moody', 'my energy:1'])('leaves %s alone', (title) => {
-    expect(isReservedLabel(title)).toBe(false)
-  })
-})
-
-describe('vikunjaHueFor', () => {
-  it.each([
-    // The three colours the recon run actually saw on the instance.
-    ['efbdeb', 'pink'],
-    ['0ead69', 'green'],
-    ['ff006e', 'pink'],
-    ['#ff0000', 'red'],
-    ['ffa500', 'orange'],
-    ['ffff00', 'yellow'],
-    ['00bfff', 'sky'],
-    ['1d4ed8', 'blue'],
-    ['7c3aed', 'purple'],
-    ['#0f0', 'green'],
-  ])('maps %s to %s', (hex, hue) => {
-    expect(vikunjaHueFor(hex)).toBe(hue)
-  })
-
-  it.each(['808080', '111111', 'eeeeee'])('treats the greyscale %s as black', (hex) => {
-    expect(vikunjaHueFor(hex)).toBe('black')
-  })
-
-  it.each([null, '', 'not-a-colour', '#12345'])('answers null for %j', (hex) => {
-    expect(vikunjaHueFor(hex)).toBeNull()
   })
 })
 

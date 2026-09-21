@@ -166,8 +166,7 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
     // `withBoardState` existed.
     expect(readVikunjaScheduleFrom(envelope())).toEqual({
       cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
-      projectId: 1,
-      viewId: 4,
+      boards: [{ projectId: 1, viewId: 4 }],
       periodMin: 5,
     })
   })
@@ -199,7 +198,10 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
       containers: [{ id: '9', name: 'Later' }],
       mapping: null,
     })
-    expect(readVikunjaScheduleFrom(envelope())).toBeNull()
+    // The worker keeps pulling the board that *is* mapped, and leaves the
+    // freshly picked one alone until its wizard is finished — a tick reads
+    // every mapped board now, not "the default" one.
+    expect(readVikunjaScheduleFrom(envelope())?.boards).toStrictEqual([{ projectId: 1, viewId: 4 }])
   })
 
   it('refreshed containers land on the board, and only there', async () => {
@@ -217,7 +219,6 @@ describe('a fresh Vikunja connection fills the board it just created', () => {
           })),
         }
       }
-      if (request.op === 'listLabels') return { ok: true, value: [] }
       return { ok: false, errorKey: 'network' }
     })
 

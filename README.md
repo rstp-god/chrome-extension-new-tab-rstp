@@ -330,7 +330,7 @@ Todo-виджет умеет двусторонне синхронизирова
 
 1. Настройки Todo-виджета → **Vikunja**.
 2. **Адрес инстанса** — только `https` и только литеральный хост (например `https://tasks.example.com`; sub-path вида `https://host/vikunja` тоже подойдёт). `http`, wildcard-хосты и IPv6-литералы форма отклоняет.
-3. **API-токен** — в Vikunja: «Настройки» → «API-токены». Токену нужны скоупы `tasks`, `tasks_labels`, `projects.read_all`; чтобы мастер маппинга мог достроить колонки — ещё `projects.views_buckets_put` и `views_buckets_delete` (без них шаг «создать недостающие колонки» ответит 403).
+3. **API-токен** — в Vikunja: «Настройки» → «API-токены». Токену нужны скоупы `tasks` и `projects.read_all`; чтобы мастер маппинга мог достроить колонки — ещё `projects.views_buckets_put` и `views_buckets_delete` (без них шаг «создать недостающие колонки» ответит 403).
 4. По кнопке «Подключить» **Chrome спросит разрешение на этот хост**. Если отказать — ничего не сохранится: нажмите «Подключить» ещё раз и примите запрос.
 
 ### Проект и вью
@@ -377,7 +377,7 @@ Service worker пуллит вью по `chrome.alarms` с периодом **1,
 
 Виджет хранит описание задачи как **plain text**: HTML из Vikunja разворачивается в текст при пулле. Обратное преобразование — простые абзацы `<p>` с `<br>` вместо одиночных переводов строки. Отсюда два следствия:
 
-- описание **существующей** задачи Vikunja виджет не перезаписывает — повторная синхронизация (`resync`) шлёт только статус и проект, поэтому форматирование, набранное в веб-редакторе, остаётся на месте;
+- описание **существующей** задачи Vikunja виджет не перезаписывает — повторная синхронизация (`resync`) шлёт только статус, поэтому форматирование, набранное в веб-редакторе, остаётся на месте;
 - а вот всё, что виджет **сам отправляет** в описание (задача, созданная из виджета, и будущий UI правки заголовка/описания), уезжает простыми абзацами — богатое форматирование так не сохранить.
 
 По той же причине у Vikunja-интеграции **нет скрытых метаданных**: веб-редактор Vikunja (TipTap) выбрасывает HTML-комментарии при сохранении описания (проверено на инстансе 2.6.0), поэтому локальный id выводится детерминированно из `vikunja:<task.id>`, а не прячется в тексте задачи.
@@ -1046,7 +1046,7 @@ The Todo widget can sync two-way with a self-hosted [Vikunja](https://vikunja.io
 
 1. Todo widget settings → **Vikunja**.
 2. **Instance URL** — `https` only, and a literal host only (e.g. `https://tasks.example.com`; a sub-path install such as `https://host/vikunja` is fine too). `http`, wildcard hosts and IPv6 literals are rejected by the form.
-3. **API token** — in Vikunja: Settings → API tokens. The token needs the `tasks`, `tasks_labels` and `projects.read_all` scopes; for the mapping wizard to build missing columns it also needs `projects.views_buckets_put` and `views_buckets_delete` (without them the "create missing columns" step answers 403).
+3. **API token** — in Vikunja: Settings → API tokens. The token needs the `tasks` and `projects.read_all` scopes; for the mapping wizard to build missing columns it also needs `projects.views_buckets_put` and `views_buckets_delete` (without them the "create missing columns" step answers 403).
 4. Pressing "Connect" makes **Chrome ask for permission for that host**. Decline and nothing is saved: press Connect again and accept the prompt.
 
 ### Project and view
@@ -1093,7 +1093,7 @@ The token is sent **only** to the instance whose address you typed, and only in 
 
 The widget stores a description as **plain text**: Vikunja's HTML is flattened to text on pull. The inverse is plain `<p>` paragraphs, with `<br>` for single newlines. Two consequences:
 
-- the widget never rewrites the description of an **existing** Vikunja task — a retry (`resync`) sends only status and project, so formatting typed in the web editor stays where it is;
+- the widget never rewrites the description of an **existing** Vikunja task — a retry (`resync`) sends only the status, so formatting typed in the web editor stays where it is;
 - but whatever the widget **does send** as a description (a task created from the widget, and the future title/description editing UI) goes out as plain paragraphs — rich formatting cannot survive that round trip.
 
 For the same reason the Vikunja integration keeps **no hidden metadata**: Vikunja's web editor (TipTap) strips HTML comments when a description is saved (verified against a 2.6.0 instance), so the local id is derived deterministically from `vikunja:<task.id>` rather than hidden in the task's text.

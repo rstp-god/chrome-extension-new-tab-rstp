@@ -64,6 +64,23 @@ function boardsConfig(overrides: Record<string, unknown> = {}) {
   }
 }
 
+/** A second and a third board, so a test can show the list is a list. */
+function second(overrides: Record<string, unknown> = {}) {
+  return {
+    projectId: 8,
+    viewId: 21,
+    name: 'Work',
+    containers: [],
+    mapping: MAPPING,
+    kanbanMapping: true,
+    ...overrides,
+  }
+}
+
+function third(overrides: Record<string, unknown> = {}) {
+  return { ...second(), projectId: 12, viewId: 30, name: 'Side', ...overrides }
+}
+
 /** The Todo widget's envelope as `withChromeSync` writes it. */
 function envelope(integration: unknown) {
   return {
@@ -324,8 +341,7 @@ describe('readVikunjaScheduleFromStorage', () => {
 
     await expect(readVikunjaScheduleFromStorage()).resolves.toEqual({
       cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
-      projectId: 1,
-      viewId: 4,
+      boards: [{ projectId: 1, viewId: 4 }],
       periodMin: 15,
     })
   })
@@ -374,41 +390,63 @@ describe('readVikunjaScheduleFromStorage', () => {
  * yet (and starts again for nobody).
  */
 describe('readVikunjaScheduleFrom — the current, multi-board shape', () => {
-  it('schedules the default board', () => {
+  it('schedules the one connected board', () => {
     const raw = vikunjaEnvelope({ config: boardsConfig({ pullPeriodMin: 15 }), mapping: null })
 
     expect(readVikunjaScheduleFrom(raw)).toEqual({
       cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
-      projectId: 1,
-      viewId: 4,
+      boards: [{ projectId: 1, viewId: 4 }],
       periodMin: 15,
     })
   })
 
-  it('follows defaultProjectId rather than the order of the list', () => {
-    const second = { projectId: 8, viewId: 21, name: 'Work', containers: [], mapping: MAPPING }
+  it('schedules every connected board, in the order they are stored', () => {
+    // One alarm, every board: the period is the period of the *connection*,
+    // and the tick walks the list. `defaultProjectId` is beside the point
+    // here — the default board is a UI notion, and a background pull that
+    // read only it would leave the other boards stale.
     const raw = vikunjaEnvelope({
       config: boardsConfig({
-        boards: [boardsConfig().boards[0], second],
+        boards: [boardsConfig().boards[0], second(), third()],
         defaultProjectId: 8,
       }),
       mapping: null,
     })
 
-    expect(readVikunjaScheduleFrom(raw)).toMatchObject({ projectId: 8, viewId: 21 })
+    expect(readVikunjaScheduleFrom(raw)?.boards).toStrictEqual([
+      { projectId: 1, viewId: 4 },
+      { projectId: 8, viewId: 21 },
+      { projectId: 12, viewId: 30 },
+    ])
   })
 
-  it('falls back to the first board when no default is named', () => {
-    const raw = vikunjaEnvelope({ config: boardsConfig({ defaultProjectId: null }) })
+  it('leaves out a board whose mapping wizard is unfinished', () => {
+    // Nowhere to put its tasks, so a pull of it would be work nobody can
+    // use — while the mapped boards next to it are worth waking up for.
+    const raw = vikunjaEnvelope({
+      config: boardsConfig({
+        boards: [boardsConfig().boards[0], { ...second(), mapping: null }],
+      }),
+      mapping: null,
+    })
 
-    expect(readVikunjaScheduleFrom(raw)).toMatchObject({ projectId: 1, viewId: 4 })
+    expect(readVikunjaScheduleFrom(raw)?.boards).toStrictEqual([{ projectId: 1, viewId: 4 }])
   })
 
   it.each([
     ['no board is connected', boardsConfig({ boards: [], defaultProjectId: null })],
     [
-      'the default board has no mapping yet',
+      'the only board has no mapping yet',
       boardsConfig({ boards: [{ ...boardsConfig().boards[0], mapping: null }] }),
+    ],
+    [
+      'not one of several boards is mapped',
+      boardsConfig({
+        boards: [
+          { ...boardsConfig().boards[0], mapping: null },
+          { ...second(), mapping: null },
+        ],
+      }),
     ],
   ])('answers null when %s', (_label, config) => {
     // A board with no mapping means the wizard is unfinished, and a pulled
@@ -727,6 +765,193 @@ describe('the alarm firing', () => {
   })
 })
 
+describe('the alarm firing — every connected board', () => {
+  /** The path a full view read hits, per board. */
+  const VIEW_TASKS = (projectId: number, viewId: number) =>
+    `/api/v1/projects/${projectId}/views/${viewId}/tasks`
+
+  function multiBoardEnvelope(boards: Record<string, unknown>[]) {
+    return vikunjaEnvelope({
+      config: boardsConfig({ boards, defaultProjectId: 1 }),
+      mapping: null,
+    })
+  }
+
+  /** Which views were read, in order, from the fetch trace. */
+  function viewsRead(fetchMock: { mock: { calls: [string][] } }): string[] {
+    return fetchMock.mock.calls
+      .map(([url]) => url)
+      .filter((url) => url.includes('/views/'))
+      .map((url) => new URL(url).pathname)
+  }
+
+  it('pulls every board, one after the other', async () => {
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([
+          boardsConfig().boards[0],
+          second(),
+          third(),
+        ]),
+      },
+    })
+    const fetchMock = stubFetch(() => jsonResponse(200, [bucketBody(1, [taskBody()])]))
+    setupVikunjaPull()
+
+    await chromeMock.fire()
+
+    // One alarm, three reads — and the order is the stored order, so a
+    // failure is always attributable to a board.
+    expect(viewsRead(fetchMock)).toStrictEqual([
+      VIEW_TASKS(1, 4),
+      VIEW_TASKS(8, 21),
+      VIEW_TASKS(12, 30),
+    ])
+  })
+
+  it('broadcasts what each board found, naming that board', async () => {
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([boardsConfig().boards[0], second()]),
+      },
+    })
+    stubFetch(() => jsonResponse(200, [bucketBody(1, [taskBody()])]))
+    setupVikunjaPull()
+
+    await chromeMock.fire()
+
+    // Sent from the read path, once per view — a page filters on the pair.
+    expect(chromeMock.sent).toEqual([
+      expect.objectContaining({ type: 'vikunja/pulled', projectId: 1, viewId: 4 }),
+      expect.objectContaining({ type: 'vikunja/pulled', projectId: 8, viewId: 21 }),
+    ])
+  })
+
+  it('carries on to the next board after a transient failure', async () => {
+    // One board behind a restarting proxy must not cost the user every other
+    // board's updates for a whole period.
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([boardsConfig().boards[0], second()]),
+      },
+    })
+    const fetchMock = stubFetch((url) =>
+      url.includes('/views/4/')
+        ? jsonResponse(503, {})
+        : jsonResponse(200, [bucketBody(1, [taskBody()])]),
+    )
+    setupVikunjaPull()
+
+    await chromeMock.fire()
+
+    expect(viewsRead(fetchMock)).toStrictEqual([VIEW_TASKS(1, 4), VIEW_TASKS(8, 21)])
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
+    expect(chromeMock.sent).toEqual([
+      expect.objectContaining({
+        type: 'vikunja/pull-failed',
+        projectId: 1,
+        viewId: 4,
+        errorKey: 'network',
+      }),
+      expect.objectContaining({ type: 'vikunja/pulled', projectId: 8, viewId: 21 }),
+    ])
+  })
+
+  it('stops the whole tick and clears the alarm on a dead token', async () => {
+    // `authInvalid` is about the connection, not about the board: the next
+    // board would send the very same refused token, so the tick ends here and
+    // the alarm goes until the user reconnects.
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([boardsConfig().boards[0], second()]),
+      },
+    })
+    const fetchMock = stubFetch(() => jsonResponse(401, { message: 'invalid token' }))
+    setupVikunjaPull()
+    await chromeMock.changeTo(
+      VIKUNJA_TODO_STORAGE_KEY,
+      multiBoardEnvelope([boardsConfig().boards[0], second()]),
+    )
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(true)
+
+    await chromeMock.fire()
+
+    expect(viewsRead(fetchMock)).toStrictEqual([VIEW_TASKS(1, 4)])
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(false)
+    expect(chromeMock.sent).toEqual([
+      expect.objectContaining({
+        type: 'vikunja/pull-failed',
+        projectId: 1,
+        viewId: 4,
+        errorKey: 'authInvalid',
+      }),
+    ])
+  })
+
+  it('stops on a withdrawn host permission too, before any request', async () => {
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([boardsConfig().boards[0], second()]),
+      },
+      granted: false,
+    })
+    const fetchMock = stubFetch(() => jsonResponse(200, []))
+    setupVikunjaPull()
+    await chromeMock.changeTo(
+      VIKUNJA_TODO_STORAGE_KEY,
+      multiBoardEnvelope([boardsConfig().boards[0], second()]),
+    )
+
+    await chromeMock.fire()
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(false)
+    expect(chromeMock.sent).toEqual([
+      expect.objectContaining({ type: 'vikunja/pull-failed', errorKey: 'permissionMissing' }),
+    ])
+  })
+
+  it('schedules nothing while not one board is mapped', async () => {
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([
+          { ...boardsConfig().boards[0], mapping: null },
+          second({ mapping: null }),
+        ]),
+      },
+    })
+    const fetchMock = stubFetch(() => jsonResponse(200, []))
+
+    setupVikunjaPull()
+    await chromeMock.settle()
+
+    expect(chromeMock.alarmCreate).not.toHaveBeenCalled()
+    expect(chromeMock.alarms.has(VIKUNJA_PULL_ALARM)).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps one alarm for the whole connection, whatever the board count', async () => {
+    const chromeMock = installChrome({
+      seed: {
+        [VIKUNJA_TODO_STORAGE_KEY]: multiBoardEnvelope([
+          boardsConfig().boards[0],
+          second(),
+          third(),
+        ]),
+      },
+    })
+
+    await ensureAlarm()
+
+    // The period is the connection's, not a board's — three boards must not
+    // become three alarms (nor divide the period between them).
+    expect(chromeMock.alarmCreate).toHaveBeenCalledTimes(1)
+    expect(chromeMock.alarmCreate).toHaveBeenCalledWith(VIKUNJA_PULL_ALARM, {
+      periodInMinutes: VIKUNJA_PULL_PERIOD_MIN,
+    })
+  })
+})
+
 describe('without the chrome APIs', () => {
   it('registers nothing and throws nothing', () => {
     Object.defineProperty(globalThis, 'chrome', { value: undefined, configurable: true })
@@ -741,8 +966,9 @@ describe('readVikunjaScheduleFrom', () => {
     // needs no storage read.
     expect(readVikunjaScheduleFrom(vikunjaEnvelope())).toEqual({
       cfg: { baseUrl: CONFIG.baseUrl, token: CONFIG.token },
-      projectId: 1,
-      viewId: 4,
+      // The single-board shape yields exactly one board, so the tick below
+      // takes the same path for both records on disk.
+      boards: [{ projectId: 1, viewId: 4 }],
       periodMin: VIKUNJA_PULL_PERIOD_MIN,
     })
   })

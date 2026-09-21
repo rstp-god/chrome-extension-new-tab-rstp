@@ -49,8 +49,10 @@ export interface VikunjaWire {
  * record and write the whole thing back; every field listed here is a field
  * the user's own instance can lose to a bug, and none of the rest
  * (`due_date`, `priority`, `percent_done`, assignees, reminders) is something
- * the widget can even show, let alone edit. Labels are not here either: they
- * have their own endpoints (`setLabels`) and are not part of the task body.
+ * the widget can even show, let alone edit. Labels are not here either — and
+ * nowhere else in the bridge: they live behind their own endpoints, the widget
+ * stopped surfacing them as projects (a task's project is the board it lives
+ * in), and nothing writes one any more.
  *
  * `description` is **HTML**, already produced by the widget's `textToHtml` —
  * Vikunja stores rich text in this field and would render an escaped string
@@ -91,17 +93,6 @@ export interface VikunjaTaskWrite {
   updated: string
 }
 
-/**
- * What `setLabels` actually changed — not what it was asked to change. A
- * reserved label (see `isReservedVikunjaLabel`) is never removed and a label
- * the task does not carry is not removed twice, so the two lists can be
- * shorter than the request's.
- */
-export interface VikunjaSetLabelsResult {
-  added: number[]
-  removed: number[]
-}
-
 /** `DELETE /tasks/:id` carries no payload worth forwarding. */
 export interface VikunjaDeleteResult {
   deleted: true
@@ -120,7 +111,6 @@ export type VikunjaRequest =
       viewId: number
       title: string
     }
-  | { type: 'vikunja'; op: 'listLabels'; cfg: VikunjaWire }
   | {
       type: 'vikunja'
       op: 'pull'
@@ -162,14 +152,6 @@ export type VikunjaRequest =
       bucketId: number
     }
   | { type: 'vikunja'; op: 'delete'; cfg: VikunjaWire; taskId: number }
-  | {
-      type: 'vikunja'
-      op: 'setLabels'
-      cfg: VikunjaWire
-      taskId: number
-      add: number[]
-      remove: number[]
-    }
 
 /**
  * Runtime allowlist of the ops above. `isVikunjaRequest` checks against it,
@@ -183,13 +165,11 @@ export const VIKUNJA_OPS = [
   'listProjects',
   'listBuckets',
   'createBucket',
-  'listLabels',
   'pull',
   'create',
   'update',
   'moveToBucket',
   'delete',
-  'setLabels',
 ] as const satisfies readonly VikunjaRequest['op'][]
 
 export type VikunjaOp = VikunjaRequest['op']
@@ -248,14 +228,6 @@ export interface VikunjaBucketSummary {
   isDefault: boolean
 }
 
-/** A label, which the Todo widget surfaces as a "project". */
-export interface VikunjaLabelSummary {
-  id: number
-  title: string
-  /** `hex_color` without a leading `#`, or `null` when the label has none. */
-  hexColor: string | null
-}
-
 /**
  * Ceilings on the two free-text fields a pulled task carries.
  *
@@ -273,26 +245,16 @@ export const VIKUNJA_MAX_TITLE_LENGTH = 1024
 export const VIKUNJA_MAX_DESCRIPTION_LENGTH = 16_384
 
 /**
- * Label prefixes that belong to another feature of the user's own workflow.
+ * There is deliberately no "reserved label" list here any more.
  *
- * The instance this integration was built against already uses `energy:*` and
- * `mood:*` labels for something else (recon Q13). The widget pretends not to
- * see them — surfacing them as Todo "projects" would bury the real ones — and,
- * more importantly, the **write path must never strip one off a task it
- * edits**: a sync that quietly deletes someone's labels is worse than no sync.
- *
- * Shared vocabulary rather than a widget constant because both sides enforce
- * it: the widget hides them, and the worker drops them from a `setLabels`
- * removal list — a renderer asking for a reserved id is refused there, not
- * trusted. One list, so the two checks cannot disagree.
+ * It used to name the `energy:*` / `mood:*` prefixes another feature of the
+ * user's own workflow owns (recon Q13), because the widget surfaced labels as
+ * its projects and the write path had to promise never to strip one off a
+ * task it edited. Nothing writes a label now — a Vikunja task's project is
+ * the board it lives in — so the promise is kept by there being no label
+ * endpoint reachable from here at all, which is a stronger guarantee than a
+ * prefix check was.
  */
-export const VIKUNJA_RESERVED_LABEL_PREFIXES = ['energy:', 'mood:'] as const
-
-/** Is this one of the labels another feature owns (see the list above)? */
-export function isReservedVikunjaLabel(title: string): boolean {
-  const normalized = title.trim().toLowerCase()
-  return VIKUNJA_RESERVED_LABEL_PREFIXES.some((prefix) => normalized.startsWith(prefix))
-}
 
 /**
  * One task as the pull hands it over.

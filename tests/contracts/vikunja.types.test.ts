@@ -49,13 +49,11 @@ describe('VikunjaRequest union', () => {
       | 'listProjects'
       | 'listBuckets'
       | 'createBucket'
-      | 'listLabels'
       | 'pull'
       | 'create'
       | 'update'
       | 'moveToBucket'
       | 'delete'
-      | 'setLabels'
     >()
   })
 

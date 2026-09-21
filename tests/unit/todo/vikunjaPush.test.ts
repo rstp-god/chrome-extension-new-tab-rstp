@@ -118,10 +118,13 @@ function stubBridge(table: Partial<Record<VikunjaRequest['op'], unknown>>) {
 }
 
 /**
- * Deliberately without `setLabels`: a push never sends one any more (the
- * task's project is the board it lives in), and `stubBridge` throws on an op
- * it has no answer for — so a label message coming back would fail the test
- * that sent it rather than sail through.
+ * The three ops a push can send, and no others.
+ *
+ * `stubBridge` throws for an op it has no answer for, so any request beyond
+ * these fails the test that sent it. There is no label op to list here any
+ * more: a task's project is the board it lives in, the `setLabels` /
+ * `listLabels` ops are gone from `VikunjaRequest` altogether, and
+ * `tests/contracts/vikunja.types.test.ts` is what pins that.
  */
 const HAPPY = {
   create: write({ id: 7 }),
@@ -488,26 +491,184 @@ describe('pushTask: status', () => {
   })
 })
 
-describe('pushTask: labels', () => {
-  it('never sends a label message, whatever the op', async () => {
-    // The whole class of bug this replaces: `task.projectId` is a *board* id
-    // now, and a label op would have written it into the instance's label
-    // space — silently mislabelling someone's tasks.
+describe('pushTask: which board the write lands on', () => {
+  /** The second board: another view, another set of bucket ids. */
+  const SECOND_MAPPING: StatusListMapping = {
+    input: ['30'],
+    inprogress: ['31'],
+    struggle: ['32'],
+    completed: ['33'],
+    deleted: ['34'],
+  }
+
+  const FIRST: VikunjaBoard = { ...BOARD, mapping: MAPPING }
+
+  const SECOND: VikunjaBoard = {
+    projectId: 8,
+    viewId: 21,
+    name: 'Work',
+    containers: [],
+    mapping: SECOND_MAPPING,
+    kanbanMapping: true,
+  }
+
+  /** Pushes against a whole board list, rather than the single-board default. */
+  function pushOn(
+    boards: VikunjaBoard[],
+    op: IntegrationPushOp,
+    local: TodoTask,
+  ): Promise<IntegrationOutcome<RemoteTaskRef>> {
+    const adapter: TodoIntegration = new VikunjaIntegration({ ...CONFIG, boards })
+    return adapter.pushTask(local, op, { scope: null, mapping: null, knownRef: local.remoteRef })
+  }
+
+  it('creates into the board the task’s project names, not the default one', async () => {
     stubBridge(HAPPY)
 
-    const ops: IntegrationPushOp[] = [
+    const out = await pushOn(
+      [FIRST, SECOND],
       { kind: 'create' },
-      { kind: 'update' },
-      { kind: 'status', previous: 'input' },
-      { kind: 'delete' },
-      { kind: 'resync' },
-      { kind: 'project', previous: null },
-    ]
-    for (const op of ops) {
-      await push(op, task({ status: 'inprogress', projectId: '1', remoteRef: ref() }))
-    }
+      task({
+        remoteRef: null,
+        status: 'inprogress',
+        projectId: '8',
+      }),
+    )
 
-    expect(sent().map((request) => request.op)).not.toContain('setLabels')
+    expect(sent()[0]).toMatchObject({ op: 'create', projectId: 8 })
+    // Placed with the *second* board's mapping and view: bucket 31, view 21.
+    expect(sent()[1]).toMatchObject({ op: 'moveToBucket', projectId: 8, viewId: 21, bucketId: 31 })
+    // And the ref records the board, so the next push finds it again.
+    expect(out).toMatchObject({ ok: true, value: { projectId: 8 } })
+  })
+
+  it('falls back to the default board when the task names no board of ours', async () => {
+    // A record written before the integration (or by another backend) can
+    // carry a project id that is not a board at all — a new task still has to
+    // go somewhere, and `projectPolicy.defaultId` promises the default board.
+    stubBridge(HAPPY)
+
+    await pushOn(
+      [FIRST, SECOND],
+      { kind: 'create' },
+      task({ remoteRef: null, projectId: 'label-7' }),
+    )
+
+    expect(sent()[0]).toMatchObject({ op: 'create', projectId: 1 })
+  })
+
+  it('moves a task on board B with board B’s buckets, whatever the default is', async () => {
+    stubBridge(HAPPY)
+
+    const out = await pushOn(
+      [FIRST, SECOND],
+      { kind: 'status', previous: 'input' },
+      task({ status: 'struggle', remoteRef: ref({ projectId: 8, bucketId: 30 }) }),
+    )
+
+    expect(sent()).toEqual([
+      {
+        type: 'vikunja',
+        op: 'moveToBucket',
+        cfg: CFG,
+        taskId: 4,
+        projectId: 8,
+        viewId: 21,
+        // 32, the second board's `struggle` — not 5, the first board's.
+        bucketId: 32,
+      },
+    ])
+    expect(out).toMatchObject({ ok: true, value: { projectId: 8 } })
+  })
+
+  it('reads the mode off the board the task is on, not off the connection', async () => {
+    // Board 1 is kanban, board 8 is flat. One config, two rules: a status
+    // change on the flat board is a `done` update and never a move.
+    stubBridge(HAPPY)
+    const boards = [FIRST, { ...SECOND, kanbanMapping: false }]
+
+    await pushOn(
+      boards,
+      { kind: 'status', previous: 'input' },
+      task({ status: 'completed', remoteRef: ref({ projectId: 8 }) }),
+    )
+    await pushOn(
+      boards,
+      { kind: 'status', previous: 'input' },
+      task({ status: 'completed', remoteRef: ref({ projectId: 1 }) }),
+    )
+
+    expect(ops()).toEqual(['update', 'moveToBucket'])
+    expect(sent()[0]).toMatchObject({ payload: { done: true } })
+    expect(sent()[1]).toMatchObject({ projectId: 1, viewId: 4, bucketId: 3 })
+  })
+
+  it('deletes into the trash column of the task’s own board', async () => {
+    stubBridge(HAPPY)
+
+    await pushOn(
+      [FIRST, SECOND],
+      { kind: 'delete' },
+      task({ status: 'deleted', remoteRef: ref({ projectId: 8 }) }),
+    )
+
+    expect(sent()[0]).toMatchObject({ op: 'moveToBucket', projectId: 8, viewId: 21, bucketId: 34 })
+  })
+
+  it('resyncs against the board the ref names', async () => {
+    stubBridge(HAPPY)
+
+    await pushOn(
+      [FIRST, SECOND],
+      { kind: 'resync' },
+      task({ status: 'input', remoteRef: ref({ projectId: 8, bucketId: 99 }) }),
+    )
+
+    expect(sent()[0]).toMatchObject({ op: 'moveToBucket', projectId: 8, viewId: 21, bucketId: 30 })
+  })
+
+  it('refuses a ref pointing at a board that is no longer connected, without a request', async () => {
+    // The user removed board 8 while a task of it was still dirty. Guessing
+    // another board would move their task to a column it never lived in, so
+    // the push is refused and the task stays dirty.
+    stubBridge(HAPPY)
+
+    await expect(
+      pushOn(
+        [FIRST],
+        { kind: 'status', previous: 'input' },
+        task({
+          status: 'inprogress',
+          remoteRef: ref({ projectId: 8 }),
+        }),
+      ),
+    ).resolves.toEqual({ ok: false, errorKey: 'mappingIncomplete' })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('refuses an edit of a task on a board that is gone, too', async () => {
+    stubBridge(HAPPY)
+
+    await expect(
+      pushOn([FIRST], { kind: 'update' }, task({ remoteRef: ref({ projectId: 8 }) })),
+    ).resolves.toEqual({ ok: false, errorKey: 'mappingIncomplete' })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('still refuses a project change, whichever board the task is on', async () => {
+    stubBridge(HAPPY)
+
+    await expect(
+      pushOn(
+        [FIRST, SECOND],
+        { kind: 'project', previous: '1' },
+        task({
+          projectId: '8',
+          remoteRef: ref({ projectId: 1 }),
+        }),
+      ),
+    ).resolves.toEqual({ ok: false, errorKey: 'pushFailed' })
+    expect(bridge).not.toHaveBeenCalled()
   })
 })
 

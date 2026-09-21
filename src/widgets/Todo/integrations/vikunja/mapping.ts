@@ -10,7 +10,6 @@
  */
 
 import {
-  isReservedVikunjaLabel,
   normalizeVikunjaTimestamp,
   VIKUNJA_MAX_DESCRIPTION_LENGTH,
   VIKUNJA_MAX_TITLE_LENGTH,
@@ -196,18 +195,6 @@ export function clampForVikunja(
  */
 export function localIdForTask(taskId: number): string {
   return `vikunja:${taskId}`
-}
-
-/**
- * Is this one of the labels another feature owns?
- *
- * Re-exported under the adapter's own name from the shared list in
- * `messages.ts`: the worker enforces the very same rule when it removes
- * labels, and two copies of a "never touch these" list is how one of them
- * ends up out of date.
- */
-export function isReservedLabel(title: string): boolean {
-  return isReservedVikunjaLabel(title)
 }
 
 export interface VikunjaTaskContext {

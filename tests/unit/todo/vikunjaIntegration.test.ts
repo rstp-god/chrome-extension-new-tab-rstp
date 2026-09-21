@@ -453,6 +453,207 @@ describe('VikunjaIntegration.pullTasks', () => {
   })
 })
 
+describe('VikunjaIntegration.pullTasks — every board, not just the default one', () => {
+  const ctx = { scope: null, mapping: null, knownRefs: {}, knownStatuses: {} }
+
+  /** A second board with buckets of its own, so a mix-up would be visible. */
+  const SECOND_MAPPING: StatusListMapping = {
+    input: ['30'],
+    inprogress: ['31'],
+    struggle: ['32'],
+    completed: ['33'],
+    deleted: ['34'],
+  }
+
+  const SECOND: VikunjaBoard = {
+    projectId: 8,
+    viewId: 21,
+    name: 'Work',
+    containers: [],
+    mapping: SECOND_MAPPING,
+    kanbanMapping: true,
+  }
+
+  function multi(boards: VikunjaBoard[]): VikunjaConfig {
+    return { ...CONFIG, boards, defaultProjectId: 1 }
+  }
+
+  /** Answers each board's pull from `byProject`, and refuses any other op. */
+  function stubPerBoard(byProject: Record<number, unknown[]>) {
+    bridge.mockImplementation(async (req) => {
+      if (req.op !== 'pull') throw new Error(`unexpected op ${req.op}`)
+      const tasks = byProject[req.projectId]
+      if (tasks === undefined) throw new Error(`unexpected board ${req.projectId}`)
+      return { ok: true, value: { tasks, pulledAt: 1 } }
+    })
+  }
+
+  function pulls(): { projectId: number; viewId: number }[] {
+    return bridge.mock.calls
+      .map(([request]) => request)
+      .filter((request) => request.op === 'pull')
+      .map((request) => ({ projectId: request.projectId, viewId: request.viewId }))
+  }
+
+  it('sends one pull per board, each addressing its own project and view', async () => {
+    stubPerBoard({ 1: [], 8: [] })
+
+    await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks(ctx)
+
+    expect(pulls()).toStrictEqual([
+      { projectId: 1, viewId: 4 },
+      { projectId: 8, viewId: 21 },
+    ])
+  })
+
+  it('merges the tasks of every board into one result', async () => {
+    stubPerBoard({ 1: [pulledTask({ id: 4 })], 8: [pulledTask({ id: 9 }), pulledTask({ id: 10 })] })
+
+    const out = await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks(ctx)
+
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.value.tasks.map((task) => task.id)).toStrictEqual([
+      'vikunja:4',
+      'vikunja:9',
+      'vikunja:10',
+    ])
+    expect(Object.keys(out.value.refs)).toStrictEqual(['vikunja:4', 'vikunja:9', 'vikunja:10'])
+  })
+
+  it('gives every task the board it was pulled from, in the task and in its ref', async () => {
+    stubPerBoard({ 1: [pulledTask({ id: 4 })], 8: [pulledTask({ id: 9 })] })
+
+    const out = await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks(ctx)
+
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.value.tasks.map((task) => task.projectId)).toStrictEqual(['1', '8'])
+    // The ref is what a later push resolves its board from, so it is the half
+    // that must not be shared between two boards.
+    expect(out.value.refs['vikunja:4']).toMatchObject({ projectId: 1 })
+    expect(out.value.refs['vikunja:9']).toMatchObject({ projectId: 8 })
+  })
+
+  it('reads each board’s status off that board’s own mapping', async () => {
+    // Bucket 2 is `inprogress` on board 1 and means nothing on board 8;
+    // bucket 31 is `inprogress` on board 8 and nothing on board 1.
+    stubPerBoard({
+      1: [pulledTask({ id: 4, bucketId: 2 })],
+      8: [pulledTask({ id: 9, bucketId: 31 })],
+    })
+
+    const out = await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks(ctx)
+
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.value.tasks.map((task) => task.status)).toStrictEqual(['inprogress', 'inprogress'])
+  })
+
+  it('honours flat mode per board, not per connection', async () => {
+    // Board 8 runs flat: its status comes from `done`, and the bucket the
+    // task sits in says nothing — the kanban board next to it is unaffected.
+    const flatBoard: VikunjaBoard = { ...SECOND, kanbanMapping: false }
+    stubPerBoard({
+      1: [pulledTask({ id: 4, bucketId: 2 })],
+      8: [pulledTask({ id: 9, bucketId: 31, done: true })],
+    })
+
+    const out = await new VikunjaIntegration(multi([BOARD, flatBoard])).pullTasks({
+      ...ctx,
+      knownStatuses: {},
+    })
+
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(out.value.tasks.map((task) => task.status)).toStrictEqual(['inprogress', 'completed'])
+  })
+
+  it('forwards force to every board’s pull', async () => {
+    stubPerBoard({ 1: [], 8: [] })
+
+    await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks({ ...ctx, force: true })
+
+    for (const [request] of bridge.mock.calls) {
+      expect(request).toMatchObject({ op: 'pull', force: true })
+    }
+  })
+
+  it('fails the whole pull on the first board error, and reports nothing else', async () => {
+    // The store's reconcile drops an owned ref that the pull did not return,
+    // so a partial answer would delete every task of the board that failed.
+    // Fail-fast is the only safe shape.
+    bridge.mockImplementation(async (req) => {
+      if (req.op !== 'pull') throw new Error(`unexpected op ${req.op}`)
+      if (req.projectId === 8) return { ok: false, errorKey: 'network' }
+      return { ok: true, value: { tasks: [pulledTask({ id: 4 })], pulledAt: 1 } }
+    })
+
+    await expect(new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks(ctx)).resolves.toEqual({
+      ok: false,
+      errorKey: 'network',
+    })
+  })
+
+  it('stops at the failing board instead of reading the ones behind it', async () => {
+    const third: VikunjaBoard = { ...SECOND, projectId: 12, viewId: 30 }
+    bridge.mockImplementation(async (req) => {
+      if (req.op !== 'pull') throw new Error(`unexpected op ${req.op}`)
+      if (req.projectId === 8) return { ok: false, errorKey: 'network' }
+      return { ok: true, value: { tasks: [], pulledAt: 1 } }
+    })
+
+    await new VikunjaIntegration(multi([BOARD, SECOND, third])).pullTasks(ctx)
+
+    expect(pulls().map((pull) => pull.projectId)).toStrictEqual([1, 8])
+  })
+
+  it('skips a board whose mapping wizard was never finished', async () => {
+    // `stubPerBoard` throws for a board it has no answer for, so a pull of
+    // the unmapped one would fail this test rather than pass unnoticed.
+    stubPerBoard({ 1: [pulledTask({ id: 4 })] })
+
+    const out = await new VikunjaIntegration(
+      multi([BOARD, { ...SECOND, mapping: null }]),
+    ).pullTasks(ctx)
+
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    expect(pulls()).toStrictEqual([{ projectId: 1, viewId: 4 }])
+    expect(out.value.tasks.map((task) => task.projectId)).toStrictEqual(['1'])
+  })
+
+  it('answers mappingIncomplete when not one board is mapped', async () => {
+    const unmapped = multi([
+      { ...BOARD, mapping: null },
+      { ...SECOND, mapping: null },
+    ])
+
+    await expect(new VikunjaIntegration(unmapped).pullTasks(ctx)).resolves.toEqual({
+      ok: false,
+      errorKey: 'mappingIncomplete',
+    })
+    expect(bridge).not.toHaveBeenCalled()
+  })
+
+  it('keeps a task linked through the ref it already had, whichever board it is on', async () => {
+    stubPerBoard({ 1: [], 8: [pulledTask({ id: 9 })] })
+
+    const out = await new VikunjaIntegration(multi([BOARD, SECOND])).pullTasks({
+      ...ctx,
+      knownRefs: {
+        'local-uuid': { taskId: 9, projectId: 8, identifier: '#9', bucketId: 30, updated: 'now' },
+      },
+    })
+
+    expect(out.ok).toBe(true)
+    if (!out.ok) return
+    // The index of known refs is built once and shared by every board: a
+    // Vikunja task id is instance-wide, so it cannot mean two tasks.
+    expect(out.value.tasks[0].id).toBe('local-uuid')
+  })
+})
+
 describe('VikunjaIntegration.createContainer', () => {
   it('creates a bucket and returns it as a plain container', async () => {
     bridge.mockResolvedValue({

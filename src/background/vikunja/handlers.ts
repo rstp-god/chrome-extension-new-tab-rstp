@@ -13,7 +13,6 @@ import { z } from 'zod'
 
 import { vikunjaWireSchema, withVikunjaClient } from '@/background/vikunja/gate.ts'
 import {
-  isReservedVikunjaLabel,
   normalizeVikunjaTimestamp,
   VIKUNJA_MAX_DESCRIPTION_LENGTH,
   VIKUNJA_MAX_TITLE_LENGTH,
@@ -25,18 +24,15 @@ import type {
   VikunjaBucketSummary,
   VikunjaConnectInfo,
   VikunjaDeleteResult,
-  VikunjaLabelSummary,
   VikunjaPing,
   VikunjaProjectSummary,
   VikunjaPullResult,
   VikunjaRequest,
   VikunjaResponse,
-  VikunjaSetLabelsResult,
   VikunjaTaskWrite,
 } from '@/background/vikunja/messages.ts'
 import type {
   VikunjaBucket,
-  VikunjaLabel,
   VikunjaProject,
   VikunjaTask,
   VikunjaView,
@@ -128,13 +124,6 @@ export const vikunjaUpdatePayloadSchema = z
  */
 const vikunjaEtagSchema = z.string().min(1).max(64)
 
-/**
- * Label ids for one `setLabels` call. Bounded at 50 per direction: each id
- * costs a request, and a renderer asking for ten thousand of them is asking
- * the worker to hammer the user's instance until MV3 unloads it.
- */
-const vikunjaLabelIdsSchema = z.array(vikunjaIdSchema).max(50)
-
 function toProjectSummary(project: VikunjaProject): VikunjaProjectSummary {
   // The first kanban view wins. A project can hold several, but they share
   // the same tasks — picking one deterministically beats asking the user to
@@ -160,11 +149,6 @@ function toBucketSummary(bucket: VikunjaBucket, view: VikunjaView): VikunjaBucke
     isDone: bucket.id === view.done_bucket_id,
     isDefault: bucket.id === view.default_bucket_id,
   }
-}
-
-function toLabelSummary(label: VikunjaLabel): VikunjaLabelSummary {
-  // `hex_color` is `""` rather than null when the user never picked one.
-  return { id: label.id, title: label.title, hexColor: label.hex_color || null }
 }
 
 /** Every project the token can see, trimmed to what the scope picker needs. */
@@ -201,17 +185,6 @@ export function handleListBuckets(
       ok: true,
       value: buckets.value.map((bucket) => toBucketSummary(bucket, view.value)),
     }
-  })
-}
-
-/** Labels are instance-wide, so this op carries no scope. */
-export function handleListLabels(
-  req: Extract<VikunjaRequest, { op: 'listLabels' }>,
-): Promise<VikunjaResponse<VikunjaLabelSummary[]>> {
-  return withVikunjaClient(req.cfg, async (client) => {
-    const out = await client.getLabels()
-    if (!out.ok) return out
-    return { ok: true, value: out.value.map(toLabelSummary) }
   })
 }
 
@@ -362,79 +335,6 @@ export function handleDelete(
   })
 }
 
-/**
- * Attaches and detaches labels, one request each (Vikunja has no bulk form).
- *
- * Removals run before additions so a project change frees the slot before it
- * fills it, and both run sequentially: the label endpoints are per-id, and
- * firing them in parallel would only race the same task's own mutation queue.
- *
- * The read that opens it is not optional. A removal list is a list of **ids**,
- * and whether an id is one of the reserved `energy:` / `mood:` labels (recon
- * Q13) can only be told from its *title* — which lives on the task. So the
- * task is read first, the reserved ids are dropped from the removals, and a
- * renderer that asks for one is refused rather than trusted. Ids the task does
- * not carry are dropped too: Vikunja answers 404 for those, and one stale id
- * in the list would otherwise abort the whole operation.
- *
- * Only `remove` is screened. Attaching a reserved label is not destructive —
- * it is a label the user already has, on a task they chose — and the widget
- * never offers one as a project anyway, so there is nothing to protect there.
- *
- * Partial application is intentional. There is no transaction to be had:
- * Vikunja has one endpoint per label, so a failure half-way leaves the changes
- * made so far in place and the result reports exactly those. That is safe to
- * retry — the same call runs again, the labels already applied are skipped as
- * "already attached" / "not attached", and the outcome is the same as if it
- * had succeeded the first time.
- */
-export function handleSetLabels(
-  req: Extract<VikunjaRequest, { op: 'setLabels' }>,
-): Promise<VikunjaResponse<VikunjaSetLabelsResult>> {
-  const taskId = vikunjaIdSchema.safeParse(req.taskId)
-  const add = vikunjaLabelIdsSchema.safeParse(req.add)
-  const remove = vikunjaLabelIdsSchema.safeParse(req.remove)
-  if (!taskId.success || !add.success || !remove.success) {
-    return Promise.resolve(VIKUNJA_UNKNOWN_FAILURE)
-  }
-
-  return withVikunjaClient(req.cfg, async (client) => {
-    // Deliberately unqueued: it only decides which labels are ours to touch,
-    // and `addLabel` / `removeLabel` below each take the task's chain
-    // themselves — a job holding that chain while calling them would wait on
-    // a chain it is itself holding (see `mutationQueue`).
-    const current = await client.getTaskRaw(taskId.data)
-    if (!current.ok) return current
-
-    const attached = new Set(current.value.task.labels.map((label) => label.id))
-    const reserved = new Set(
-      current.value.task.labels
-        .filter((label) => isReservedVikunjaLabel(label.title))
-        .map((label) => label.id),
-    )
-
-    const removed: number[] = []
-    for (const labelId of remove.data) {
-      if (reserved.has(labelId) || !attached.has(labelId)) continue
-      const out = await client.removeLabel(taskId.data, labelId)
-      if (!out.ok) return out
-      attached.delete(labelId)
-      removed.push(labelId)
-    }
-
-    const added: number[] = []
-    for (const labelId of add.data) {
-      if (attached.has(labelId)) continue
-      const out = await client.addLabel(taskId.data, labelId)
-      if (!out.ok) return out
-      attached.add(labelId)
-      added.push(labelId)
-    }
-
-    return { ok: true, value: { added, removed } }
-  })
-}
-
 /** Validates credentials against a live instance. */
 export function handleConnect(
   req: Extract<VikunjaRequest, { op: 'connect' }>,
@@ -473,9 +373,6 @@ export async function handleVikunjaRequest(req: VikunjaRequest): Promise<Vikunja
     case 'listBuckets':
       return handleListBuckets(req)
 
-    case 'listLabels':
-      return handleListLabels(req)
-
     case 'createBucket':
       return handleCreateBucket(req)
 
@@ -493,9 +390,6 @@ export async function handleVikunjaRequest(req: VikunjaRequest): Promise<Vikunja
 
     case 'delete':
       return handleDelete(req)
-
-    case 'setLabels':
-      return handleSetLabels(req)
 
     default:
       return VIKUNJA_UNKNOWN_FAILURE

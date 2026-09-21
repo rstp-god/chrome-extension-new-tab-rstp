@@ -2,7 +2,7 @@ import { VIKUNJA_MUTATION_CONCURRENCY } from '@/background/vikunja/messages.ts'
 import { isVikunjaRef } from '@/widgets/Todo/integrations/types.ts'
 import { urlHost } from '@/widgets/Todo/utils/url.ts'
 
-import { defaultBoard, hasUnmappedBoard, withDefaultBoardPatch } from './boards.ts'
+import { boardForProject, defaultBoard, hasUnmappedBoard, withDefaultBoardPatch } from './boards.ts'
 import { sendVikunjaMessage } from './bridge.ts'
 import { vikunjaTaskToTodo } from './mapping.ts'
 import { recoverVikunjaPermission } from './permission.ts'
@@ -52,9 +52,10 @@ import type { z } from 'zod'
 const NO_SCOPE: IntegrationOutcome<never> = { ok: false, errorKey: 'notFound' }
 
 /**
- * A scope this config has no board for.
+ * No board to run the operation on: none picked at all, or — for a push —
+ * none this config knows about the one the task claims to live on.
  *
- * `mappingIncomplete` rather than `notFound`: the scope names a real project,
+ * `mappingIncomplete` rather than `notFound`: the project may well be real,
  * it is *this connection* that has nothing stored about it — no columns, no
  * mapping, no mode — and every one of those is what the settings step the
  * error sends the user to is for. Reported instead of guessing: without the
@@ -64,13 +65,13 @@ const NO_SCOPE: IntegrationOutcome<never> = { ok: false, errorKey: 'notFound' }
 const NO_BOARD: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
 
 /**
- * A board whose bucket wizard was never finished.
+ * Not one of the connected boards has a finished bucket wizard.
  *
  * The mapping lives on the board (task 2), so this is a question the adapter
  * can answer on its own instead of trusting whatever the store passed in
  * `ctx.mapping` — which, with several boards, could only ever be one board's.
- * Flat mode is not this case: it has no bucket mapping *by design* and reads
- * `done` instead.
+ * A pull skips an unmapped board rather than refusing the sync, so this is
+ * only reached when skipping leaves nothing at all to read.
  */
 const NO_MAPPING: IntegrationOutcome<never> = { ok: false, errorKey: 'mappingIncomplete' }
 
@@ -155,60 +156,87 @@ export class VikunjaIntegration implements TodoIntegration {
   }
 
   /**
-   * One full read of the view: every bucket, every task, done included — and
-   * exactly one message on the wire.
+   * One full read of **every** connected board: one `pull` message per board,
+   * each answered with all of that view's buckets and tasks, done included.
    *
-   * It used to read the instance's labels alongside it, to tell which of a
-   * task's label ids was meant to be its project. There is nothing to ask any
-   * more: a task's project is the board it lives in, which the caller already
-   * knows before it sends anything.
+   * Three rules worth stating, because each one is a trade:
+   *
+   * - **`ctx.scope` is not consulted.** With a list of boards there is no
+   *   single scope the store could name, so the adapter reads the boards out
+   *   of its own config — and each board's own mapping and mode, which is
+   *   what makes mixing a kanban board and a flat one in one connection work
+   *   at all.
+   * - **An unmapped board is skipped, not refused.** A kanban board whose
+   *   wizard was never finished has no bucket → status rule, so its tasks
+   *   could only be read as `input`; the other boards are still perfectly
+   *   syncable, and the user is already being sent to the wizard by
+   *   `getSetupStep`. Not one mapped board left means there is nothing this
+   *   sync can honestly do.
+   * - **The first failure ends the pull, and nothing at all is reported.**
+   *   The store's reconcile treats a pull as authoritative: a task with one
+   *   of our refs that the pull did not return is taken to be gone remotely
+   *   and dropped. So answering with the boards that did succeed would delete
+   *   every task of the board that did not — which is why a partial result is
+   *   never built.
+   *
+   * Sequential rather than concurrent: the worker single-flights a read per
+   * view, this is somebody's own server, and a pull is already one request
+   * per page of every bucket.
    */
   async pullTasks(ctx: PullContext): Promise<IntegrationOutcome<PullResult>> {
-    // The board, not `ctx.scope`: with a list of boards there is no single
-    // scope the store could name, so the adapter reads the one it syncs out
-    // of its own config. Task 3 loops over all of them here.
-    const board = defaultBoard(this.config)
-    if (!board) return NO_BOARD
-    // Kanban without a mapping cannot place a single task; flat mode never
-    // looks at one.
-    if (board.kanbanMapping && board.mapping === null) return NO_MAPPING
-    const pair = { projectId: board.projectId, viewId: board.viewId }
-
-    // `force` decides whether the worker reads the instance or answers from
-    // the snapshot it broadcast a moment ago — see `PullContext.force`.
-    const pull = await this.send(
-      { type: 'vikunja', op: 'pull', cfg: this.wire(), ...pair, force: ctx.force === true },
-      vikunjaPullResultSchema,
-    )
-    if (!pull.ok) return pull
+    if (this.config.boards.length === 0) return NO_BOARD
+    const boards = this.config.boards.filter((board) => board.mapping !== null)
+    if (boards.length === 0) return NO_MAPPING
 
     // One pass over the known refs instead of a scan per pulled task: a
-    // board with a few hundred tasks would otherwise be quadratic.
+    // board with a few hundred tasks would otherwise be quadratic. Shared by
+    // every board on purpose — a Vikunja task id is instance-wide, so it
+    // cannot name two tasks on two boards.
     const localIdByTaskId = new Map<number, string>()
     for (const [localId, ref] of Object.entries(ctx.knownRefs)) {
       if (isVikunjaRef(ref)) localIdByTaskId.set(ref.taskId, localId)
     }
 
-    const taskContext = {
-      // The board's own mapping — `ctx.mapping` is the slice mirror, which
-      // this backend stopped keeping (task 2).
-      mapping: board.mapping,
-      localIdByTaskId,
-      knownStatuses: ctx.knownStatuses,
-      // `kanbanMapping: false` means the user skipped the bucket wizard for
-      // this board and only `completed` round-trips.
-      flat: !board.kanbanMapping,
-      // The board every task here belongs to: what its ref records, and what
-      // its project is.
-      boardProjectId: pair.projectId,
-    }
-
     const tasks: TodoTask[] = []
     const refs: Record<string, RemoteTaskRef> = {}
-    for (const remote of pull.value.tasks) {
-      const task = vikunjaTaskToTodo(remote, taskContext)
-      tasks.push(task)
-      if (task.remoteRef) refs[task.id] = task.remoteRef
+
+    for (const board of boards) {
+      // `force` decides whether the worker reads the instance or answers from
+      // the snapshot it broadcast a moment ago — see `PullContext.force`.
+      const pull = await this.send(
+        {
+          type: 'vikunja',
+          op: 'pull',
+          cfg: this.wire(),
+          projectId: board.projectId,
+          viewId: board.viewId,
+          force: ctx.force === true,
+        },
+        vikunjaPullResultSchema,
+      )
+      // Fail-fast: see the third rule above.
+      if (!pull.ok) return pull
+
+      const taskContext = {
+        // The board's own mapping — `ctx.mapping` is the slice mirror, which
+        // this backend stopped keeping (task 2).
+        mapping: board.mapping,
+        localIdByTaskId,
+        knownStatuses: ctx.knownStatuses,
+        // `kanbanMapping: false` means the user skipped the bucket wizard for
+        // this board and only `completed` round-trips. Per board, so one flat
+        // board does not flatten the connection.
+        flat: !board.kanbanMapping,
+        // The board these tasks belong to: what their refs record, and what
+        // their project is.
+        boardProjectId: board.projectId,
+      }
+
+      for (const remote of pull.value.tasks) {
+        const task = vikunjaTaskToTodo(remote, taskContext)
+        tasks.push(task)
+        if (task.remoteRef) refs[task.id] = task.remoteRef
+      }
     }
 
     return { ok: true, value: { tasks, refs } }
@@ -245,17 +273,16 @@ export class VikunjaIntegration implements TodoIntegration {
     // The `PushContext` the contract declares is deliberately not taken —
     // same reason as in `pullTasks`: the board carries the mode and the
     // columns a write has to obey, and a write made under another board's
-    // rules moves the user's task to the wrong place. Task 3 resolves the
-    // board of the task being pushed; today only the default one is synced,
-    // so every ref is on it.
-    const board = defaultBoard(this.config)
+    // rules moves the user's task to the wrong place.
+    const board = this.boardFor(task)
     if (!board) return NO_BOARD
 
     return pushVikunjaTask(
       {
         cfg: this.wire(),
         // `kanbanMapping: false` means the user skipped the bucket wizard for
-        // this board and only `completed` round-trips.
+        // this board and only `completed` round-trips. Read off *this* board:
+        // one connection may hold a kanban board and a flat one.
         flat: !board.kanbanMapping,
         mapping: board.mapping,
         send: (request, schema) => this.send(request, schema),
@@ -265,6 +292,43 @@ export class VikunjaIntegration implements TodoIntegration {
   }
 
   // ---------- internals ----------
+
+  /**
+   * The board one local task is written to, or `null` when this connection
+   * has none for it.
+   *
+   * Three sources, in this order, and the order is the point:
+   *
+   * 1. **the task's own ref**, when it has one of ours. That is where the
+   *    task actually lives, and it is recorded per task precisely so a push
+   *    cannot land on a different board than the pull came from. There is no
+   *    fallback from here: a ref naming a board the user has since removed is
+   *    refused (`mappingIncomplete`), because moving their task into some
+   *    other board's column is worse than leaving it dirty until they
+   *    reconnect that board.
+   * 2. **`task.projectId`**, for a task that has no ref yet — a create. A
+   *    Vikunja "project" *is* a board, so this is the board the user picked in
+   *    the add dialog, and a create has to honour it or the task appears
+   *    somewhere they did not ask for.
+   * 3. **the default board**, when the task names no board of ours. A record
+   *    written before the integration (or by another backend, or by the
+   *    single-board build) can carry a project id that is not a board at all,
+   *    and a new task still has to go somewhere — the same somewhere
+   *    `projectPolicy.defaultId` promises the dialog.
+   *
+   * Whether that board can actually place the task is a separate question,
+   * answered by `push.ts`: an unmapped kanban board names no bucket for any
+   * status and is refused there, while an edit of a task on it needs no
+   * bucket and goes through.
+   */
+  private boardFor(task: TodoTask): VikunjaBoard | null {
+    const ref = task.remoteRef
+    if (ref && isVikunjaRef(ref)) return boardForProject(this.config, ref.projectId)
+
+    const named =
+      task.projectId === null ? null : boardForProject(this.config, Number(task.projectId))
+    return named ?? defaultBoard(this.config)
+  }
 
   /** Credentials as the bridge wants them — never the whole config. */
   private wire(): VikunjaWire {
@@ -473,18 +537,18 @@ export const descriptor: IntegrationDescriptor = {
           },
         ]
 
-    // Picking a scope is the user saying which board they want synced, so it
-    // becomes the default one — the widget shows one board until task 3, and
-    // leaving the previous pick in place would answer the picker with "the
-    // board you just chose is not the board you see".
+    // Picking a scope is the user saying which board they want to work on, so
+    // it becomes the default one: every board is synced now, but the settings
+    // UI still shows one, and leaving the previous pick in place would answer
+    // the picker with "the board you just chose is not the board you see".
     return { ...current, boards, defaultProjectId: pair.projectId }
   },
   /**
    * The cached name, columns and mapping belong to the board they were read
    * from, so they are written into it rather than only onto the slice.
    *
-   * The default board is the one being synced (task 3 adds the switcher), and
-   * a config with no board at all comes back untouched — see
+   * The default board is the one the settings UI is showing (task 4 adds the
+   * switcher), and a config with no board at all comes back untouched — see
    * `withDefaultBoardPatch`.
    */
   withBoardState: (config, patch) =>

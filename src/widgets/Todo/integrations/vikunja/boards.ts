@@ -11,8 +11,10 @@
  * vocabulary, because the service worker's background pull has to resolve it
  * the same way — a rule the two sides cannot afford to implement twice.
  *
- * Task 3 gives the widget a real board switcher; until then most callers ask
- * about the default one.
+ * The adapter's read and write paths ask about every board (a pull reads each
+ * one, a push resolves the board of the task it is given); the wizard and the
+ * summary still ask about the default one, which is the board the settings UI
+ * shows.
  */
 
 import { defaultVikunjaBoard } from '@/background/vikunja/messages.ts'
@@ -33,11 +35,9 @@ export function defaultBoard(config: VikunjaConfig): VikunjaBoard | null {
  * The board a project id addresses, or `null` when this config knows nothing
  * about that project.
  *
- * Nothing in the widget calls it yet: today the adapter syncs the default
- * board and reads that one directly. Task 3 is its caller — with every board
- * being synced, a pull and a push resolve their board from the one the
- * operation names (`remoteRef.projectId`, the scope of the view being read),
- * which is exactly this lookup.
+ * The adapter's push is its caller: with every board being synced, a write
+ * resolves its board from the one the task names — `remoteRef.projectId` for
+ * a task that already exists, `task.projectId` for one being created.
  *
  * Deliberately **not** falling back to the default board. The callers are the
  * adapter's read and write paths, and the board carries the mode and the
@@ -77,9 +77,9 @@ export function withDefaultBoardPatch(
  * Every board this connection syncs, as the pairs Vikunja addresses a task
  * list by.
  *
- * The broadcast subscriber's question: the worker pulls one view per alarm,
- * and a page has to accept a broadcast about **any** board it is showing
- * rather than only about the default one. The ids are already numbers here
+ * The broadcast subscriber's question: the worker pulls every connected view
+ * on its alarm and broadcasts per view, so a page has to accept a broadcast
+ * about **any** board it is showing rather than only about the default one. The ids are already numbers here
  * (the persisted schema insists on positive integers), so nothing can be
  * unaddressable — an empty list means no board has been picked.
  */

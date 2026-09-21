@@ -1,6 +1,6 @@
 /**
  * The background half of the Vikunja integration: a periodic `chrome.alarms`
- * job that pulls the configured view so the widget finds out about a task
+ * job that pulls every connected view so the widget finds out about a task
  * somebody changed elsewhere.
  *
  * Three constraints shape everything here.
@@ -19,9 +19,15 @@
  * that started the worker — and the next one is a whole period away.
  *
  * **The worker has no config but storage.** It keeps nothing between
- * wake-ups, so the schedule is parsed out of the Todo widget's envelope on
- * every alarm — with a minimal schema of its own, because the worker may not
- * import the widget's (boundary rule in `messages.ts`).
+ * wake-ups, so the schedule — the credentials, the period, and the list of
+ * boards — is parsed out of the Todo widget's envelope on every alarm, with a
+ * minimal schema of its own, because the worker may not import the widget's
+ * (boundary rule in `messages.ts`).
+ *
+ * **One alarm, every board.** `chrome.alarms` gives a name and a period, not
+ * a payload, so the tick cannot be told which board woke it; it walks the
+ * whole list instead. See `VikunjaSchedule` for why that beats an alarm per
+ * board.
  *
  * Note what is *not* here: the `vikunja/pulled` broadcast. Every real read
  * announces itself from `pull.ts`, whichever caller started it, so a manual
@@ -39,7 +45,6 @@ import {
   VIKUNJA_PULL_PERIODS_MIN,
   VIKUNJA_TODO_STORAGE_KEY,
 } from '@/background/vikunja/constants.ts'
-import { defaultVikunjaBoard } from '@/background/vikunja/messages.ts'
 import { runPull } from '@/background/vikunja/pull.ts'
 
 import type {
@@ -48,11 +53,28 @@ import type {
   VikunjaWire,
 } from '@/background/vikunja/messages.ts'
 
-/** Everything the alarm needs to do its job, read out of storage. */
-export interface VikunjaSchedule {
-  cfg: VikunjaWire
+/** One board the tick reads, as Vikunja addresses a task list. */
+export interface VikunjaScheduledBoard {
   projectId: number
   viewId: number
+}
+
+/**
+ * Everything the alarm needs to do its job, read out of storage.
+ *
+ * **One period, a list of boards.** There is a single alarm per instance and
+ * it cannot say which board woke it, so the tick walks every connected board
+ * instead — which is also the only shape that keeps the period the user
+ * picked meaning what it says: three alarms would be three times the traffic,
+ * and dividing the period between the boards would make "every 5 minutes"
+ * depend on how many boards they happen to have connected.
+ *
+ * Never empty: `readVikunjaScheduleFrom` answers `null` rather than a
+ * schedule with nothing to read.
+ */
+export interface VikunjaSchedule {
+  cfg: VikunjaWire
+  boards: VikunjaScheduledBoard[]
   periodMin: VikunjaPullPeriod
 }
 
@@ -91,7 +113,12 @@ const credentialsSchema = z.object({
 /**
  * One board, with only its presence checked for the mapping: a board whose
  * buckets are not mapped has nowhere to put a pulled task, so pulling for it
- * would be work nobody can use. `null` until the wizard is done.
+ * would be work nobody can use and it is left out of the schedule. `null`
+ * until the wizard is done.
+ *
+ * The mapping's *contents* are deliberately not modelled — `bucket id →
+ * status` is the widget's business, and the worker only ever asks whether
+ * there is one.
  */
 const boardSchema = z.object({
   projectId: z.number().int().positive(),
@@ -138,8 +165,8 @@ function resolvePeriod(raw: number | undefined): VikunjaPullPeriod {
 
 /**
  * The schedule one stored envelope asks for, or `null` when there is nothing
- * to pull: no integration, a different backend, half a scope, or a mapping
- * the user never finished.
+ * to pull: no integration, a different backend, half a scope, or not one
+ * board whose mapping the user finished.
  *
  * Takes the record rather than reading storage so the `storage.onChanged`
  * listener can parse the `newValue` Chrome already handed it — the change
@@ -155,26 +182,28 @@ export function readVikunjaScheduleFrom(raw: unknown): VikunjaSchedule | null {
   const current = boardsEnvelopeSchema.safeParse(raw)
   if (current.success) {
     const { config } = current.data.state.integration
-    // **The default board, for now** — resolved by the same rule the widget
-    // resolves it by, which is why that rule lives in `messages.ts`. One
-    // alarm cannot say which board woke it, so pulling every board needs a
-    // key per board (and a period that is not multiplied by their number):
-    // that is task 3. Until then a second board is read when the widget asks.
-    const board = defaultVikunjaBoard(config)
-    // No board, or one whose wizard is unfinished: a pulled task would have
-    // nowhere to go, so there is nothing worth waking up for.
-    if (!board || board.mapping === null) return null
+    // **Every board, in stored order** — and deliberately not "the default
+    // one": which board is the default is a statement about the settings UI,
+    // while a board left unpulled is a board whose tasks silently go stale.
+    //
+    // A board whose wizard is unfinished is left out: a pulled task would
+    // have nowhere to go, so reading it would be work nobody can use.
+    const boards = config.boards
+      .filter((board) => board.mapping !== null)
+      .map((board) => ({ projectId: board.projectId, viewId: board.viewId }))
+    // Nothing mapped at all: no reason to wake up.
+    if (boards.length === 0) return null
 
     return {
       cfg: { baseUrl: config.baseUrl, token: config.token },
-      projectId: board.projectId,
-      viewId: board.viewId,
+      boards,
       periodMin: resolvePeriod(config.pullPeriodMin),
     }
   }
 
   // Bytes written by the single-board build, still on disk until the page
-  // that upgraded them writes them back — see the schema comment above.
+  // that upgraded them writes them back — see the schema comment above. It
+  // yields one board, so the tick takes the same path for both records.
   const legacy = legacyEnvelopeSchema.safeParse(raw)
   if (!legacy.success) return null
 
@@ -183,8 +212,7 @@ export function readVikunjaScheduleFrom(raw: unknown): VikunjaSchedule | null {
 
   return {
     cfg: { baseUrl: config.baseUrl, token: config.token },
-    projectId: config.projectId,
-    viewId: config.viewId,
+    boards: [{ projectId: config.projectId, viewId: config.viewId }],
     periodMin: resolvePeriod(config.pullPeriodMin),
   }
 }
@@ -312,23 +340,32 @@ function isTerminalFailure(errorKey: VikunjaErrorKey): boolean {
 }
 
 /**
- * One scheduled pull.
+ * One scheduled tick: every connected board, read one after the other.
  *
  * Failure handling is the interesting part, and it splits on whether waiting
- * would help:
+ * would help — and, now that a tick covers several boards, on whether the
+ * failure is about the board or about the connection:
  *
- * - `permissionMissing` / `authInvalid` are the user's to fix — a revoked host
- *   or a dead token. Retrying every minute would never succeed and would keep
- *   sending a token that is already refused, so the alarm is **cleared**. The
- *   next `storage.onChanged` (the user re-connecting) brings it back.
- * - anything else — `network` above all — is transient by nature: a laptop on
- *   a train, a self-hosted instance restarting behind a proxy. The alarm
- *   **stays** and the next period tries again.
+ * - `permissionMissing` / `authInvalid` are the user's to fix, and they are
+ *   properties of the **connection**: a revoked host or a dead token. The
+ *   next board would send the very same refused token to the very same
+ *   withdrawn origin, so the tick **stops** and the alarm is **cleared**;
+ *   retrying every minute would never succeed and would keep sending a token
+ *   that is already refused. The next `storage.onChanged` (the user
+ *   re-connecting) brings the alarm back.
+ * - anything else — `network` above all — is transient by nature and may well
+ *   be about that one board (a project deleted remotely answers `notFound`
+ *   while the rest of the instance is fine). Its failure is broadcast and the
+ *   tick **carries on with the next board**; the alarm stays, and the next
+ *   period tries again.
  *
  * Either way the failure is broadcast, because the alarm runs while nobody is
  * looking and the widget has no other way to learn about it. A *success* is
  * announced by `pull.ts` instead — it is the read that knows whether anything
  * moved, and it is not only the alarm that reads.
+ *
+ * Sequential on purpose: this is somebody's own server, and a pull is already
+ * one request per page of every bucket of a view.
  */
 async function runScheduledPull(): Promise<void> {
   const schedule = await readVikunjaScheduleFromStorage()
@@ -338,21 +375,25 @@ async function runScheduledPull(): Promise<void> {
     return
   }
 
-  const { cfg, projectId, viewId } = schedule
-  // Forced, because the point of the alarm is to find out whether the remote
-  // moved, which a snapshot by definition cannot answer. Unretried, because
-  // the alarm is the retry — see the module comment.
-  const out = await runPull(cfg, projectId, viewId, { force: true, retry: false })
-  if (out.ok) return
+  const { cfg, boards } = schedule
+  for (const { projectId, viewId } of boards) {
+    // Forced, because the point of the alarm is to find out whether the
+    // remote moved, which a snapshot by definition cannot answer. Unretried,
+    // because the alarm is the retry — see the module comment.
+    const out = await runPull(cfg, projectId, viewId, { force: true, retry: false })
+    if (out.ok) continue
 
-  if (isTerminalFailure(out.errorKey)) await clearAlarm()
-  broadcastVikunja({
-    type: 'vikunja/pull-failed',
-    projectId,
-    viewId,
-    at: Date.now(),
-    errorKey: out.errorKey,
-  })
+    const terminal = isTerminalFailure(out.errorKey)
+    if (terminal) await clearAlarm()
+    broadcastVikunja({
+      type: 'vikunja/pull-failed',
+      projectId,
+      viewId,
+      at: Date.now(),
+      errorKey: out.errorKey,
+    })
+    if (terminal) return
+  }
 }
 
 /**
