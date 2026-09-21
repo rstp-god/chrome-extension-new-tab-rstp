@@ -39,3 +39,17 @@ export const STATUS_ICON: Record<TodoStatus, LucideIcon> = {
  * same constant rather than retyping the magic string.
  */
 export const NO_PROJECT_VALUE = '__none__'
+
+/**
+ * `maxLength` of the two free-text inputs in `AddTodoDialog`.
+ *
+ * A UX guard, not the wire guarantee. The title ceiling is the API's own
+ * (`VIKUNJA_MAX_TITLE_LENGTH`), while the description budget is deliberately
+ * lower than the API's 16 384: the text is stored as HTML, and escaping can
+ * expand a character fivefold (`&` → `&amp;`), so no plain-text number both
+ * feels generous and provably fits. `clampForVikunja` in the Vikunja adapter
+ * is what actually keeps a payload inside the limit — this pair just stops the
+ * form accepting a novel in the first place.
+ */
+export const TODO_TITLE_MAX_LENGTH = 1024
+export const TODO_DESCRIPTION_MAX_LENGTH = 8000

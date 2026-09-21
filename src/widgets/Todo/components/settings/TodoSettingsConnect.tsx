@@ -3,7 +3,7 @@ import {
   getIntegrationDescriptor,
   type ConnectFormProps,
 } from '@/widgets/Todo/integrations/index.ts'
-import { useTodoStore, type TrelloConfig } from '@/widgets/Todo/store/store.ts'
+import { useTodoStore } from '@/widgets/Todo/store/store.ts'
 import { ChevronLeftIcon } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
@@ -22,29 +22,20 @@ export function TodoSettingsConnect({ integrationName, onBack }: Props) {
   if (!descriptor) {
     return (
       <div className="grid gap-3">
-        <p className="text-sm text-destructive">{t('integrations.trello.errors.unknown')}</p>
+        <p className="text-sm text-destructive">{t('integrations.errors.unknown')}</p>
         <Button type="button" variant="outline" onClick={onBack}>
           <ChevronLeftIcon className="size-4" />
-          {t('integrations.trello.board.back')}
+          {t('integrations.actions.back')}
         </Button>
       </div>
     )
   }
 
   const ConnectForm = descriptor.ConnectForm
+  // No per-integration dispatch: the config is opaque here and the store
+  // validates it against the persisted schema before it goes anywhere.
   const handleConnect: ConnectFormProps['onConnect'] = async (config) => {
-    // Per-integration dispatch. Each adapter knows its own config shape, so
-    // the cast happens in exactly one place per integration. Once a second
-    // backend lands here we can lift this into a typed registry; for now
-    // a switch keeps the boundary obvious and exhaustively flagged by ESLint
-    // when a new case appears.
-    switch (integrationName) {
-      case 'trello':
-        await connectIntegration('trello', config as TrelloConfig)
-        return
-      default:
-        console.warn(`TodoSettingsConnect: no handler for integration "${integrationName}"`)
-    }
+    await connectIntegration(integrationName, config)
   }
 
   return (
@@ -59,7 +50,7 @@ export function TodoSettingsConnect({ integrationName, onBack }: Props) {
         className="self-start"
       >
         <ChevronLeftIcon className="size-4" />
-        {t('integrations.trello.board.back')}
+        {t('integrations.actions.back')}
       </Button>
     </div>
   )

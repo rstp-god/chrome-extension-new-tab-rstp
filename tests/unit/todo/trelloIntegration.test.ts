@@ -1,4 +1,4 @@
-import { TrelloIntegration } from '@/widgets/Todo/integrations/trello/index.ts'
+import { descriptor, TrelloIntegration } from '@/widgets/Todo/integrations/trello/index.ts'
 import type { TrelloCard } from '@/widgets/Todo/integrations/trello/schema.ts'
 import type {
   IntegrationOutcome,
@@ -66,14 +66,19 @@ function makeTask(overrides: Partial<TodoTask> = {}): TodoTask {
   }
 }
 
+const scopeFixture = { boardId: 'board-1' }
+
 const pullCtx: PullContext = {
-  boardId: 'board-1',
+  scope: scopeFixture,
   mapping: listMappingFixture,
   knownRefs: {},
+  // Trello's lists carry the status, so the adapter ignores this — it is
+  // here because the contract requires it.
+  knownStatuses: {},
 }
 
 const pushCtx: PushContext = {
-  boardId: 'board-1',
+  scope: scopeFixture,
   mapping: listMappingFixture,
   knownRef: null,
 }
@@ -112,30 +117,52 @@ describe('TrelloIntegration.disconnect', () => {
 })
 
 describe('TrelloIntegration list helpers', () => {
-  it('listBoards maps client.getMyBoards to RemoteBoard[]', async () => {
+  it('listScopes maps client.getMyBoards to RemoteScopeOption[]', async () => {
     fakeGetMyBoards.mockResolvedValueOnce(ok([trelloBoardFixture]))
-    const out = await makeIntegration().listBoards()
+    const out = await makeIntegration().listScopes()
     expect(out).toEqual({
       ok: true,
-      value: [{ id: trelloBoardFixture.id, name: trelloBoardFixture.name }],
+      value: [{ scope: { boardId: trelloBoardFixture.id }, name: trelloBoardFixture.name }],
     })
   })
 
-  it('listLists maps client.getBoardLists to RemoteList[]', async () => {
+  it('listContainers maps client.getBoardLists to RemoteContainer[] without isTerminal', async () => {
     fakeGetBoardLists.mockResolvedValueOnce(ok(trelloListsFixture))
-    const out = await makeIntegration().listLists('board-1')
+    const out = await makeIntegration().listContainers(scopeFixture)
     expect(fakeGetBoardLists).toHaveBeenCalledWith('board-1')
     expect(out.ok).toBe(true)
     if (out.ok) {
       expect(out.value).toEqual(
         trelloListsFixture.map((list) => ({ id: list.id, name: list.name })),
       )
+      // Trello has no terminal column concept — the flag must stay unset.
+      expect(out.value.every((container) => container.isTerminal === undefined)).toBe(true)
     }
+  })
+
+  it('listContainers coerces a numeric scope value to the string id the client expects', async () => {
+    fakeGetBoardLists.mockResolvedValueOnce(ok(trelloListsFixture))
+    await makeIntegration().listContainers({ boardId: 42 })
+    expect(fakeGetBoardLists).toHaveBeenCalledWith('42')
+  })
+
+  it('refuses a scope without a usable board id instead of requesting "undefined"', async () => {
+    const integration = makeIntegration()
+    const notFound = { ok: false, errorKey: 'notFound' }
+
+    expect(await integration.listContainers({})).toEqual(notFound)
+    expect(await integration.listProjects({})).toEqual(notFound)
+    expect(await integration.listContainers({ boardId: '' })).toEqual(notFound)
+    expect(await integration.pullTasks({ ...pullCtx, scope: {} })).toEqual(notFound)
+
+    expect(fakeGetBoardLists).not.toHaveBeenCalled()
+    expect(fakeGetBoardLabels).not.toHaveBeenCalled()
+    expect(fakeGetBoardCards).not.toHaveBeenCalled()
   })
 
   it('listProjects maps client.getBoardLabels via labelToProject', async () => {
     fakeGetBoardLabels.mockResolvedValueOnce(ok(trelloLabelsFixture))
-    const out = await makeIntegration().listProjects('board-1')
+    const out = await makeIntegration().listProjects(scopeFixture)
     expect(out.ok).toBe(true)
     if (out.ok) {
       expect(out.value).toHaveLength(trelloLabelsFixture.length)
@@ -149,8 +176,51 @@ describe('TrelloIntegration list helpers', () => {
 
   it('list helpers propagate client errors unchanged', async () => {
     fakeGetMyBoards.mockResolvedValueOnce({ ok: false, errorKey: 'network' })
-    const out = await makeIntegration().listBoards()
+    const out = await makeIntegration().listScopes()
     expect(out).toEqual({ ok: false, errorKey: 'network' })
+  })
+})
+
+describe('trello descriptor scope + ref helpers', () => {
+  it('getScope returns the boardId scope once a board is picked', () => {
+    expect(descriptor.getScope({ apiKey: 'k', token: 't', boardId: 'board-7' })).toEqual({
+      boardId: 'board-7',
+    })
+  })
+
+  it('getScope returns null before a board is picked', () => {
+    expect(descriptor.getScope({ apiKey: 'k', token: 't', boardId: null })).toBeNull()
+  })
+
+  it('withScope writes the boardId back into a copy of the config', () => {
+    const config = { apiKey: 'k', token: 't', boardId: null }
+    const next = descriptor.withScope(config, { boardId: 'board-9' })
+    expect(next).toEqual({ apiKey: 'k', token: 't', boardId: 'board-9' })
+    // pure: the original config is untouched
+    expect(config.boardId).toBeNull()
+  })
+
+  it('withScope writes null for a scope that names no board (user stays on the picker)', () => {
+    expect(descriptor.withScope({ apiKey: 'k', token: 't', boardId: 'old' }, {})).toEqual({
+      apiKey: 'k',
+      token: 't',
+      boardId: null,
+    })
+  })
+
+  it('withScope coerces a numeric scope value to a string boardId', () => {
+    expect(
+      descriptor.withScope({ apiKey: 'k', token: 't', boardId: null }, { boardId: 5 }),
+    ).toEqual({ apiKey: 'k', token: 't', boardId: '5' })
+  })
+
+  it('ownsRef accepts a Trello ref and rejects a foreign one', () => {
+    expect(
+      descriptor.ownsRef({ cardId: 'c', shortLink: null, listId: 'list-input', etag: null }),
+    ).toBe(true)
+    expect(
+      descriptor.ownsRef({ taskId: 1, identifier: '#1', bucketId: null, updated: 'now' }),
+    ).toBe(false)
   })
 })
 
@@ -336,6 +406,72 @@ describe('TrelloIntegration.pushTask', () => {
     expect(fakeUpdateCard.mock.calls[0][1].idList).toBe('list-deleted')
   })
 
+  it('"resync" re-asserts name, desc, list and labels in one request', async () => {
+    // Trello takes all four in a single PUT, so the retry that has to restore
+    // everything the widget owns costs exactly what a narrower patch costs.
+    fakeUpdateCard.mockResolvedValueOnce(ok(captureCardResponse({ idList: 'list-struggle' })))
+    const task = makeTask({
+      status: 'struggle',
+      projectId: 'label-green',
+      remoteRef: {
+        cardId: 'remote-cid-resync',
+        shortLink: null,
+        listId: 'list-input',
+        etag: null,
+      },
+    })
+
+    const out = await makeIntegration().pushTask(
+      task,
+      { kind: 'resync' },
+      { ...pushCtx, knownRef: task.remoteRef },
+    )
+
+    expect(out.ok).toBe(true)
+    expect(fakeUpdateCard).toHaveBeenCalledOnce()
+    const patch = fakeUpdateCard.mock.calls[0][1]
+    expect(patch.name).toBe('Local task')
+    expect(patch.desc).toContain('<!-- newtab-todo:v1')
+    expect(patch.idList).toBe('list-struggle')
+    expect(patch.idLabels).toEqual(['label-green'])
+  })
+
+  it('"resync" clears the labels of a task with no project', async () => {
+    fakeUpdateCard.mockResolvedValueOnce(ok(captureCardResponse()))
+    const task = makeTask({
+      projectId: null,
+      remoteRef: { cardId: 'remote-cid-r2', shortLink: null, listId: 'list-input', etag: null },
+    })
+
+    await makeIntegration().pushTask(
+      task,
+      { kind: 'resync' },
+      { ...pushCtx, knownRef: task.remoteRef },
+    )
+
+    expect(fakeUpdateCard.mock.calls[0][1].idLabels).toEqual([])
+  })
+
+  it.each([
+    ['create', { kind: 'create' } as const],
+    ['resync', { kind: 'resync' } as const],
+  ])('refuses %s against a mapping row with no list, without a request', async (_label, op) => {
+    const task = makeTask({
+      status: 'struggle',
+      remoteRef: { cardId: 'remote-cid-r3', shortLink: null, listId: 'list-input', etag: null },
+    })
+
+    const out = await makeIntegration().pushTask(task, op, {
+      ...pushCtx,
+      mapping: { ...pushCtx.mapping, struggle: [] },
+      knownRef: op.kind === 'create' ? null : task.remoteRef,
+    })
+
+    expect(out).toEqual({ ok: false, errorKey: 'mappingIncomplete' })
+    expect(fakeCreateCard).not.toHaveBeenCalled()
+    expect(fakeUpdateCard).not.toHaveBeenCalled()
+  })
+
   it('"project" updates idLabels (single label when projectId set)', async () => {
     fakeUpdateCard.mockResolvedValueOnce(ok(captureCardResponse()))
     const task = makeTask({
@@ -381,6 +517,24 @@ describe('TrelloIntegration.pushTask', () => {
       makeTask({ remoteRef: null }),
       { kind: 'update' },
       pushCtx,
+    )
+    expect(out.ok).toBe(true)
+    expect(fakeCreateCard).toHaveBeenCalledOnce()
+    expect(fakeUpdateCard).not.toHaveBeenCalled()
+  })
+
+  it('re-links a task carrying a foreign ref via createCard instead of failing', async () => {
+    fakeCreateCard.mockResolvedValueOnce(ok(captureCardResponse()))
+    const task = makeTask({
+      remoteRef: { taskId: 7, identifier: '#7', bucketId: null, updated: '2024-01-01T00:00:00Z' },
+    })
+    const out = await makeIntegration().pushTask(
+      task,
+      { kind: 'update' },
+      {
+        ...pushCtx,
+        knownRef: task.remoteRef,
+      },
     )
     expect(out.ok).toBe(true)
     expect(fakeCreateCard).toHaveBeenCalledOnce()

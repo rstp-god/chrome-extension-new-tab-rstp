@@ -34,6 +34,20 @@
     "neverSynced": "Not synced yet",
     "syncing": "Syncing…"
   },
+  "task": {
+    "conflictBadge": "Changed in Vikunja — your edit was rolled back"
+  },
+  "banners": {
+    "authInvalid": {
+      "text": "The integration's credentials are no longer accepted. Reconnect it to resume syncing.",
+      "action": "Reconnect"
+    },
+    "permissionMissing": {
+      "text": "The extension lost permission for {{host}}.",
+      "textUnknownHost": "The extension lost permission for the integration's host.",
+      "action": "Grant again"
+    }
+  },
   "settings": {
     "title": "Todo settings",
     "description": "Connect an integration or keep todos local."
@@ -76,12 +90,54 @@
       "description": "Pick a service to sync your todos with.",
       "empty": "No integrations are bundled in this build."
     },
+    "errors": {
+      "authInvalid": "Invalid credentials. Re-check the fields.",
+      "network": "Network error. Check your connection and try again.",
+      "rateLimited": "Rate limit reached. Wait a moment and retry.",
+      "notFound": "The remote resource wasn't found.",
+      "mappingIncomplete": "Finish the list mapping before syncing.",
+      "pushFailed": "Failed to push the change to the remote service.",
+      "pullFailed": "Failed to pull updates from the remote service.",
+      "conflict": "Changed remotely — the local edit was rolled back.",
+      "permissionMissing": "The extension lost permission for this host. Reconnect to grant it again.",
+      "unknown": "Something went wrong. Try again."
+    },
+    "mapping": {
+      "row": {
+        "input": "Input",
+        "inprogress": "In progress",
+        "struggle": "Struggle",
+        "completed": "Completed",
+        "deleted": "Deleted"
+      },
+      "primaryHint": "Primary",
+      "emptyHint": "Pick at least one list",
+      "usedByOther": "Used by {{status}}",
+      "rebindWarning": "Changing the mapping will move existing cards on the next sync.",
+      "loading": "Loading lists…",
+      "addList": "Add list",
+      "save": "Save & sync"
+    },
+    "actions": {
+      "back": "Back",
+      "continue": "Continue",
+      "cancel": "Cancel"
+    },
+    "showcase": {
+      "disabled": "Integrations are disabled in showcase mode."
+    },
+    "import": {
+      "action_one": "Import {{count}} local task into {{scope}}",
+      "action_other": "Import {{count}} local tasks into {{scope}}",
+      "title": "Import local tasks",
+      "description": "These tasks were created before the integration and have never been sent to {{scope}}. Importing creates them there on the next sync.",
+      "confirm": "Import",
+      "cancel": "Cancel",
+      "empty": "Nothing to import — every task is already linked."
+    },
     "trello": {
       "title": "Trello",
       "description": "Two-way sync with a Trello board.",
-      "showcase": {
-        "disabled": "Integrations are disabled in showcase mode."
-      },
       "connect": {
         "title": "Connect Trello",
         "description": "Paste your Trello API key and personal token to enable two-way sync.",
@@ -94,28 +150,12 @@
         "title": "Pick a Trello board",
         "description": "Choose the board this Todo widget will sync with.",
         "pickLabel": "Board",
-        "continue": "Continue",
-        "back": "Back",
         "loading": "Loading boards…",
         "empty": "No boards found on this account."
       },
       "mapping": {
         "title": "Map Trello lists to statuses",
-        "description": "Each status can pull from multiple lists. The first list in each row is where new cards land.",
-        "save": "Save & sync",
-        "primaryHint": "Primary",
-        "emptyHint": "Pick at least one list",
-        "usedByOther": "Used by {{status}}",
-        "rebindWarning": "Changing the mapping will move existing cards on the next sync.",
-        "loading": "Loading lists…",
-        "addList": "Add list",
-        "row": {
-          "input": "Input",
-          "inprogress": "In progress",
-          "struggle": "Struggle",
-          "completed": "Completed",
-          "deleted": "Deleted"
-        }
+        "description": "Each status can pull from multiple lists. The first list in each row is where new cards land."
       },
       "summary": {
         "title": "Trello",
@@ -124,18 +164,72 @@
         "lastSync": "Last sync",
         "neverSynced": "never",
         "disconnect": "Disconnect",
-        "disconnectConfirm": "Disconnect Trello? Local todos stay, but stop syncing.",
-        "rePickBoard": "Change board"
+        "disconnectConfirm": "Disconnect Trello? The todos stay in the widget and stop syncing. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
+        "rePickBoard": "Change board",
+        "switch": "Switch integration",
+        "switchConfirm": "Disconnect Trello and pick another integration? The todos stay in the widget, unlinked. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README)."
+      }
+    },
+    "vikunja": {
+      "title": "Vikunja",
+      "description": "Two-way sync with a self-hosted Vikunja project.",
+      "connect": {
+        "title": "Connect Vikunja",
+        "description": "Point the widget at your Vikunja instance and paste a personal API token.",
+        "urlLabel": "Instance URL",
+        "urlPlaceholder": "https://tasks.example.com",
+        "tokenLabel": "API token",
+        "helpLinkLabel": "Where do I get a token?",
+        "helpText": "In Vikunja: Settings → API tokens. Enter your instance URL above and this turns into a direct link.",
+        "submit": "Connect",
+        "continue": "Continue",
+        "invalidUrl": "That doesn't look like a valid address. Include the scheme, e.g. https://tasks.example.com.",
+        "httpsOnly": "Only https is supported — the token is sent with every request.",
+        "permissionDenied": "Chrome must be allowed to reach this host before the widget can sync. Nothing was saved; press Connect again and accept the prompt.",
+        "connectedAs": "Connected as {{user}} · Vikunja {{version}}",
+        "versionWarning": "Tested with Vikunja 2.6; other versions may behave differently."
       },
-      "errors": {
-        "authInvalid": "Invalid API key or token. Re-check both fields.",
-        "network": "Network error. Check your connection and try again.",
-        "rateLimited": "Trello rate limit reached. Wait a moment and retry.",
-        "notFound": "The Trello resource wasn't found.",
-        "mappingIncomplete": "Finish the list mapping before syncing.",
-        "pushFailed": "Failed to push the change to Trello.",
-        "pullFailed": "Failed to pull updates from Trello.",
-        "unknown": "Something went wrong. Try again."
+      "board": {
+        "title": "Pick a project",
+        "description": "Choose the project whose kanban view this widget will sync with.",
+        "pickLabel": "Project",
+        "empty": "No projects with a kanban view on this account."
+      },
+      "mapping": {
+        "title": "Map buckets to statuses",
+        "description": "Each status can pull from multiple buckets. The first bucket in each row is where new tasks land.",
+        "suggestedHint": "Buckets are pre-matched by name — check the rows and fix anything that looks off.",
+        "addBucket": "Add bucket",
+        "emptyHint": "Pick at least one bucket",
+        "conflict": "One bucket is mapped to two statuses. A task in it would have no single status — remove one of them.",
+        "terminalMisused": "The done bucket can only mean Completed — moving a task there marks it done in Vikunja. Remove it from: {{statuses}}.",
+        "completedNotTerminal": "Completed does not point at Vikunja's done bucket. Ticking a task off here won't mark it done there, and Vikunja will keep moving finished tasks out of your column.",
+        "confirmCompleted": "I understand, sync may fight with Vikunja",
+        "createMissingTitle": "Create the missing columns",
+        "createMissingDescription": "This board has no bucket for these statuses. The widget can add them to the kanban view.",
+        "createButton": "Create columns: {{n}}",
+        "created": "Columns created.",
+        "skipFlat": "Skip — flat mode",
+        "flatNotice": "In flat mode In progress / Struggle / Deleted are visible only in the extension; only Completed syncs to Vikunja.",
+        "flatActive": "Flat mode is active. The rows above are a suggestion — saving them switches this project to full bucket sync.",
+        "columnStruggle": "Struggle",
+        "columnTrash": "Trash"
+      },
+      "summary": {
+        "title": "Vikunja",
+        "boardLabel": "Project",
+        "mappingLabel": "Mapping",
+        "lastSync": "Last sync",
+        "neverSynced": "never",
+        "disconnect": "Disconnect",
+        "disconnectConfirm": "Disconnect Vikunja? The todos stay in the widget and stop syncing. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
+        "rePickBoard": "Change project",
+        "switch": "Switch integration",
+        "switchConfirm": "Disconnect Vikunja and pick another integration? The todos stay in the widget, unlinked. A backup copy of the list is kept in the extension's local storage for 30 days; recovering it takes DevTools (see the README).",
+        "localOnlyLabel": "Only inside the extension",
+        "pullPeriodLabel": "Background sync",
+        "pullPeriodOption": "Every {{minutes}} min",
+        "pullPeriodHint": "Changes made in Vikunja reach the widget within this interval."
       }
     }
   }

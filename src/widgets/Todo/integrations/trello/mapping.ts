@@ -1,3 +1,8 @@
+import {
+  primaryContainerIdForStatus,
+  statusForContainerId,
+} from '@/widgets/Todo/integrations/statusMapping.ts'
+
 import type { Project, StatusListMapping, TodoStatus } from '@/widgets/Todo/integrations/types.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 
@@ -48,15 +53,21 @@ export function writeHiddenMetadata(userText: string, meta: TrelloHiddenMetadata
   return trimmed.length > 0 ? `${trimmed}\n\n${block}` : block
 }
 
+/**
+ * Trello's names for the two shared lookups in
+ * `@/widgets/Todo/integrations/statusMapping.ts`. Kept as wrappers rather
+ * than renamed at the call sites: "list" is Trello's word for a container and
+ * the adapter reads better in it.
+ */
 export function statusForListId(listId: string, mapping: StatusListMapping): TodoStatus {
-  for (const status of Object.keys(mapping) as TodoStatus[]) {
-    if (mapping[status].includes(listId)) return status
-  }
-  return 'input'
+  return statusForContainerId(listId, mapping)
 }
 
-export function primaryListIdForStatus(status: TodoStatus, mapping: StatusListMapping): string {
-  return mapping[status][0]
+export function primaryListIdForStatus(
+  status: TodoStatus,
+  mapping: StatusListMapping,
+): string | undefined {
+  return primaryContainerIdForStatus(status, mapping)
 }
 
 export function labelToProject(label: TrelloLabel): Project {

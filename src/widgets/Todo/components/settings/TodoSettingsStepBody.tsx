@@ -1,4 +1,4 @@
-import { TodoSettingsBoardPicker } from '@/widgets/Todo/components/settings/TodoSettingsBoardPicker.tsx'
+import { TodoSettingsScopePicker } from '@/widgets/Todo/components/settings/TodoSettingsScopePicker.tsx'
 import { TodoSettingsConnect } from '@/widgets/Todo/components/settings/TodoSettingsConnect.tsx'
 import { TodoSettingsMapping } from '@/widgets/Todo/components/settings/TodoSettingsMapping.tsx'
 import { TodoSettingsPicker } from '@/widgets/Todo/components/settings/TodoSettingsPicker.tsx'
@@ -7,19 +7,20 @@ import {
   getIntegrationDescriptor,
   type TodoIntegration,
 } from '@/widgets/Todo/integrations/index.ts'
-import { useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { resolveScope, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import type { DialogStep } from '@/widgets/Todo/utils/dialogStep.ts'
 import { useMemo } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 
 interface Props {
   step: DialogStep
   pickedIntegrationName: string | null
   onPickIntegration: (name: string) => void
   onCancelConnect: () => void
-  onLeaveBoardPicker: () => void
+  onLeaveScopePicker: () => void
   onLeaveMapping: () => void
   onEditMapping: () => void
-  onPickBoard: () => void
+  onPickScope: () => void
 }
 
 /**
@@ -27,7 +28,7 @@ interface Props {
  * of the dialog itself so the dialog stays a thin wrapper around the state
  * machine and a `<Dialog>` shell.
  *
- * The adapter is re-instantiated whenever credentials or boardId change.
+ * The adapter is re-instantiated whenever credentials or the scope change.
  * Construction is cheap (two strings), so we don't worry about caching it
  * beyond a single render pass.
  */
@@ -36,24 +37,38 @@ export function TodoSettingsStepBody({
   pickedIntegrationName,
   onPickIntegration,
   onCancelConnect,
-  onLeaveBoardPicker,
+  onLeaveScopePicker,
   onLeaveMapping,
   onEditMapping,
-  onPickBoard,
+  onPickScope,
 }: Props) {
-  const integration = useTodoStore((state) => state.integration)
+  const { integration, errorKey, setMapping, updateIntegrationConfig, refreshContainers } =
+    useTodoStore(
+      useShallow((state) => ({
+        integration: state.integration,
+        errorKey: state.errorKey,
+        setMapping: state.setMapping,
+        updateIntegrationConfig: state.updateIntegrationConfig,
+        refreshContainers: state.refreshContainers,
+      })),
+    )
+  const descriptor = integration ? getIntegrationDescriptor(integration.name) : null
+
+  // A descriptor's UI is prop-driven (it must not import the store), so the
+  // actions a mapping step may call are bundled here once.
+  const mappingActions = useMemo(
+    () => ({ setMapping, updateIntegrationConfig, refreshContainers }),
+    [setMapping, updateIntegrationConfig, refreshContainers],
+  )
 
   const adapter = useMemo<TodoIntegration | null>(() => {
     if (!integration) return null
-    const descriptor = getIntegrationDescriptor(integration.name)
-    if (!descriptor) return null
-    return descriptor.create(integration.config)
-  }, [
-    integration?.name,
-    integration?.config.apiKey,
-    integration?.config.token,
-    integration?.config.boardId,
-  ])
+    return getIntegrationDescriptor(integration.name)?.create(integration.config) ?? null
+    // The config object is replaced wholesale on every change (connect,
+    // scope pick), so its identity covers every field the adapter reads.
+  }, [integration?.name, integration?.config])
+
+  const scope = useMemo(() => resolveScope(integration), [integration])
 
   switch (step) {
     case 'picker':
@@ -66,13 +81,34 @@ export function TodoSettingsStepBody({
       )
 
     case 'board':
-      if (!adapter) return null
-      return <TodoSettingsBoardPicker adapter={adapter} onBack={onLeaveBoardPicker} />
+      if (!adapter || !integration) return null
+      return (
+        <TodoSettingsScopePicker
+          adapter={adapter}
+          integrationName={integration.name}
+          onBack={onLeaveScopePicker}
+        />
+      )
 
-    case 'mapping':
-      return <TodoSettingsMapping onBack={onLeaveMapping} />
+    case 'mapping': {
+      // A backend may replace the generic table with its own step; most do
+      // not need to. Either way the step is handed everything it needs, so a
+      // descriptor's component never reaches into the store itself.
+      const MappingStep = descriptor?.MappingStep ?? TodoSettingsMapping
+      if (!integration || !adapter || !scope) return null
+      return (
+        <MappingStep
+          onBack={onLeaveMapping}
+          integration={integration}
+          adapter={adapter}
+          scope={scope}
+          errorKey={errorKey}
+          actions={mappingActions}
+        />
+      )
+    }
 
     case 'summary':
-      return <TodoSettingsSummary onEditMapping={onEditMapping} onPickBoard={onPickBoard} />
+      return <TodoSettingsSummary onEditMapping={onEditMapping} onPickScope={onPickScope} />
   }
 }

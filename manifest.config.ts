@@ -23,18 +23,18 @@ export default defineManifest({
   chrome_url_overrides: {
     newtab: 'src/newtab/index.html',
   },
-  permissions: [
-    'storage',
-    'tabs',
-    'bookmarks',
-    'tabGroups',
-    'alarms',
-    'notifications',
-    'idle',
-  ],
+  permissions: ['storage', 'tabs', 'bookmarks', 'tabGroups', 'alarms', 'notifications', 'idle'],
   background: {
     service_worker: 'src/background/index.ts',
     type: 'module' as const,
   },
   host_permissions: ['https://api.trello.com/*'],
+  /**
+   * Requested at runtime, never at install. A self-hosted Vikunja lives at an
+   * address only the user knows, so the host cannot be declared at build
+   * time; `VikunjaConnectForm` asks `chrome.permissions.request` for the one
+   * origin the user typed, inside the click that submits the connect form.
+   * Nothing under this pattern is granted until then.
+   */
+  optional_host_permissions: ['https://*/*'],
 })

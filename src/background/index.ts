@@ -11,6 +11,8 @@ import { setupCleanupScheduler } from '@/background/cleanup/scheduler.ts'
 import { setupEventListeners } from '@/background/eventListeners.ts'
 import { setupMessageHandler } from '@/background/messageHandler.ts'
 import { executePipelineAndApply } from '@/background/pipelineExecutor.ts'
+import { setupVikunjaPull } from '@/background/vikunja/alarm.ts'
+import { setupVikunjaBridge } from '@/background/vikunja/index.ts'
 
 let currentSettings: TabRulesSettings = DEFAULT_TAB_RULES_SETTINGS
 
@@ -77,6 +79,26 @@ async function bootstrap(): Promise<void> {
   await hydratePersistedState()
   attachListeners()
 }
+
+/**
+ * Registered at module top level, NOT from `attachListeners`. MV3 dispatches
+ * the event that woke a cold worker as soon as the script finishes
+ * evaluating — long before `hydratePersistedState()` resolves. A listener
+ * attached after that await would miss the very message that started the
+ * worker, and the sender would see `lastError` and read it as a network
+ * failure. The bridge holds no state, so it needs no readiness gate; ops
+ * that need persisted data read storage themselves.
+ */
+setupVikunjaBridge()
+
+/**
+ * Same rule, same reason: `chrome.alarms.onAlarm` for the background Vikunja
+ * pull is dispatched right after script evaluation when the alarm is what woke
+ * the worker, and the alarm fires at most a few times an hour — a missed one
+ * is a whole period of the widget showing stale data. `setupVikunjaPull` reads
+ * its schedule from storage itself, so it needs no readiness gate either.
+ */
+setupVikunjaPull()
 
 bootstrap().catch((err: unknown) => {
   console.error('[background] bootstrap failed', err)

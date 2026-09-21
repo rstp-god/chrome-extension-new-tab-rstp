@@ -1,118 +1,62 @@
 import { removeArea } from '@/services/chrome/storage.ts'
 import { focusOrOpenTab, LinkableTab } from '@/services/chrome/tabs.ts'
 import { ChromeSyncActions, withChromeSync } from '@/services/chrome/zustandChromeSync.ts'
-import { makeEnvelopeSchema } from '@/services/zod/zodEnvelop.ts'
 import {
   getIntegrationDescriptor,
   TODO_STATUSES,
+  type IntegrationDescriptor,
   type IntegrationErrorKey,
   type IntegrationOutcome,
   type IntegrationPushOp,
   type Project,
-  type RemoteList,
+  type RemoteContainer,
+  type RemoteScope,
   type RemoteTaskRef,
   type StatusListMapping,
   type TodoIntegration,
   type TodoStatus,
 } from '@/widgets/Todo/integrations/index.ts'
-import { z } from 'zod'
 import { create } from 'zustand/react'
 
-export const TODO_STORAGE_KEY = 'todo-widget:v1'
+import { expireHandoverSnapshot, saveHandoverSnapshot } from './handover.ts'
+import { TODO_HANDOVER_KEY, TODO_STORAGE_KEY } from './keys.ts'
+import { integrationSchema, todoEnvelopeSchema, todoHandoverSchema } from './schema.ts'
+import { pushPhase, reconcile, selectPendingTasks } from './sync.ts'
 
-const linkedTabSchema = z.object({
-  url: z.url(),
-  title: z.string().nullable().optional(),
-})
+import type { IntegrationState, TodoPersistedState, TodoTask } from './schema.ts'
 
-const remoteTaskRefSchema = z.object({
-  cardId: z.string(),
-  shortLink: z.string().nullable(),
-  listId: z.string(),
-  etag: z.string().nullable(),
-})
-
-const todoStatusSchema = z.enum(TODO_STATUSES)
-const syncStateSchema = z.enum(['clean', 'dirty', 'error'])
-
-const todoTaskSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  description: z.string().nullable(),
-  status: todoStatusSchema,
-  projectId: z.string().nullable(),
-  createdAt: z.number(),
-  statusChangedAt: z.number(),
-  completedAt: z.number().nullable(),
-  deletedAt: z.number().nullable(),
-  linkedTab: linkedTabSchema.nullable(),
-  remoteRef: remoteTaskRefSchema.nullable(),
-  syncState: syncStateSchema,
-})
-
-const projectSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  pillClassName: z.string().nullable(),
-})
-
-/**
- * Multi-list per status. Explicit object (rather than `z.record`) so every
- * status is required and the inferred type is the full `StatusListMapping`.
- */
-const statusListMappingSchema = z.object({
-  input: z.array(z.string()).min(1),
-  inprogress: z.array(z.string()).min(1),
-  struggle: z.array(z.string()).min(1),
-  completed: z.array(z.string()).min(1),
-  deleted: z.array(z.string()).min(1),
-})
-
-const trelloConfigSchema = z.object({
-  apiKey: z.string(),
-  token: z.string(),
-  boardId: z.string().nullable(),
-})
-
-const remoteListSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-})
-
-const integrationSchema = z.object({
-  name: z.literal('trello'),
-  config: trelloConfigSchema,
-  /** Cached board name so the summary view stays zero-network. */
-  boardName: z.string().nullable(),
-  /** Cached lists for the chosen board, used by the mapping table + summary. */
-  lists: z.array(remoteListSchema),
-  /** Available projects (= Trello labels) on the chosen board. */
-  projects: z.array(projectSchema),
-  /** `null` until the user finishes the mapping wizard. */
-  mapping: statusListMappingSchema.nullable(),
-  lastSyncAt: z.number().nullable(),
-})
-
-const todoPersistedStateSchema = z.object({
-  tasks: z.array(todoTaskSchema),
-  integration: integrationSchema.nullable(),
-})
-
-const todoEnvelopeSchema = makeEnvelopeSchema(todoPersistedStateSchema)
-
-export type LinkedTab = z.infer<typeof linkedTabSchema>
-export type TodoTask = z.infer<typeof todoTaskSchema>
-export type TodoSyncState = z.infer<typeof syncStateSchema>
-export type TrelloConfig = z.infer<typeof trelloConfigSchema>
-export type IntegrationState = z.infer<typeof integrationSchema>
+export { TODO_HANDOVER_KEY, TODO_STORAGE_KEY }
 
 export type {
   TodoStatus,
   StatusListMapping,
   Project,
   RemoteTaskRef,
+  TrelloRemoteRef,
+  VikunjaRemoteRef,
 } from '@/widgets/Todo/integrations/index.ts'
-export { TODO_STATUSES }
+export type {
+  IntegrationState,
+  LinkedTab,
+  TodoHandoverSnapshot,
+  TodoSyncState,
+  TodoTask,
+  TrelloConfig,
+  VikunjaConfig,
+} from './schema.ts'
+export { TODO_STATUSES, todoEnvelopeSchema, todoHandoverSchema }
+
+/**
+ * The remote address of the active integration, or `null` when there is none
+ * or the user hasn't picked one yet. The shape of a scope is the descriptor's
+ * business — this is the single place the store (and the UI) asks for it.
+ */
+export function resolveScope(integration: IntegrationState | null): RemoteScope | null {
+  if (!integration) return null
+  const descriptor = getIntegrationDescriptor(integration.name)
+  if (!descriptor) return null
+  return descriptor.getScope(integration.config)
+}
 
 interface AddTaskInput {
   title: string
@@ -126,6 +70,19 @@ interface TodoWidgetState {
   integration: IntegrationState | null
   loading: boolean
   errorKey: IntegrationErrorKey | null
+  /**
+   * Tasks whose last push lost a race: someone changed the remote record
+   * after the widget read it, so the local edit was rolled back and the
+   * remote version is the one that will survive the next pull.
+   *
+   * Transient and **not persisted** (absent from `partialize`): it describes
+   * the outcome of one sync, and a conflict badge surviving a browser restart
+   * — long after the pull that resolved it — would be a lie. A conflict is
+   * also not a global error: the other tasks of the same sync are fine, so
+   * this list exists instead of `errorKey`, which would blame the whole
+   * widget for one task.
+   */
+  conflictTaskIds: string[]
 
   addTask: (input: AddTaskInput) => void
   setStatus: (id: string, status: TodoStatus) => void
@@ -134,14 +91,80 @@ interface TodoWidgetState {
   removeTask: (id: string) => void
   openOrFocusLinkedTab: (id: string) => Promise<void>
 
-  connectIntegration: (name: 'trello', config: TrelloConfig) => Promise<void>
-  pickBoard: (boardId: string, boardName: string, lists: RemoteList[], projects: Project[]) => void
+  connectIntegration: (name: string, config: unknown) => Promise<void>
+  pickScope: (
+    scope: RemoteScope,
+    scopeName: string,
+    containers: RemoteContainer[],
+    projects: Project[],
+  ) => void
   setMapping: (mapping: StatusListMapping) => Promise<void>
-  clearIntegration: () => void
-  syncNow: () => Promise<void>
+  updateIntegrationConfig: (config: unknown) => boolean
+  refreshContainers: () => Promise<boolean>
+  clearIntegration: () => Promise<void>
+  /**
+   * Leaves a handover snapshot behind, then drops the integration.
+   *
+   * Serves both summary actions — "Disconnect" and "Switch integration" —
+   * because they do the same thing to the store: the tasks stay, unlinked,
+   * a copy of them is kept in case the next connection goes wrong, and the
+   * settings dialog lands back on the picker. What differs is the
+   * confirmation each one shows, which is the summary's business.
+   */
+  switchIntegration: () => Promise<void>
+  /**
+   * Sends the named local tasks to the backend on purpose, for an
+   * integration that does not take them automatically
+   * (`autoImportLocalTasks !== true`).
+   *
+   * Marking them `dirty` is the whole mechanism: the next sync's push phase
+   * picks up anything non-clean, and a task with no ref is pushed as a
+   * `create`. Ids that name a task which is already linked are ignored —
+   * "import" means "create remotely", and a linked task has been.
+   */
+  importLocalTasks: (ids: string[]) => Promise<void>
+  syncNow: (options?: SyncNowOptions) => Promise<void>
+  /**
+   * Retires the current error without syncing.
+   *
+   * For the banners the user can act on: once the host permission is granted
+   * again, the `permissionMissing` that raised the banner describes the past,
+   * and the sync that follows is what decides the next state.
+   */
+  clearError: () => void
+  /**
+   * Records a failure the widget did not ask for: the backend's own watcher
+   * (Vikunja's background pull) hit a wall while nobody was looking.
+   *
+   * Sets `errorKey` and nothing else — in particular not `loading`, because
+   * there is no operation in flight to spin for.
+   */
+  reportRemoteFailure: (errorKey: IntegrationErrorKey) => void
 }
 
-type TodoPersistedState = z.infer<typeof todoPersistedStateSchema>
+/**
+ * How a sync differs from the one the user asks for.
+ *
+ * `silent` keeps `loading` alone: a refresh the widget started by itself —
+ * because the worker said the remote moved — must not put the spinner on the
+ * Sync now button or flicker the badge, and must not clear a `loading` that a
+ * manual sync running at the same time owns.
+ *
+ * `force` defaults to `!silent`, which is the honest coupling rather than a
+ * shortcut: a sync the user (or a mounting widget) started is worth a real
+ * read, while one triggered by a broadcast is a reaction to a read that has
+ * just happened and is served from the worker's snapshot. It stays separately
+ * settable because the two are not the same question.
+ *
+ * `silent` is about the spinner only: a silent run still clears a previous
+ * `errorKey` when it starts and still sets one when it fails. A background
+ * refresh that succeeded is exactly what should retire a stale banner, and
+ * one that failed is how the user finds out the sync has stopped working.
+ */
+export interface SyncNowOptions {
+  silent?: boolean
+  force?: boolean
+}
 
 function normalizeTitle(title: string) {
   return title.trim()
@@ -165,20 +188,41 @@ function applyStatusTimestamps(
   }
 }
 
-function getActiveAdapter(state: TodoWidgetState): TodoIntegration | null {
-  if (!state.integration) return null
-  const descriptor = getIntegrationDescriptor(state.integration.name)
-  if (!descriptor) return null
-  return descriptor.create(state.integration.config)
+interface ActiveIntegration {
+  integration: IntegrationState
+  descriptor: IntegrationDescriptor
+  adapter: TodoIntegration
 }
 
-function inferOpForTask(task: TodoTask): IntegrationPushOp {
-  if (!task.remoteRef) return { kind: 'create' }
-  return { kind: 'update' }
+/**
+ * The active integration resolved once: its persisted slice, the descriptor
+ * that owns it and a freshly built adapter. `null` when nothing is connected
+ * or the persisted `name` has no descriptor (an integration removed from the
+ * build, say). Adapter construction is cheap — a couple of strings.
+ */
+function getActive(state: TodoWidgetState): ActiveIntegration | null {
+  const integration = state.integration
+  if (!integration) return null
+  const descriptor = getIntegrationDescriptor(integration.name)
+  if (!descriptor) return null
+  return { integration, descriptor, adapter: descriptor.create(integration.config) }
 }
 
 function patchTask(tasks: TodoTask[], id: string, patch: Partial<TodoTask>): TodoTask[] {
   return tasks.map((t) => (t.id === id ? { ...t, ...patch } : t))
+}
+
+/**
+ * The two edits of `conflictTaskIds`, both returning the *same* array when
+ * nothing changes — subscribers of the list (the card badge) then re-render
+ * only when a conflict actually appears or clears.
+ */
+function withConflict(ids: string[], id: string): string[] {
+  return ids.includes(id) ? ids : [...ids, id]
+}
+
+function withoutConflict(ids: string[], id: string): string[] {
+  return ids.includes(id) ? ids.filter((known) => known !== id) : ids
 }
 
 export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
@@ -202,11 +246,105 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       integration: incoming.integration,
     }),
   })((set, get) => {
+    /**
+     * The sync that is currently running, if any — the store's single-flight
+     * slot.
+     *
+     * Every entry point can overlap with another: the widget's mount effect,
+     * the worker's broadcast, `setMapping`, `importLocalTasks`, the footer's
+     * button and the back-online flush. Two overlapping runs would both read
+     * the same pending list in phase 1 and push every task in it twice —
+     * which, for a task with no ref yet, means the backend gets two records
+     * and the widget keeps a ref to one of them. So a run never overlaps a
+     * run.
+     *
+     * But an overlapping caller must not simply *join* the one in flight
+     * either: phase 1 snapshotted the task list before that caller changed
+     * it, so joining would resolve without having pushed the thing the
+     * caller had just made pending — `importLocalTasks` would mark tasks
+     * dirty, wait, and create nothing. Hence the queue below, which is the
+     * same shape as the worker's `ensureAlarm`: a request that arrives mid-run
+     * sets it, and the tail of the running sync spends it on exactly one more
+     * run. Any number of callers arriving during one run coalesce into that
+     * single follow-up, and every one of them is handed the drainer's
+     * promise — so awaiting `syncNow()` always means "my state has been
+     * synced", never "somebody else's was".
+     */
+    let inFlightSync: Promise<void> | null = null
+    let queuedSync: SyncNowOptions | null = null
+
+    /**
+     * Options for the follow-up run, folded together from every caller that
+     * queued it.
+     *
+     * `force` wins: a caller that wants a real read of the backend must not
+     * be answered from the worker's snapshot because someone else was happy
+     * with it. `silent` loses: one manual sync among the queued callers means
+     * the follow-up owns the spinner, because somebody is watching it.
+     */
+    const foldSyncOptions = (
+      queued: SyncNowOptions | null,
+      arriving: SyncNowOptions | undefined,
+    ): SyncNowOptions => {
+      const silent = arriving?.silent === true
+      const force = arriving?.force ?? !silent
+      if (!queued) return { silent, force }
+      return { silent: queued.silent === true && silent, force: queued.force === true || force }
+    }
+
+    /**
+     * Writes one settled push into the store.
+     *
+     * Shared by the optimistic single-task path and by the sync's push phase,
+     * because the three outcomes mean the same thing in both and drifting
+     * apart is how a task ends up with a `remoteRef` in one flow and without
+     * it in the other.
+     *
+     * The failure branches keep `out.ref` when the adapter reported one: a
+     * multi-request push (Vikunja's create → label → place) can fail after the
+     * remote record already exists, and a store that forgot the ref would have
+     * the next sync create the very same task again.
+     *
+     * The global `errorKey` is deliberately not touched here — `pushTaskAsync`
+     * raises it for a single user action, while a sync raises it once for the
+     * whole phase.
+     */
+    const applyPushOutcome = (task: TodoTask, out: IntegrationOutcome<RemoteTaskRef>): void => {
+      if (out.ok) {
+        set((current) => ({
+          tasks: patchTask(current.tasks, task.id, { remoteRef: out.value, syncState: 'clean' }),
+          // A push that landed settles whatever conflict the task was in.
+          conflictTaskIds: withoutConflict(current.conflictTaskIds, task.id),
+        }))
+        return
+      }
+
+      const patch: Partial<TodoTask> = {
+        remoteRef: out.ref ?? task.remoteRef,
+        syncState: 'error',
+      }
+
+      if (out.errorKey === 'conflict') {
+        // Not a global error: the push was refused because the remote moved
+        // on, the local edit is already rolled back on the remote's terms,
+        // and the next pull brings the winning version. The task is flagged
+        // so the user finds out *which* of their edits was dropped.
+        set((current) => ({
+          tasks: patchTask(current.tasks, task.id, patch),
+          conflictTaskIds: withConflict(current.conflictTaskIds, task.id),
+        }))
+        return
+      }
+
+      set((current) => ({ tasks: patchTask(current.tasks, task.id, patch) }))
+    }
+
     const pushTaskAsync = async (taskId: string, op: IntegrationPushOp): Promise<void> => {
       const state = get()
-      const adapter = getActiveAdapter(state)
-      const integration = state.integration
-      if (!adapter || !integration?.mapping || !integration.config.boardId) {
+      const active = getActive(state)
+      const mapping = active?.integration.mapping ?? null
+      const scope = active ? active.descriptor.getScope(active.integration.config) : null
+      if (!active || !mapping || !scope) {
         // No active integration or mapping — clear the dirty flag, nothing to push.
         set({
           tasks: patchTask(get().tasks, taskId, { syncState: 'clean' }),
@@ -217,24 +355,110 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       const task = state.tasks.find((t) => t.id === taskId)
       if (!task) return
 
-      const out = await adapter.pushTask(task, op, {
-        boardId: integration.config.boardId,
-        mapping: integration.mapping,
+      const out = await active.adapter.pushTask(task, op, {
+        scope,
+        mapping,
         knownRef: task.remoteRef,
       })
 
-      if (out.ok) {
-        set({
-          tasks: patchTask(get().tasks, taskId, {
-            remoteRef: out.value,
-            syncState: 'clean',
-          }),
+      applyPushOutcome(task, out)
+      // One deliberate action of the user's failed; unlike a conflict, that is
+      // worth a banner.
+      if (!out.ok && out.errorKey !== 'conflict') set({ errorKey: out.errorKey })
+    }
+
+    /**
+     * One sync, start to finish. Reachable only through `syncNow`, which is
+     * what guarantees there is at most one of these running.
+     */
+    const runSync = async (options?: SyncNowOptions): Promise<void> => {
+      const silent = options?.silent === true
+      const force = options?.force ?? !silent
+
+      // Phase 1 deliberately iterates this snapshot, not `get()`: tasks
+      // added while the sync is in flight belong to the next run.
+      const state = get()
+      const active = getActive(state)
+      if (!active) return
+      const { adapter, descriptor, integration } = active
+
+      const scope = descriptor.getScope(integration.config)
+      const mapping = integration.mapping
+      if (!scope || !mapping) {
+        set({ errorKey: 'mappingIncomplete' })
+        return
+      }
+
+      // A silent run clears the previous error but never touches `loading`:
+      // the spinner belongs to whoever started a sync on purpose.
+      if (silent) set({ errorKey: null })
+      else set({ loading: true, errorKey: null })
+
+      // `finally`, not a `set` per exit: the body has half a dozen early
+      // returns and an adapter that may throw despite the contract, and a
+      // `loading` left `true` freezes the widget's spinner until the next
+      // sync — with no way for the user to start one.
+      try {
+        // Push everything that hasn't reached the remote yet — the rule
+        // (including whether tasks predating the integration are swept
+        // along) lives in `selectPendingTasks`.
+        const pending = selectPendingTasks(state.tasks, descriptor)
+
+        const failure = await pushPhase(pending, {
+          adapter,
+          descriptor,
+          scope,
+          mapping,
+          onOutcome: applyPushOutcome,
         })
-      } else {
+        if (failure !== null) {
+          set({ errorKey: failure })
+          return
+        }
+
+        // Phase 2: pull authoritative state and reconcile.
+        const knownRefs: Record<string, RemoteTaskRef> = {}
+        // Statuses go along for backends that cannot store every status
+        // remotely (Vikunja in flat mode) — see `PullContext.knownStatuses`.
+        const knownStatuses: Record<string, TodoStatus> = {}
+        for (const task of get().tasks) {
+          if (task.remoteRef) knownRefs[task.id] = task.remoteRef
+          knownStatuses[task.id] = task.status
+        }
+
+        // Read from the current slice, not from this run's snapshot: the
+        // mapping wizard's `refreshContainers` can land mid-sync, and its
+        // freshly read projects are the better answer.
+        const knownProjectIds = (get().integration?.projects ?? []).map((project) => project.id)
+
+        const pull = await adapter.pullTasks({
+          scope,
+          mapping,
+          knownRefs,
+          knownStatuses,
+          knownProjectIds,
+          force,
+        })
+        if (!pull.ok) {
+          set({ errorKey: pull.errorKey })
+          return
+        }
+
+        const merged = reconcile(pull.value.tasks, get().tasks, get().conflictTaskIds, descriptor)
+
+        // Functional update over the *current* slice, not over the snapshot
+        // this run started from: `refreshContainers` (the mapping wizard
+        // creating columns) can land while the pull is in flight, and
+        // spreading the stale `integration` would silently revert its
+        // freshly-read containers.
+        const lastSyncAt = Date.now()
         set((current) => ({
-          tasks: patchTask(current.tasks, taskId, { syncState: 'error' }),
-          errorKey: out.errorKey,
+          tasks: merged.tasks,
+          integration: current.integration ? { ...current.integration, lastSyncAt } : null,
+          conflictTaskIds: merged.conflictTaskIds,
         }))
+      } finally {
+        if (!silent) set({ loading: false })
       }
     }
 
@@ -243,6 +467,7 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
       integration: null,
       loading: false,
       errorKey: null,
+      conflictTaskIds: [],
 
       addTask: ({ title, description, linkedTab, projectId }) => {
         const normalizedTitle = normalizeTitle(title)
@@ -353,8 +578,25 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
           return
         }
 
+        // The config arrives as `unknown` from the integration's own connect
+        // form, so validate the whole candidate slice against the very schema
+        // that guards storage — before spending a network round-trip on it.
+        const parsed = integrationSchema.safeParse({
+          name,
+          config,
+          boardName: null,
+          lists: [],
+          projects: [],
+          mapping: null,
+          lastSyncAt: null,
+        })
+        if (!parsed.success) {
+          set({ errorKey: 'unknown' })
+          return
+        }
+
         set({ loading: true, errorKey: null })
-        const adapter = descriptor.create(config)
+        const adapter = descriptor.create(parsed.data.config)
         const out = await adapter.connect()
         if (!out.ok) {
           set({ loading: false, errorKey: out.errorKey })
@@ -362,15 +604,19 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         }
 
         set({
-          integration: {
-            name,
-            config,
-            boardName: null,
-            lists: [],
-            projects: [],
-            mapping: null,
-            lastSyncAt: null,
-          },
+          integration: parsed.data,
+          // The conflicts belonged to the previous connection; the tasks below
+          // are about to be re-linked, so a leftover badge would point at a
+          // race that no longer exists.
+          conflictTaskIds: [],
+          // Refs the freshly connected backend doesn't own can never be
+          // resolved against it — drop them so the first sync re-creates the
+          // tasks remotely instead of leaving them permanently unpushable.
+          tasks: get().tasks.map((task) =>
+            task.remoteRef && !descriptor.ownsRef(task.remoteRef)
+              ? { ...task, remoteRef: null, syncState: 'clean' }
+              : task,
+          ),
           loading: false,
           errorKey: null,
         })
@@ -385,20 +631,33 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         await removeArea('sync', TODO_STORAGE_KEY)
       },
 
-      pickBoard: (boardId, boardName, lists, projects) => {
+      pickScope: (scope, scopeName, containers, projects) => {
         const integration = get().integration
         if (!integration) return
-        set({
-          integration: {
-            ...integration,
-            config: { ...integration.config, boardId },
-            boardName,
-            lists,
-            projects,
-            // Picking a new board invalidates the previous mapping.
-            mapping: null,
-          },
+        const descriptor = getIntegrationDescriptor(integration.name)
+        if (!descriptor) {
+          set({ errorKey: 'unknown' })
+          return
+        }
+
+        // Only the descriptor knows where the scope lives inside its config,
+        // so the write goes through `withScope` and the result is re-checked
+        // against the persisted schema before it reaches the store.
+        const parsed = integrationSchema.safeParse({
+          ...integration,
+          config: descriptor.withScope(integration.config, scope),
+          boardName: scopeName,
+          lists: containers,
+          projects,
+          // Picking a new scope invalidates the previous mapping.
+          mapping: null,
         })
+        if (!parsed.success) {
+          set({ errorKey: 'unknown' })
+          return
+        }
+
+        set({ integration: parsed.data, errorKey: null })
       },
 
       setMapping: async (mapping) => {
@@ -411,12 +670,103 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
         await get().syncNow()
       },
 
-      clearIntegration: () => {
+      /**
+       * Replaces the active integration's config wholesale.
+       *
+       * The config is `unknown` by contract — only the descriptor knows its
+       * shape — so the candidate slice is re-validated against the very
+       * schema that guards storage, exactly like `pickScope` does. A config
+       * that does not validate is refused rather than persisted.
+       *
+       * Deliberately leaves `mapping` alone. The callers are Vikunja's
+       * mapping step (writing `kanbanMapping: false`, and setting the
+       * matching mapping itself) and its pull-period select in the settings
+       * summary — neither has any business resetting the mapping, and
+       * silently dropping it here would strand the user on the mapping step.
+       *
+       * Answers whether the write happened, so a caller that is about to
+       * save a matching mapping can stop instead of persisting a mapping for
+       * a mode the config never entered.
+       */
+      updateIntegrationConfig: (config) => {
+        const integration = get().integration
+        if (!integration) return false
+
+        const parsed = integrationSchema.safeParse({ ...integration, config })
+        if (!parsed.success) {
+          set({ errorKey: 'unknown' })
+          return false
+        }
+
+        set({ integration: parsed.data, errorKey: null })
+        return true
+      },
+
+      /**
+       * Re-reads the containers and projects of the current scope, keeping
+       * the mapping.
+       *
+       * `pickScope` also refreshes them but wipes the mapping, which is right
+       * when the user changes scope and wrong here: this runs right after the
+       * wizard created the missing columns, and the draft mapping it is about
+       * to save refers to them.
+       *
+       * Answers whether the cache is now up to date; a caller that is about
+       * to save a mapping pointing at freshly created containers needs to
+       * know.
+       */
+      refreshContainers: async () => {
+        const active = getActive(get())
+        if (!active) return false
+        const { adapter, descriptor, integration } = active
+
+        const scope = descriptor.getScope(integration.config)
+        if (!scope) return false
+
+        set({ loading: true, errorKey: null })
+        const [containers, projects] = await Promise.all([
+          adapter.listContainers(scope),
+          adapter.listProjects(scope),
+        ])
+        if (!containers.ok) {
+          set({ loading: false, errorKey: containers.errorKey })
+          return false
+        }
+        if (!projects.ok) {
+          set({ loading: false, errorKey: projects.errorKey })
+          return false
+        }
+
+        // The slice may have moved while the two requests were in flight, so
+        // the write starts from the current one rather than from `integration`.
+        const current = get().integration
+        if (!current) {
+          set({ loading: false })
+          return false
+        }
+
+        const parsed = integrationSchema.safeParse({
+          ...current,
+          lists: containers.value,
+          projects: projects.value,
+        })
+        if (!parsed.success) {
+          set({ loading: false, errorKey: 'unknown' })
+          return false
+        }
+
+        set({ integration: parsed.data, loading: false, errorKey: null })
+        return true
+      },
+
+      clearIntegration: async () => {
         // Drop the integration slice entirely; tasks stay (they're still
         // valid local todos, just no longer linked to a remote).
         set({
           integration: null,
           errorKey: null,
+          // Nothing left to be in conflict with.
+          conflictTaskIds: [],
           tasks: get().tasks.map((task) => ({
             ...task,
             remoteRef: null,
@@ -426,102 +776,102 @@ export const useTodoStore = create<TodoWidgetState & ChromeSyncActions>()(
 
         // Back to a local list → tasks belong in `sync` again. Commit now so
         // they propagate immediately instead of waiting for the next edit.
-        void useTodoStore.getState().commit()
+        //
+        // Awaited, and strictly before the remove below: when the `sync`
+        // write is refused (quota — a long list is exactly the case here)
+        // `withChromeSync` falls back to writing a **local** envelope, and a
+        // remove racing that fallback would delete the only copy of the list
+        // the user has left.
+        await useTodoStore.getState().commit()
 
         // Wipe the device-local copy that still holds the Trello secrets.
         // Otherwise the next load would see a local envelope with an active
         // integration and resurrect the just-disconnected integration (and its
         // apiKey/token) via loadInitialEnv's "local wins" rule.
-        void removeArea('local', TODO_STORAGE_KEY)
+        await removeArea('local', TODO_STORAGE_KEY)
       },
 
-      syncNow: async () => {
-        const state = get()
-        const adapter = getActiveAdapter(state)
-        const integration = state.integration
+      switchIntegration: async () => {
+        // The copy goes out *before* the state it describes is unlinked: a
+        // snapshot taken after `clearIntegration` would record a list with
+        // every `remoteRef` already stripped.
+        const { integration, tasks } = get()
+        await saveHandoverSnapshot(integration, tasks)
+        await get().clearIntegration()
+      },
 
-        if (!adapter || !integration) return
-        if (!integration.config.boardId || !integration.mapping) {
-          set({ errorKey: 'mappingIncomplete' })
-          return
+      importLocalTasks: async (ids) => {
+        const wanted = new Set(ids)
+        // Only tasks that never reached the backend. An id naming a linked
+        // task is dropped rather than marked dirty: that would push an edit
+        // the user never made.
+        const targets = new Set(
+          get()
+            .tasks.filter((task) => wanted.has(task.id) && task.remoteRef === null)
+            .map((task) => task.id),
+        )
+        if (targets.size === 0) return
+
+        set((current) => ({
+          tasks: current.tasks.map((task) =>
+            targets.has(task.id) ? { ...task, syncState: 'dirty' } : task,
+          ),
+        }))
+
+        await get().syncNow()
+      },
+
+      clearError: () => {
+        // Guarded so a banner action on an already-clean store does not
+        // notify every subscriber for nothing.
+        if (get().errorKey === null) return
+        set({ errorKey: null })
+      },
+
+      reportRemoteFailure: (errorKey) => {
+        // Nothing connected → nothing that could have failed remotely. A
+        // broadcast that arrives just after a disconnect must not leave a
+        // banner pointing at an integration the user has already dropped.
+        if (!get().integration) return
+        set({ errorKey })
+      },
+
+      syncNow: (options) => {
+        // Queue, don't join and don't overlap: see `inFlightSync`.
+        if (inFlightSync) {
+          queuedSync = foldSyncOptions(queuedSync, options)
+          return inFlightSync
         }
 
-        set({ loading: true, errorKey: null })
-
-        // Phase 1: push everything that hasn't reached Trello yet.
-        // - `syncState !== 'clean'` covers normal dirty/error retries.
-        // - `remoteRef === null` catches tasks that were created before the
-        //   integration was set up (they were 'clean' because there was
-        //   nowhere to sync them at the time). Without this we'd end up with
-        //   local tasks coexisting with the pulled set forever and the user
-        //   would see them as duplicates after the first sync.
-        for (const task of state.tasks.filter(
-          (t) => t.syncState !== 'clean' || t.remoteRef === null,
-        )) {
-          const out: IntegrationOutcome<RemoteTaskRef> = await adapter.pushTask(
-            task,
-            inferOpForTask(task),
-            {
-              boardId: integration.config.boardId,
-              mapping: integration.mapping,
-              knownRef: task.remoteRef,
-            },
-          )
-          if (out.ok) {
-            set({
-              tasks: patchTask(get().tasks, task.id, {
-                remoteRef: out.value,
-                syncState: 'clean',
-              }),
-            })
-          } else {
-            set({ loading: false, errorKey: out.errorKey })
-            return
+        inFlightSync = (async () => {
+          await runSync(options)
+          // Drains whatever arrived while the run above was in flight. A
+          // `while`, not an `if`: a caller that arrives during the follow-up
+          // has the same claim to a run as the ones before it, and dropping
+          // it would lose exactly the mutation this queue exists for.
+          while (queuedSync) {
+            const next = queuedSync
+            queuedSync = null
+            await runSync(next)
           }
-        }
-
-        // Phase 2: pull authoritative state and reconcile.
-        const knownRefs: Record<string, RemoteTaskRef> = {}
-        for (const task of get().tasks) {
-          if (task.remoteRef) knownRefs[task.id] = task.remoteRef
-        }
-
-        const pull = await adapter.pullTasks({
-          boardId: integration.config.boardId,
-          mapping: integration.mapping,
-          knownRefs,
-        })
-        if (!pull.ok) {
-          set({ loading: false, errorKey: pull.errorKey })
-          return
-        }
-
-        const localById = new Map(get().tasks.map((t) => [t.id, t]))
-        const reconciled: TodoTask[] = pull.value.tasks.map((remote) => {
-          const local = localById.get(remote.id)
-          if (!local) return remote
-          // Local-only fields win (linkedTab, syncState if dirty).
-          return {
-            ...remote,
-            linkedTab: local.linkedTab,
-            syncState: local.syncState === 'clean' ? 'clean' : local.syncState,
-          }
+        })().finally(() => {
+          inFlightSync = null
         })
 
-        // Keep purely-local tasks (no remoteRef) — they may be in-flight.
-        const remoteIds = new Set(pull.value.tasks.map((t) => t.id))
-        for (const local of get().tasks) {
-          if (!remoteIds.has(local.id) && !local.remoteRef) {
-            reconciled.push(local)
-          }
-        }
-
-        set({
-          tasks: reconciled,
-          integration: { ...integration, lastSyncAt: Date.now() },
-          loading: false,
-        })
+        return inFlightSync
       },
     }
   }),
 )
+
+/**
+ * The one moment anything looks at the handover snapshot: the store's own
+ * init, once per context.
+ *
+ * Fire-and-forget on purpose — nothing in the widget waits for it, and the
+ * cleanup swallows its own failures. It lives next to the store rather than
+ * in an effect because it is about storage the store owns, not about a
+ * rendered widget: a New Tab page that never mounts the Todo widget should
+ * still stop carrying last month's copy around.
+ */
+void expireHandoverSnapshot()

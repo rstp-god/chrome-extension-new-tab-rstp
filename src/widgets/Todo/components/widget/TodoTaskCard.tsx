@@ -4,7 +4,7 @@ import type { Project, TodoStatus } from '@/widgets/Todo/integrations/index.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 import { STATUS_BORDER_CLASS } from '@/widgets/Todo/statusStyles.ts'
 import { getNextStatus, getPrevStatus, isFlowStatus } from '@/widgets/Todo/utils/statusFlow.ts'
-import { getHostname } from '@/widgets/Todo/utils/url.ts'
+import { urlHost } from '@/widgets/Todo/utils/url.ts'
 import { testIds } from '@tests/constants/testIds.ts'
 import clsx from 'clsx'
 import {
@@ -12,6 +12,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ExternalLinkIcon,
+  GitCompareArrowsIcon,
   Trash2Icon,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
@@ -19,6 +20,12 @@ import { useTranslation } from 'react-i18next'
 interface Props {
   task: TodoTask
   project: Project | null
+  /**
+   * The last push of this task lost a race with the remote: the local edit
+   * was rolled back and the remote version is the one that survives. Comes
+   * from the store's transient `conflictTaskIds`.
+   */
+  hasConflict?: boolean
   pendingAction?: 'complete' | 'delete'
   onToggleTask: (taskId: string) => void
   onStartTaskExit: (taskId: string, action: 'complete' | 'delete') => void
@@ -29,6 +36,7 @@ interface Props {
 export function TodoTaskCard({
   task,
   project,
+  hasConflict = false,
   pendingAction,
   onToggleTask,
   onStartTaskExit,
@@ -64,12 +72,27 @@ export function TodoTaskCard({
       {isDirty && (
         <span
           className={clsx(
-            'absolute right-3 top-3 size-1.5 rounded-full',
+            'absolute top-3 size-1.5 rounded-full',
+            // Shifted only when the badge is there to make room for: a card
+            // without a conflict keeps the exact markup it always had.
+            hasConflict ? 'right-7' : 'right-3',
             task.syncState === 'error' ? 'bg-destructive' : 'bg-amber-400',
           )}
           title={task.syncState}
           aria-hidden
         />
+      )}
+
+      {hasConflict && (
+        <span
+          data-testid={testIds.todoConflict(task.id)}
+          className="absolute right-2.5 top-2.5 text-amber-400"
+          title={t('task.conflictBadge')}
+          role="img"
+          aria-label={t('task.conflictBadge')}
+        >
+          <GitCompareArrowsIcon className="size-3.5" aria-hidden />
+        </span>
       )}
 
       <div className="flex items-start gap-3">
@@ -124,7 +147,7 @@ export function TodoTaskCard({
             >
               <ExternalLinkIcon className="size-3.5 shrink-0" />
               <span className="min-w-0 flex-1 truncate">
-                {task.linkedTab.title ?? getHostname(task.linkedTab.url)}
+                {task.linkedTab.title ?? urlHost(task.linkedTab.url, task.linkedTab.url)}
               </span>
             </button>
           )}

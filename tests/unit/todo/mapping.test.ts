@@ -8,6 +8,7 @@ import {
   writeHiddenMetadata,
 } from '@/widgets/Todo/integrations/trello/mapping.ts'
 import type { TrelloCard } from '@/widgets/Todo/integrations/trello/schema.ts'
+import { isTrelloRef } from '@/widgets/Todo/integrations/types.ts'
 import type { StatusListMapping } from '@/widgets/Todo/integrations/types.ts'
 import type { TodoTask } from '@/widgets/Todo/store/store.ts'
 import {
@@ -237,8 +238,10 @@ describe('cardToTask', () => {
       desc: '',
     })
     const task = cardToTask(card, listMappingFixture)
-    expect(task.remoteRef?.shortLink).toBeNull()
-    expect(task.remoteRef?.etag).toBeNull()
+    const ref = task.remoteRef
+    if (!ref || !isTrelloRef(ref)) throw new Error('expected a trello ref')
+    expect(ref.shortLink).toBeNull()
+    expect(ref.etag).toBeNull()
   })
 
   it('preserves the userText from hidden metadata as the description', () => {

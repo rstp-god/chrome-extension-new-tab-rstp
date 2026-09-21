@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 
-import type { TodoTask } from '../store/store.ts'
+import type { IntegrationState, TodoTask } from '../store/store.ts'
 
 /**
  * The five possible states a todo can occupy. Maps onto Trello columns
@@ -29,18 +29,38 @@ export interface Project {
   pillClassName: string | null
 }
 
-export interface RemoteBoard {
-  id: string
+/**
+ * Where a backend's task list lives, as an opaque address. The store never
+ * reads inside it — only the owning descriptor does (`getScope` / `withScope`)
+ * — so a backend addressed by one id (Trello: `{ boardId }`) and one
+ * addressed by a pair (Vikunja: `{ projectId, viewId }`) share the contract.
+ */
+export type RemoteScope = Record<string, string | number>
+
+/** One pickable scope plus its human label, as offered by `listScopes`. */
+export interface RemoteScopeOption {
+  scope: RemoteScope
   name: string
 }
 
-export interface RemoteList {
+/**
+ * A column/bucket inside a scope — what `StatusListMapping` maps statuses to.
+ *
+ * `isTerminal` marks the backend's own "done" container (Vikunja's done
+ * bucket), which has semantics the adapter must respect; `isDefault` marks
+ * the one the backend drops new items into. Both are set only when true, so a
+ * backend without the notion (Trello: any list can mean anything) writes the
+ * plain `{ id, name }` it always has.
+ */
+export interface RemoteContainer {
   id: string
   name: string
+  isTerminal?: boolean
+  isDefault?: boolean
 }
 
-/** Pointer to the remote record for a local task. */
-export interface RemoteTaskRef {
+/** Pointer to the remote Trello card for a local task. */
+export interface TrelloRemoteRef {
   cardId: string
   shortLink: string | null
   /** Last observed remote list id — lets us detect drift on next pull. */
@@ -49,12 +69,55 @@ export interface RemoteTaskRef {
   etag: string | null
 }
 
+/** Pointer to the remote Vikunja task for a local task. */
+export interface VikunjaRemoteRef {
+  taskId: number
+  /** Human-facing id (`#42`, `PROJ-42`) — cheap to show, cheap to search. */
+  identifier: string
+  /** Last observed bucket (kanban column); `null` in flat mode. */
+  bucketId: number | null
+  /** Last-known `updated` timestamp, used as a cheap etag. */
+  updated: string
+}
+
+/**
+ * Pointer to the remote record for a local task.
+ *
+ * A plain union, not a discriminated one: refs persisted by the Trello-only
+ * build carry no discriminator field, and adding one would mean migrating
+ * stored data. The two shapes are disjoint by construction (`cardId` vs
+ * `taskId`), so the guards below are enough to tell them apart.
+ */
+export type RemoteTaskRef = TrelloRemoteRef | VikunjaRemoteRef
+
+export function isTrelloRef(ref: RemoteTaskRef): ref is TrelloRemoteRef {
+  return 'cardId' in ref
+}
+
+export function isVikunjaRef(ref: RemoteTaskRef): ref is VikunjaRemoteRef {
+  return 'taskId' in ref
+}
+
 export type IntegrationPushOp =
   | { kind: 'create' }
   | { kind: 'update' } // title/description edit
   | { kind: 'status'; previous: TodoStatus }
   | { kind: 'project'; previous: string | null }
   | { kind: 'delete' } // semantically = move to status 'deleted'
+  /**
+   * "Make the remote match this task again", used when a sync retries a task
+   * whose earlier push failed and the store no longer knows *what* changed.
+   *
+   * It is not `update`: the widget has no title/description editing UI, so a
+   * retry that sent those two fields would push the local (plain-text) copy
+   * over whatever the user has since written in the backend's own editor — and
+   * for Vikunja that also means flattening rich text on a retry nobody asked
+   * for. An adapter implements it as the smallest set of writes that restores
+   * the fields the widget actually owns: status/container and project.
+   *
+   * `update` stays in the union for the editing UI that will need it.
+   */
+  | { kind: 'resync' }
 
 export type IntegrationErrorKey =
   | 'authInvalid'
@@ -64,21 +127,91 @@ export type IntegrationErrorKey =
   | 'mappingIncomplete'
   | 'pushFailed'
   | 'pullFailed'
+  | 'conflict'
+  | 'permissionMissing'
   | 'unknown'
 
 export type IntegrationOutcome<T> =
   | { ok: true; value: T }
-  | { ok: false; errorKey: IntegrationErrorKey }
+  | {
+      ok: false
+      errorKey: IntegrationErrorKey
+      /**
+       * A ref the failed operation nevertheless established, for the push
+       * paths that are several writes long.
+       *
+       * Creating a task in Vikunja takes up to three requests (create, label,
+       * place). If the second one fails, the record *exists* — and an outcome
+       * that only said "failed" would leave the store with no ref, so the next
+       * sync would create the task a second time. Reporting the ref alongside
+       * the failure lets the caller remember what was created while still
+       * marking the task as not fully pushed.
+       *
+       * Callers must treat it as "this much is true", never as success.
+       */
+      ref?: RemoteTaskRef
+    }
+
+/**
+ * What a backend that can watch itself reports, as little as the widget needs
+ * to act:
+ *
+ * - `changed` — something moved remotely; the store answers with a silent
+ *   sync, which is the only thing it could usefully do with any finer
+ *   description;
+ * - `failed` — the watcher itself hit a wall the user has to know about (a
+ *   revoked token, a withdrawn host permission), observed while no UI was
+ *   looking.
+ */
+export type RemoteChangeEvent =
+  | { kind: 'changed' }
+  | { kind: 'failed'; errorKey: IntegrationErrorKey }
 
 export interface PullContext {
-  boardId: string
+  scope: RemoteScope
   mapping: StatusListMapping
   /** Existing local refs keyed by local task id, used by `reconcile`. */
   knownRefs: Record<string, RemoteTaskRef>
+  /**
+   * Current local status of every task, keyed by local task id.
+   *
+   * For a backend whose containers carry the status (Trello lists, Vikunja
+   * buckets) this is redundant and ignored. It exists for the ones that do
+   * not: Vikunja in flat mode knows only `done` / not done, so `inprogress`
+   * and `struggle` live nowhere but the local store and a pull would
+   * otherwise reset every task to `input` on every sync.
+   */
+  knownStatuses: Record<string, TodoStatus>
+  /**
+   * The project ids the store already has cached (`integration.projects`),
+   * for an adapter that would otherwise have to read them again to tell a
+   * task's project from something else.
+   *
+   * Vikunja needs it: a task carries label *ids*, and the adapter has to know
+   * which of them are real projects rather than the reserved `energy:` /
+   * `mood:` ones — a question it used to answer by listing every label on the
+   * instance, on every sync, including the cheap non-forced ones the
+   * background pull triggers. The cache is refreshed on a forced pull and by
+   * the scope picker / `refreshContainers`, which is exactly when the answer
+   * can have changed. A backend that does not need it (Trello) ignores it.
+   */
+  knownProjectIds?: readonly string[]
+  /**
+   * Read the backend for real instead of answering from whatever the adapter
+   * (or the service worker behind it) has cached.
+   *
+   * Set for a pull the user asked for and for the one a freshly mounted
+   * widget makes; left off for a background refresh, which is usually a
+   * reaction to the backend having *just* been read — Vikunja's worker
+   * broadcasts a change and then serves the following sync from the very
+   * snapshot the broadcast was about, so one remote read covers every open
+   * tab. A backend with no cache of its own (Trello) ignores it.
+   */
+  force?: boolean
 }
 
 export interface PushContext {
-  boardId: string
+  scope: RemoteScope
   mapping: StatusListMapping
   knownRef: RemoteTaskRef | null
 }
@@ -107,12 +240,13 @@ export interface TodoIntegration {
   /** In-memory cleanup; no I/O. */
   disconnect(): void
 
-  listBoards(): Promise<IntegrationOutcome<RemoteBoard[]>>
-  listLists(boardId: string): Promise<IntegrationOutcome<RemoteList[]>>
-  listProjects(boardId: string): Promise<IntegrationOutcome<Project[]>>
+  /** Every scope the credentials can reach, for the scope-picker step. */
+  listScopes(): Promise<IntegrationOutcome<RemoteScopeOption[]>>
+  listContainers(scope: RemoteScope): Promise<IntegrationOutcome<RemoteContainer[]>>
+  listProjects(scope: RemoteScope): Promise<IntegrationOutcome<Project[]>>
 
   /**
-   * Full pull of every visible card on the configured board. The adapter
+   * Full pull of every visible card in the configured scope. The adapter
    * is responsible for the listId → status reverse lookup (with fallback
    * to `'input'`). Used on widget mount and on manual `syncNow`.
    */
@@ -128,12 +262,78 @@ export interface TodoIntegration {
     op: IntegrationPushOp,
     ctx: PushContext,
   ): Promise<IntegrationOutcome<RemoteTaskRef>>
+
+  /**
+   * Creates a container inside a scope, for a mapping step that offers to
+   * build the columns the board is missing.
+   *
+   * Optional: a backend where columns are not the widget's to create (Trello
+   * — a list belongs to the board's own workflow) simply omits it, and a
+   * mapping step must check for it before offering the button.
+   */
+  createContainer?(scope: RemoteScope, title: string): Promise<IntegrationOutcome<RemoteContainer>>
 }
 
 export interface ConnectFormProps {
   busy: boolean
   errorKey: IntegrationErrorKey | null
   onConnect: (config: unknown) => Promise<void>
+}
+
+/**
+ * The store actions a mapping step is allowed to call. Handed over rather
+ * than imported for the same reason as everything else below.
+ */
+export interface MappingStepActions {
+  /** Persists the mapping and kicks off a sync. */
+  setMapping: (mapping: StatusListMapping) => Promise<void>
+  /** Replaces the integration's config; `false` when it did not validate. */
+  updateIntegrationConfig: (config: unknown) => boolean
+  /** Re-reads containers and projects, keeping the mapping; `false` on failure. */
+  refreshContainers: () => Promise<boolean>
+}
+
+/**
+ * Props of a backend's own mapping step.
+ *
+ * Everything the step needs arrives as a prop: a descriptor's UI components
+ * are prop-driven and never import the store. The store imports the
+ * integration registry to resolve descriptors, so a component reached from a
+ * descriptor that imported the store back would close the loop
+ * `store → registry → descriptor → component → store` — a live import cycle
+ * whose module init order is significant. `ConnectForm` follows the same
+ * rule; the settings layer (`TodoSettingsStepBody`) is where the store is
+ * read, and it has all of this at hand already.
+ */
+export interface MappingStepProps {
+  onBack: () => void
+  /** The active integration slice, for its containers, mapping and config. */
+  integration: IntegrationState
+  /** Adapter built from that slice by the settings layer. */
+  adapter: TodoIntegration
+  /** The scope the containers belong to. */
+  scope: RemoteScope
+  /** Current store-level error, if any. */
+  errorKey: IntegrationErrorKey | null
+  actions: MappingStepActions
+}
+
+/** The store actions a summary extra may call — the same rule as `MappingStepActions`. */
+export interface SummaryExtrasActions {
+  /** Replaces the integration's config; `false` when it did not validate. */
+  updateIntegrationConfig: (config: unknown) => boolean
+}
+
+/**
+ * Props of a backend's own section of the settings summary.
+ *
+ * Prop-driven for the same reason as `MappingStepProps`: a component reached
+ * through a descriptor must not import the store, or the import graph closes
+ * the loop `store → registry → descriptor → component → store`.
+ */
+export interface SummaryExtrasProps {
+  integration: IntegrationState
+  actions: SummaryExtrasActions
 }
 
 export interface IntegrationDescriptor {
@@ -145,6 +345,135 @@ export interface IntegrationDescriptor {
   descriptionI18nKey: string
   /** Renders the connect form inside `TodoSettingsDialog`. */
   ConnectForm: ComponentType<ConnectFormProps>
+  /**
+   * Replaces the generic mapping table with the backend's own step. Optional:
+   * when it is absent the shared `TodoSettingsMapping` renders, which is all
+   * a backend with plain columns needs. Vikunja ships one because its buckets
+   * carry rules the generic table knows nothing about — a done bucket that
+   * flips `done` server-side, and a flat fallback for boards that cannot be
+   * mapped at all.
+   *
+   * Like `ConnectForm`, it is prop-driven (see `MappingStepProps`).
+   */
+  MappingStep?: ComponentType<MappingStepProps>
+  /**
+   * The backend's own part of the settings summary — whatever the shared
+   * summary cannot know about. Vikunja puts its background-pull period and
+   * its flat-mode caveat here; a backend with nothing to add omits it and the
+   * summary is just the board/last-sync/mapping block.
+   *
+   * It exists so the shared summary contains no `integration.name === '…'`
+   * branch: one such branch is a comment, three are a second registry.
+   */
+  SummaryExtras?: ComponentType<SummaryExtrasProps>
+  /**
+   * The instance this config points at, in a form a sentence can name (a
+   * host), or `null` when there is nothing useful to say.
+   *
+   * The permission banner asks for it: "the extension lost permission for
+   * tasks.example.com" is actionable and "…for the integration's host" is
+   * not, and only the descriptor knows whether its config holds an address at
+   * all. Trello's is fixed in the manifest and names nothing the user chose,
+   * so it omits this.
+   */
+  describeHost?(config: unknown): string | null
+  /**
+   * Is the per-status container mapping worth showing for this config?
+   *
+   * Absent means yes, which is every backend whose mapping is what the user
+   * built in the wizard. Vikunja answers `false` in flat mode: the mapping
+   * then points four statuses at the same default bucket — a placeholder the
+   * sync never writes to — and a table repeating it four times would describe
+   * something that does not happen. Its `SummaryExtras` says what does.
+   */
+  showsStatusMapping?(config: unknown): boolean
   /** Pure factory: takes persisted config, returns a ready adapter. */
   create: (config: unknown) => TodoIntegration
+  /**
+   * How many of a sync's pushes the store may have in flight at once.
+   *
+   * Absent or `1` means the sequential push phase the store has always had,
+   * which is what a backend gets by default: parallel writes are only safe
+   * when the backend (or the adapter's own transport) guarantees that two
+   * pushes cannot interleave into the same record. Vikunja raises it because
+   * its worker serialises per task id; Trello leaves it unset.
+   *
+   * Whatever the value, the first failing push still ends the phase — a pool
+   * changes how many requests are in the air, not what a failure means.
+   */
+  pushConcurrency?: number
+  /**
+   * Watch the backend and call `onEvent` when it moves, returning the
+   * unsubscribe.
+   *
+   * Optional, because "notice a remote change" is not something an adapter
+   * can invent: it needs a push channel. Vikunja has one — its service
+   * worker pulls on a `chrome.alarms` schedule and broadcasts what changed —
+   * so the descriptor implements it and the widget stops being a page that
+   * only knows what it last asked for. Trello does not implement it: polling
+   * from the page would be the very thing the worker exists to avoid.
+   *
+   * The implementation must be inert where there is no channel (the showcase
+   * build, tests, a stripped `chrome`) and must tolerate being called for a
+   * scope it then filters out — a broadcast about another project is not this
+   * subscriber's business.
+   */
+  subscribeRemoteChanges?(
+    scope: RemoteScope,
+    onEvent: (event: RemoteChangeEvent) => void,
+  ): () => void
+  /**
+   * Re-request whatever permission the backend lost, and answer whether it
+   * was granted.
+   *
+   * Optional, because only a backend addressed by a host the user typed has
+   * anything to re-request: Vikunja's origin is an *optional* host permission
+   * (the instance is unknown at build time), so a user who withdraws it from
+   * `chrome://extensions` leaves the worker unable to read anything —
+   * `permissionMissing` — with nothing in the UI to fix it. Trello's origin is
+   * in the manifest and cannot be withdrawn on its own, so it omits this.
+   *
+   * **Must start synchronously.** Chrome grants an optional origin only from
+   * inside a user gesture, so the implementation has to call
+   * `chrome.permissions.request` before it awaits anything and return the
+   * promise that call produced — and the caller has to invoke this as the
+   * first thing in the click handler. Anything else (a `.then` chain, a
+   * settled promise) reads to Chrome as "not a gesture" and the prompt never
+   * appears.
+   *
+   * Resolves `false` rather than rejecting: a dismissed prompt, a stripped
+   * `chrome` and a pattern Chrome cannot represent all mean the same thing to
+   * the caller — nothing was granted.
+   */
+  recoverPermission?(config: unknown): Promise<boolean>
+  /**
+   * May a plain sync push local tasks that were created *before* the
+   * integration existed (`remoteRef === null`, `syncState === 'clean'`)?
+   *
+   * Trello says yes — that has been its behaviour since the widget had one
+   * backend, and a Trello board is where its users keep those todos anyway.
+   * Vikunja says no, and absent means no: someone connecting their own
+   * tracker to see *its* tasks in the widget has not asked for the widget's
+   * own backlog to be created in it, and an automatic migration into a
+   * foreign tracker is not something a sync can take back (ADR §Р10). Such
+   * tasks stay local and unlinked — `reconcile` keeps them — until the user
+   * imports them from the settings summary on purpose.
+   */
+  autoImportLocalTasks?: boolean
+  /**
+   * Reads the scope out of a persisted config, or `null` while the user
+   * hasn't picked one. The scope is deliberately *not* a separate persisted
+   * field: it lives inside the config the adapter already owns, and only the
+   * descriptor knows which keys make it up.
+   */
+  getScope: (config: unknown) => RemoteScope | null
+  /** Pure counterpart of `getScope`: returns a copy of the config with the scope written in. */
+  withScope: (config: unknown, scope: RemoteScope) => unknown
+  /**
+   * Does this ref belong to this backend? `RemoteTaskRef` is a plain union,
+   * so a record hand-edited (or left behind by another integration) can carry
+   * a foreign ref — the store uses this to keep such tasks instead of
+   * mistaking them for cards deleted on the remote.
+   */
+  ownsRef: (ref: RemoteTaskRef) => boolean
 }

@@ -7,6 +7,8 @@
 
 import { TrelloIntegration } from '@/widgets/Todo/integrations/trello/index.ts'
 import type { TrelloConfig } from '@/widgets/Todo/integrations/trello/types.ts'
+import { VikunjaIntegration } from '@/widgets/Todo/integrations/vikunja/index.ts'
+import type { VikunjaConfig } from '@/widgets/Todo/store/store.ts'
 import {
   getIntegrationDescriptor,
   TODO_STATUSES,
@@ -14,6 +16,7 @@ import {
   type IntegrationErrorKey,
   type IntegrationOutcome,
   type IntegrationPushOp,
+  type RemoteTaskRef,
   type StatusListMapping,
   type TodoIntegration,
   type TodoStatus,
@@ -33,6 +36,14 @@ describe('TodoIntegration contract', () => {
   it('TrelloIntegration constructor takes a TrelloConfig', () => {
     expectTypeOf(TrelloIntegration).constructorParameters.toEqualTypeOf<[TrelloConfig]>()
   })
+
+  it('VikunjaIntegration is structurally assignable to TodoIntegration', () => {
+    expectTypeOf<VikunjaIntegration>().toMatchTypeOf<TodoIntegration>()
+  })
+
+  it('VikunjaIntegration constructor takes a VikunjaConfig', () => {
+    expectTypeOf(VikunjaIntegration).constructorParameters.toEqualTypeOf<[VikunjaConfig]>()
+  })
 })
 
 describe('IntegrationPushOp discriminated union narrowing', () => {
@@ -42,12 +53,32 @@ describe('IntegrationPushOp discriminated union narrowing', () => {
     type DeleteOp = Extract<IntegrationPushOp, { kind: 'delete' }>
     type StatusOp = Extract<IntegrationPushOp, { kind: 'status' }>
     type ProjectOp = Extract<IntegrationPushOp, { kind: 'project' }>
+    type ResyncOp = Extract<IntegrationPushOp, { kind: 'resync' }>
 
     expectTypeOf<CreateOp>().toEqualTypeOf<{ kind: 'create' }>()
     expectTypeOf<UpdateOp>().toEqualTypeOf<{ kind: 'update' }>()
     expectTypeOf<DeleteOp>().toEqualTypeOf<{ kind: 'delete' }>()
     expectTypeOf<StatusOp>().toEqualTypeOf<{ kind: 'status'; previous: TodoStatus }>()
     expectTypeOf<ProjectOp>().toEqualTypeOf<{ kind: 'project'; previous: string | null }>()
+    expectTypeOf<ResyncOp>().toEqualTypeOf<{ kind: 'resync' }>()
+  })
+
+  it('enumerates exactly the six kinds an adapter must handle', () => {
+    expectTypeOf<IntegrationPushOp['kind']>().toEqualTypeOf<
+      'create' | 'update' | 'status' | 'project' | 'delete' | 'resync'
+    >()
+  })
+
+  it('a failure may carry the ref an unfinished push established', () => {
+    // Vikunja's create is up to three requests: a failure after the first one
+    // has to be able to say "the task exists", or the next sync duplicates it.
+    type Failure = Extract<IntegrationOutcome<RemoteTaskRef>, { ok: false }>
+
+    expectTypeOf<Failure>().toEqualTypeOf<{
+      ok: false
+      errorKey: IntegrationErrorKey
+      ref?: RemoteTaskRef
+    }>()
   })
 
   it('TodoStatus union covers exactly the five known states', () => {
@@ -102,6 +133,8 @@ describe('IntegrationOutcome<T> narrowing', () => {
       | 'mappingIncomplete'
       | 'pushFailed'
       | 'pullFailed'
+      | 'conflict'
+      | 'permissionMissing'
       | 'unknown'
     >()
   })

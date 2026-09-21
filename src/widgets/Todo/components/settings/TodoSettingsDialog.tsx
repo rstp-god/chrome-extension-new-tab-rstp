@@ -7,13 +7,14 @@ import {
 } from '@/components/ui/dialog.tsx'
 import { isShowcaseMode } from '@/services/chrome/runtime.ts'
 import { TodoSettingsStepBody } from '@/widgets/Todo/components/settings/TodoSettingsStepBody.tsx'
-import { useTodoStore } from '@/widgets/Todo/store/store.ts'
+import { resolveScope, useTodoStore } from '@/widgets/Todo/store/store.ts'
 import {
   getDialogDescription,
   getDialogTitle,
   type DialogStep,
 } from '@/widgets/Todo/utils/dialogStep.ts'
-import { useEffect, useMemo, useState } from 'react'
+import { TestId } from '@tests/constants/testIds.ts'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 interface Props {
@@ -45,12 +46,13 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
 
   const [pickedIntegrationName, setPickedIntegrationName] = useState<string | null>(null)
   const [stepOverride, setStepOverride] = useState<DialogStep | null>(null)
+  const previousIntegration = useRef(integration)
 
   const computedStep: DialogStep = useMemo(() => {
     if (!integration) {
       return pickedIntegrationName ? 'connect' : 'picker'
     }
-    if (!integration.config.boardId) return 'board'
+    if (!resolveScope(integration)) return 'board'
     if (!integration.mapping) return 'mapping'
     return 'summary'
   }, [integration, pickedIntegrationName])
@@ -66,24 +68,37 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
     if (integration && pickedIntegrationName) {
       setPickedIntegrationName(null)
     }
-    if (stepOverride && stepOverride === computedStep) {
+    // An override also outlives its purpose the moment the user's action
+    // lands in the store: re-picking a scope from the summary overrides to
+    // 'board', but the computed step then jumps straight to 'mapping' and
+    // would never match the override — leaving the user stuck on the picker.
+    if (
+      stepOverride &&
+      (stepOverride === computedStep || previousIntegration.current !== integration)
+    ) {
       setStepOverride(null)
     }
+    previousIntegration.current = integration
   }, [open, integration, pickedIntegrationName, stepOverride, computedStep])
 
   const step: DialogStep = stepOverride ?? computedStep
 
+  // Which integration the wording belongs to: the persisted one once it
+  // exists, otherwise the one being connected right now. `null` only on the
+  // picker step.
+  const integrationName = integration?.name ?? pickedIntegrationName
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent data-testid={TestId.TodoSettingsDialogContent} className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{getDialogTitle(step, t)}</DialogTitle>
-          <DialogDescription>{getDialogDescription(step, t)}</DialogDescription>
+          <DialogTitle>{getDialogTitle(step, t, integrationName)}</DialogTitle>
+          <DialogDescription>{getDialogDescription(step, t, integrationName)}</DialogDescription>
         </DialogHeader>
 
         {showcase ? (
           <div className="rounded-2xl border border-dashed border-border px-4 py-5 text-sm text-muted-foreground">
-            {t('integrations.trello.showcase.disabled')}
+            {t('integrations.showcase.disabled')}
           </div>
         ) : (
           <TodoSettingsStepBody
@@ -91,14 +106,26 @@ export function TodoSettingsDialog({ open, onOpenChange }: Props) {
             pickedIntegrationName={pickedIntegrationName}
             onPickIntegration={setPickedIntegrationName}
             onCancelConnect={() => setPickedIntegrationName(null)}
-            onLeaveBoardPicker={() => {
-              // From the board picker, "back" disconnects the integration
-              // entirely and lands the user on the picker step.
-              useTodoStore.getState().clearIntegration()
+            onLeaveScopePicker={() => {
+              // "Back" means "undo the step I took to get here", and there are
+              // two ways in. From the summary's "Change board / project" the
+              // integration already has a scope and a settled state to return
+              // to, so back is cancel — dropping the whole connection there
+              // would be a destructive answer to a button labelled "Back".
+              if (stepOverride === 'board' && resolveScope(integration)) {
+                setStepOverride(null)
+                return
+              }
+              // Reached by connecting: there is no earlier step inside this
+              // integration, and an integration without a scope syncs nothing,
+              // so back is out — disconnect and land on the picker.
+              // Nothing here waits for the storage writes; the step the
+              // dialog shows follows from the state, which is already set.
+              void useTodoStore.getState().clearIntegration()
             }}
             onLeaveMapping={() => setStepOverride('board')}
             onEditMapping={() => setStepOverride('mapping')}
-            onPickBoard={() => setStepOverride('board')}
+            onPickScope={() => setStepOverride('board')}
           />
         )}
       </DialogContent>

@@ -1,37 +1,26 @@
 /**
- * Trello-specific project pill styling. Lives next to the adapter so any
- * future Notion / Linear adapter doesn't have to know about Trello's color
- * names — each integration ships its own table and converts native colors
- * to a final tailwind class string when constructing `Project` records.
+ * Trello label colour → project pill class.
  *
- * Trello has ~10 named label colors plus a `_dark` variant per hue. We
- * collapse the dark variants to the base hue and fall back to a muted
- * style for unknown / null colors.
+ * The classes themselves live in `@/widgets/Todo/utils/projectPillPalette.ts`
+ * now that a second backend (Vikunja) paints the same pills: this file keeps
+ * only the part that is genuinely Trello's, namely that Trello names its ten
+ * hues and ships a `_dark` variant of each.
  */
 
-const TRELLO_COLOR_TO_PILL_CLASS: Record<string, string> = {
-  green: 'bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/30',
-  yellow: 'bg-yellow-500/15 text-yellow-300 ring-1 ring-inset ring-yellow-400/30',
-  orange: 'bg-orange-500/15 text-orange-300 ring-1 ring-inset ring-orange-400/30',
-  red: 'bg-rose-500/15 text-rose-300 ring-1 ring-inset ring-rose-400/30',
-  purple: 'bg-violet-500/15 text-violet-300 ring-1 ring-inset ring-violet-400/30',
-  blue: 'bg-sky-500/15 text-sky-300 ring-1 ring-inset ring-sky-400/30',
-  sky: 'bg-cyan-500/15 text-cyan-300 ring-1 ring-inset ring-cyan-400/30',
-  lime: 'bg-lime-500/15 text-lime-300 ring-1 ring-inset ring-lime-400/30',
-  pink: 'bg-pink-500/15 text-pink-300 ring-1 ring-inset ring-pink-400/30',
-  black: 'bg-zinc-500/15 text-zinc-300 ring-1 ring-inset ring-zinc-400/30',
-}
+import {
+  DEFAULT_PROJECT_PILL_CLASS,
+  projectPillClassForHue,
+} from '@/widgets/Todo/utils/projectPillPalette.ts'
 
 /**
- * Default class returned for null / unknown Trello colors. Re-exported so
- * `ProjectPill` can fall back to the same value when an integration didn't
- * compute a class.
+ * Re-exported so `ProjectPill` and the Trello adapter keep their import
+ * paths; the value is the shared one.
  */
-export const DEFAULT_PROJECT_PILL_CLASS =
-  'bg-muted text-muted-foreground ring-1 ring-inset ring-border'
+export { DEFAULT_PROJECT_PILL_CLASS }
 
 export function getTrelloProjectPillClass(rawColor: string | null): string {
   if (!rawColor) return DEFAULT_PROJECT_PILL_CLASS
-  const base = rawColor.replace(/_dark$/, '')
-  return TRELLO_COLOR_TO_PILL_CLASS[base] ?? DEFAULT_PROJECT_PILL_CLASS
+  // `green_dark` and `green` render identically — Trello's dark variants are
+  // a shade, not a different colour.
+  return projectPillClassForHue(rawColor.replace(/_dark$/, ''))
 }

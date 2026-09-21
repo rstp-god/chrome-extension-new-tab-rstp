@@ -68,7 +68,7 @@ export function TrelloConnectForm({ busy, errorKey, onConnect }: ConnectFormProp
       </a>
 
       {errorKey && (
-        <p className="text-sm text-destructive">{t(`integrations.trello.errors.${errorKey}`)}</p>
+        <p className="text-sm text-destructive">{t(`integrations.errors.${errorKey}`)}</p>
       )}
 
       <Button type="submit" disabled={!canSubmit}>
