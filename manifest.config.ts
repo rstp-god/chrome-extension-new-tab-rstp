@@ -13,6 +13,7 @@ export default defineManifest({
   description: '__MSG_extDescription__',
   default_locale: 'en',
   version: pkg.version,
+  homepage_url: 'https://github.com/rstp-god/chrome-extension-new-tab-rstp',
   icons: {
     16: 'public/logo-16.png',
     32: 'public/logo-32.png',
