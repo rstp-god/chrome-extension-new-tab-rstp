@@ -1,4 +1,4 @@
-# RSTP New Tab Chrome Extension 🚀
+# LocalDeck — New Tab Widgets & Tab Manager 🚀
 
 📚 **Выберите язык / Choose your language:**  
 [🇷🇺 Русская версия](#-русская-версия) | [🇬🇧 English version](#-english-version)
@@ -704,6 +704,8 @@ export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormP
 
 ## 🔐 Разрешения Chrome: что обязательно учитывать
 
+Публичная политика конфиденциальности (ссылка для Chrome Web Store) — [`privacy.html`](privacy.html), публикуется на GitHub Pages вместе с showcase. **Меняете разрешения, сетевые запросы или то, что уходит в `storage.sync`, — обновите и её.**
+
 В `manifest.config.ts` уже заявлены разрешения:
 
 - `storage` — обязательно для синхронизации и сохранения сторов
@@ -764,7 +766,7 @@ yarn build
 
 # 🇬🇧 English version
 
-## RSTP New Tab Chrome Extension 🚀
+## LocalDeck — New Tab Widgets & Tab Manager 🚀
 
 This extension replaces Chrome's default new tab with a customizable page that supports widgets, background settings, and UI preferences.
 
@@ -1458,6 +1460,8 @@ There is no per-integration dispatch any more: `TodoSettingsConnect.tsx` passes 
 - [ ] Manual smoke test: connect → board → mapping → create a task → move it on the remote → sync now
 
 ## 🔐 Chrome permissions (must consider)
+
+The public privacy policy (the Chrome Web Store link) is [`privacy.html`](privacy.html), published to GitHub Pages with the showcase. **If you change permissions, network requests or what goes to `storage.sync`, update it too.**
 
 Current manifest permissions include:
 

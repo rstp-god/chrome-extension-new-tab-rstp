@@ -1,0 +1,14 @@
+{
+  "extName": {
+    "message": "LocalDeck — New Tab Widgets & Tab Manager",
+    "description": "Extension name shown in the Chrome Web Store and chrome://extensions. Max 75 characters."
+  },
+  "extDescription": {
+    "message": "Local-first new tab: widget dashboard, screen time and tab rules. No sign-up, no servers of ours — your data stays in your browser.",
+    "description": "Short description from the manifest. Max 132 characters."
+  },
+  "extActionTitle": {
+    "message": "LocalDeck — tab rules",
+    "description": "Tooltip on the toolbar button that opens the Tab Rules popup."
+  }
+}

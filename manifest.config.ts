@@ -3,7 +3,15 @@ import pkg from './package.json'
 
 export default defineManifest({
   manifest_version: 3,
-  name: pkg.name,
+  /**
+   * Store-facing name and description are localized via `public/_locales`
+   * (Chrome reads `__MSG_*__` placeholders at install time). `pkg.name` stays
+   * the internal package id and never reaches users.
+   */
+  name: '__MSG_extName__',
+  short_name: 'LocalDeck',
+  description: '__MSG_extDescription__',
+  default_locale: 'en',
   version: pkg.version,
   icons: {
     16: 'public/logo-16.png',
@@ -18,6 +26,7 @@ export default defineManifest({
       48: 'public/logo-48.png',
       128: 'public/logo.png',
     },
+    default_title: '__MSG_extActionTitle__',
     default_popup: 'src/popup/index.html',
   },
   chrome_url_overrides: {

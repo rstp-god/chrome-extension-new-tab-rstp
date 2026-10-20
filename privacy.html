@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LocalDeck — Privacy Policy</title>
+    <meta name="description" content="Privacy policy of the LocalDeck Chrome extension." />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --fg: #1a1a1a;
+        --muted: #5c5c5c;
+        --line: #e5e5e5;
+        --accent: #2f5bd3;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #141414;
+          --fg: #ececec;
+          --muted: #a3a3a3;
+          --line: #2c2c2c;
+          --accent: #8aa8ff;
+        }
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font:
+          16px/1.6 system-ui,
+          -apple-system,
+          'Segoe UI',
+          sans-serif;
+      }
+      main {
+        max-width: 760px;
+        margin: 0 auto;
+        padding: 48px 16px 80px;
+      }
+      h1 {
+        font-size: 2rem;
+        line-height: 1.2;
+        margin: 0 0 8px;
+      }
+      h2 {
+        font-size: 1.25rem;
+        margin: 40px 0 8px;
+      }
+      p,
+      li {
+        color: var(--fg);
+      }
+      .meta {
+        color: var(--muted);
+        margin: 0 0 24px;
+      }
+      nav a,
+      a {
+        color: var(--accent);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0;
+        font-size: 0.95rem;
+      }
+      th,
+      td {
+        text-align: left;
+        vertical-align: top;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      th {
+        color: var(--muted);
+        font-weight: 600;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid var(--line);
+        margin: 64px 0;
+      }
+      @media (max-width: 560px) {
+        table,
+        thead,
+        tbody,
+        tr,
+        th,
+        td {
+          display: block;
+        }
+        thead {
+          display: none;
+        }
+        td {
+          border-bottom: 0;
+          padding: 2px 0;
+        }
+        tr {
+          border-bottom: 1px solid var(--line);
+          padding: 8px 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav><a href="#en">English</a> · <a href="#ru">Русский</a></nav>
+
+      <section id="en" lang="en">
+        <h1>LocalDeck — Privacy Policy</h1>
+        <p class="meta">Last updated: October 20, 2026</p>
+
+        <p>
+          LocalDeck is a Chrome extension that replaces the new tab page with a widget dashboard and
+          adds a popup for tab rules. It is built local-first: there is no account, no sign-up and
+          no server operated by the developer. The extension does not collect, sell or share your
+          personal data, and it contains no analytics, ads or tracking code.
+        </p>
+
+        <h2>What is stored, and where</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Where it lives</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                Screen Time and productivity statistics: the domain of the active tab (for example
+                <code>github.com</code>, never the full address), time spent, tab open/close counts
+              </td>
+              <td>Only on this device (<code>chrome.storage.local</code>)</td>
+            </tr>
+            <tr>
+              <td>Tab rules, cleanup settings, custom background image</td>
+              <td>Only on this device</td>
+            </tr>
+            <tr>
+              <td>Trello and Vikunja connection details (instance address, API key, token)</td>
+              <td>Only on this device; never synced</td>
+            </tr>
+            <tr>
+              <td>
+                Appearance, header and widget layout settings; to-do list when no integration is
+                connected
+              </td>
+              <td>
+                <code>chrome.storage.sync</code> — Chrome's own sync, tied to your Google account.
+                It works only if you have Chrome sync turned on, and is governed by
+                <a href="https://policies.google.com/privacy">Google's Privacy Policy</a>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Network requests</h2>
+        <p>LocalDeck makes network requests only in these cases:</p>
+        <ul>
+          <li>
+            <strong>Bookmark and tab icons.</strong> To show favicons in the Chrome Library widget,
+            the site address is passed to Google's public favicon service
+            (<code>www.google.com/s2/favicons</code>).
+          </li>
+          <li>
+            <strong>Search.</strong> When you submit a query in the Search widget, the browser opens
+            Google Search with that query.
+          </li>
+          <li>
+            <strong>Trello</strong> (optional). If you connect Trello, your tasks are read from and
+            written to <code>api.trello.com</code> with the key and token you provide.
+          </li>
+          <li>
+            <strong>Vikunja</strong> (optional). If you connect a Vikunja instance, requests go only
+            to the address you entered. Access to that address is requested from you at the moment
+            you connect, and only for that host.
+          </li>
+        </ul>
+        <p>No data is sent to the developer.</p>
+
+        <h2>Permissions</h2>
+        <ul>
+          <li><code>storage</code> — saving your settings, widgets and statistics.</li>
+          <li>
+            <code>tabs</code>, <code>tabGroups</code> — sorting, grouping and cleaning up tabs
+            according to your rules; measuring time per domain for Screen Time.
+          </li>
+          <li><code>bookmarks</code> — showing your bookmarks in the Chrome Library widget.</li>
+          <li><code>idle</code> — pausing Screen Time while you are away from the computer.</li>
+          <li>
+            <code>alarms</code>, <code>notifications</code> — scheduled tab cleanup and the prompt
+            that asks before closing tabs.
+          </li>
+          <li><code>https://api.trello.com/*</code> — the optional Trello integration.</li>
+          <li>
+            Optional access to an <code>https://</code> host — granted only when you connect your
+            own Vikunja server, and only for that server.
+          </li>
+        </ul>
+
+        <h2>Deleting your data</h2>
+        <p>
+          Removing the extension deletes everything it stored on the device. Data in Chrome sync can
+          be cleared in Chrome settings → <em>You and Google</em> → <em>Sync</em> →
+          <em>Review your synced data</em>. Disconnecting Trello or Vikunja in the To-do widget
+          removes the stored credentials.
+        </p>
+
+        <h2>Changes and contact</h2>
+        <p>
+          If this policy changes, the new version is published on this page with a new date.
+          Questions:
+          <a href="https://github.com/rstp-god/chrome-extension-new-tab-rstp/issues"
+            >GitHub Issues</a
+          >.
+        </p>
+      </section>
+
+      <hr />
+
+      <section id="ru" lang="ru">
+        <h1>LocalDeck — политика конфиденциальности</h1>
+        <p class="meta">Обновлено: 20 октября 2026</p>
+
+        <p>
+          LocalDeck — расширение Chrome, которое заменяет новую вкладку дашбордом с виджетами и
+          добавляет попап с правилами вкладок. Оно сделано по принципу local-first: нет аккаунта,
+          регистрации и сервера разработчика. Расширение не собирает, не продаёт и не передаёт ваши
+          персональные данные; в нём нет аналитики, рекламы и трекинга.
+        </p>
+
+        <h2>Что хранится и где</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Данные</th>
+              <th>Где хранятся</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>
+                Статистика экранного времени и продуктивности: домен активной вкладки (например
+                <code>github.com</code>, никогда не полный адрес), время, число открытых и закрытых
+                вкладок
+              </td>
+              <td>Только на этом устройстве (<code>chrome.storage.local</code>)</td>
+            </tr>
+            <tr>
+              <td>Правила вкладок, настройки очистки, своя картинка фона</td>
+              <td>Только на этом устройстве</td>
+            </tr>
+            <tr>
+              <td>Данные подключения Trello и Vikunja (адрес инстанса, API-ключ, токен)</td>
+              <td>Только на этом устройстве, никогда не синхронизируются</td>
+            </tr>
+            <tr>
+              <td>
+                Настройки внешнего вида, хедера и раскладки виджетов; список задач, если интеграция
+                не подключена
+              </td>
+              <td>
+                <code>chrome.storage.sync</code> — встроенная синхронизация Chrome через ваш
+                Google-аккаунт. Работает, только если в Chrome включена синхронизация, и
+                регулируется
+                <a href="https://policies.google.com/privacy?hl=ru">политикой Google</a>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <h2>Сетевые запросы</h2>
+        <p>LocalDeck обращается в сеть только в этих случаях:</p>
+        <ul>
+          <li>
+            <strong>Иконки закладок и вкладок.</strong> Чтобы показать фавиконки в виджете Chrome
+            Library, адрес сайта передаётся в публичный сервис иконок Google
+            (<code>www.google.com/s2/favicons</code>).
+          </li>
+          <li>
+            <strong>Поиск.</strong> Когда вы отправляете запрос в виджете поиска, браузер открывает
+            Google Поиск с этим запросом.
+          </li>
+          <li>
+            <strong>Trello</strong> (по желанию). Если вы подключили Trello, задачи читаются и
+            записываются в <code>api.trello.com</code> с вашим ключом и токеном.
+          </li>
+          <li>
+            <strong>Vikunja</strong> (по желанию). Если вы подключили свой инстанс Vikunja, запросы
+            идут только на указанный вами адрес. Доступ к нему запрашивается в момент подключения и
+            только для этого хоста.
+          </li>
+        </ul>
+        <p>Разработчику никакие данные не отправляются.</p>
+
+        <h2>Разрешения</h2>
+        <ul>
+          <li><code>storage</code> — сохранение настроек, виджетов и статистики.</li>
+          <li>
+            <code>tabs</code>, <code>tabGroups</code> — сортировка, группировка и очистка вкладок по
+            вашим правилам; подсчёт времени по доменам для экранного времени.
+          </li>
+          <li><code>bookmarks</code> — показ ваших закладок в виджете Chrome Library.</li>
+          <li><code>idle</code> — пауза экранного времени, пока вы отошли от компьютера.</li>
+          <li>
+            <code>alarms</code>, <code>notifications</code> — очистка вкладок по расписанию и
+            уведомление с вопросом перед закрытием.
+          </li>
+          <li><code>https://api.trello.com/*</code> — необязательная интеграция с Trello.</li>
+          <li>
+            Необязательный доступ к <code>https://</code>-хосту — выдаётся только при подключении
+            вашего сервера Vikunja и только для него.
+          </li>
+        </ul>
+
+        <h2>Удаление данных</h2>
+        <p>
+          При удалении расширения стирается всё, что оно сохранило на устройстве. Данные в
+          синхронизации Chrome очищаются в настройках Chrome → <em>Вы и Google</em> →
+          <em>Синхронизация</em> → <em>Проверить синхронизированные данные</em>. Отключение Trello
+          или Vikunja в виджете задач удаляет сохранённые ключи.
+        </p>
+
+        <h2>Изменения и контакты</h2>
+        <p>
+          Если политика изменится, новая версия появится на этой странице с новой датой. Вопросы — в
+          <a href="https://github.com/rstp-god/chrome-extension-new-tab-rstp/issues"
+            >GitHub Issues</a
+          >.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>
