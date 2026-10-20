@@ -28,6 +28,9 @@ export default defineConfig({
     rollupOptions: {
       input: {
         showcase: path.resolve(__dirname, 'showcase.html'),
+        // Static privacy policy for the Chrome Web Store listing; served by
+        // GitHub Pages next to the showcase at `/privacy.html`.
+        privacy: path.resolve(__dirname, 'privacy.html'),
       },
     },
   },
