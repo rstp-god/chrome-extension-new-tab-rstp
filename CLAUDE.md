@@ -112,4 +112,5 @@ GitHub Actions in `.github/workflows/`:
 - `tests.yml` — Vitest + Playwright (smoke + extension) on Linux
 - `update-visual-snapshots.yml` — manual workflow to refresh `chromium-ci` baselines; download the `playwright-snapshots-ci` artifact, unpack at repo root, commit
 - `showcase-pages.yml` — publishes the showcase build to GitHub Pages
+- `release.yml` — on a `v*` tag: checks the tag matches `package.json` version, runs unit tests, builds and publishes a GitHub Release with `release/crx-localdeck-<version>.zip` and auto-generated notes (see `CONTRIBUTING.md`)
 - `branch-naming-policy.yml`, `validate-pr-body.yml`, `validate-issue-template.yml` — repo hygiene; PR/issue templates are bilingual (`.github/PULL_REQUEST_TEMPLATE/`, `.github/ISSUE_TEMPLATE/`)

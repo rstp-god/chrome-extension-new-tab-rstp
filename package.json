@@ -3,6 +3,15 @@
   "type": "module",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
+  "homepage": "https://github.com/rstp-god/chrome-extension-new-tab-rstp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rstp-god/chrome-extension-new-tab-rstp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rstp-god/chrome-extension-new-tab-rstp/issues"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

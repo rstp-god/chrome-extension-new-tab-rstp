@@ -755,6 +755,10 @@ export function MyServiceConnectForm({ busy, errorKey, onConnect }: ConnectFormP
 - [ ] Проверено добавление/удаление виджета в UI
 - [ ] Проверено восстановление состояния после перезагрузки расширения
 
+## 🤝 Open source и вклад
+
+LocalDeck распространяется под лицензией [MIT](LICENSE). PR приветствуются — присылайте прямо в этот репозиторий, отдельный форк поддерживать не нужно. Как оформить PR и как выпускаются релизы — в [CONTRIBUTING.md](CONTRIBUTING.md). Готовые сборки — во вкладке [Releases](https://github.com/rstp-god/chrome-extension-new-tab-rstp/releases).
+
 ## 🧰 Полезные команды
 
 ```bash
@@ -1511,3 +1515,7 @@ Hosts:
 - [ ] Fallbacks for missing `chrome.*` API
 - [ ] Add/remove flow tested in UI
 - [ ] State restore tested after extension reload
+
+## 🤝 Open source and contributing
+
+LocalDeck is released under the [MIT](LICENSE) license. Pull requests are welcome — send them straight to this repository, no separate fork to maintain. How to open a PR and how releases are cut: [CONTRIBUTING.md](CONTRIBUTING.md). Ready-made builds: [Releases](https://github.com/rstp-god/chrome-extension-new-tab-rstp/releases).
